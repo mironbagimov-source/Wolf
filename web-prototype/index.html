@@ -296,20 +296,19 @@
       <h1>Турбаза «Волк»</h1>
       <p class="lede">Секта каннибалов захватила базу этой ночью. Выбери, за кого играть.</p>
       <div class="totems">
-        <button class="totem" data-faction="survivor" disabled>
+        <button class="totem" data-faction="survivor">
           <span class="totem-role">Выживший</span>
           <span class="totem-desc">Почини три генератора и уйди по дороге, пока тебя не поймали.</span>
         </button>
-        <button class="totem" data-faction="cannibal" disabled>
+        <button class="totem" data-faction="cannibal">
           <span class="totem-role">Секта</span>
           <span class="totem-desc">Ты — Вожак. Лови туристов и приноси их в жертву на алтаре.</span>
         </button>
-        <button class="totem" data-faction="killer" disabled>
+        <button class="totem" data-faction="killer">
           <span class="totem-role">Охотник</span>
           <span class="totem-desc">Пробейся через культистов и убей их Вожака.</span>
         </button>
       </div>
-      <p id="loading-hint" class="controls">Загрузка моделей...</p>
       <p class="controls">Мышь к краю экрана — поворот камеры · WASD — движение · Shift — бег · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший)</p>
     </div>
 
@@ -4579,7 +4578,6 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   const endSub = document.getElementById('end-sub');
   const crosshair = document.getElementById('crosshair');
   const damageFlash = document.getElementById('damage-flash');
-  const loadingHint = document.getElementById('loading-hint');
 
   // ---------------------------------------------------------------------
   // three.js scene
@@ -4627,8 +4625,19 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   }
 
   function loadModels(onDone) {
-    const gltfLoader = new THREE.GLTFLoader();
-    gltfLoader.parse(base64ToArrayBuffer(window.__ASSET_SOLDIER_B64), '', gltf => { ASSETS.soldier = gltf; onDone(); }, err => { console.error('Soldier load failed', err); onDone(); });
+    // Wrapped so no decode/parse failure can ever throw out of here and take
+    // the rest of the boot with it — the game must survive the rig not loading.
+    try {
+      const gltfLoader = new THREE.GLTFLoader();
+      gltfLoader.parse(
+        base64ToArrayBuffer(window.__ASSET_SOLDIER_B64), '',
+        gltf => { ASSETS.soldier = gltf; onDone(); },
+        err => { console.error('Soldier model parse failed; using capsule fallback.', err); onDone(); }
+      );
+    } catch (err) {
+      console.error('Soldier model decode failed; using capsule fallback.', err);
+      onDone();
+    }
   }
 
   // ground
@@ -4842,29 +4851,44 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     const modelKey = MODEL_FOR_FACTION[e.faction];
     const src = ASSETS[modelKey];
     const group = new THREE.Group();
-
-    const charRig = THREE.SkeletonUtils.clone(src.scene);
-    charRig.scale.setScalar(MODEL_SCALE[modelKey]);
-    charRig.rotation.y = MODEL_YAW_OFFSET[modelKey];
-    if (e.isLeader) charRig.scale.multiplyScalar(1.12); // the boss reads as bigger, not just differently colored
-
     const tintColor = e.isLeader ? FACTION_COLOR.leader : FACTION_COLOR[e.faction];
     const materials = [];
-    charRig.traverse(node => {
-      if (node.isMesh) {
-        node.material = node.material.clone();
-        node.material.emissive = new THREE.Color(tintColor);
-        node.material.emissiveIntensity = 0.18;
-        node.material.color.lerp(new THREE.Color(tintColor), 0.16);
-        node.frustumCulled = false;
-        materials.push(node.material);
-      }
-    });
-    group.add(charRig);
 
-    const mixer = new THREE.AnimationMixer(charRig);
-    const actions = {};
-    for (const clip of src.animations) actions[clip.name] = mixer.clipAction(clip);
+    // The rig is a progressive enhancement: if the glTF loaded, use it; if it
+    // didn't (slow load, or a sandbox that blocks the parse), fall back to a
+    // capsule so a body still exists and the match is always playable. Side
+    // selection must never depend on an asset finishing.
+    let mixer = null, actions = {};
+    if (src) {
+      const charRig = THREE.SkeletonUtils.clone(src.scene);
+      charRig.scale.setScalar(MODEL_SCALE[modelKey]);
+      charRig.rotation.y = MODEL_YAW_OFFSET[modelKey];
+      if (e.isLeader) charRig.scale.multiplyScalar(1.12); // the boss reads as bigger, not just differently colored
+
+      charRig.traverse(node => {
+        if (node.isMesh) {
+          node.material = node.material.clone();
+          node.material.emissive = new THREE.Color(tintColor);
+          node.material.emissiveIntensity = 0.18;
+          node.material.color.lerp(new THREE.Color(tintColor), 0.16);
+          node.frustumCulled = false;
+          materials.push(node.material);
+        }
+      });
+      group.add(charRig);
+
+      mixer = new THREE.AnimationMixer(charRig);
+      for (const clip of src.animations) actions[clip.name] = mixer.clipAction(clip);
+    } else {
+      const bodyMat = new THREE.MeshStandardMaterial({ color: tintColor, emissive: tintColor, emissiveIntensity: 0.18, roughness: 0.85 });
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.42, 1.4, 10), bodyMat);
+      body.position.y = 0.7;
+      group.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8), bodyMat);
+      head.position.y = 1.6;
+      group.add(head);
+      materials.push(bodyMat);
+    }
 
     if (e.isLeader) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.04, 6, 24), new THREE.MeshBasicMaterial({ color: FACTION_COLOR.leader }));
@@ -4879,7 +4903,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     group.add(healthBar);
 
     scene.add(group);
-    e.mesh = { group, charRig, materials, mixer, actions, modelKey, currentAnimName: null, healthBar };
+    e.mesh = { group, materials, mixer, actions, modelKey, currentAnimName: null, healthBar };
   }
 
   function fadeToAction(mesh, animName, duration) {
@@ -5359,10 +5383,12 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
         g.position.set(e.x, 0, e.z);
         g.rotation.set(0, e.yaw, 0);
 
-        const moving = Math.hypot(e.moveX, e.moveZ) > 0.05 && !e.isGrabbed;
-        const desiredAnim = e.isGrabbed ? 'captive' : (!moving ? 'idle' : (e.sprinting ? 'run' : 'walk'));
-        fadeToAction(e.mesh, desiredAnim, 0.2);
-        e.mesh.mixer.update(dt);
+        if (e.mesh.mixer) {
+          const moving = Math.hypot(e.moveX, e.moveZ) > 0.05 && !e.isGrabbed;
+          const desiredAnim = e.isGrabbed ? 'captive' : (!moving ? 'idle' : (e.sprinting ? 'run' : 'walk'));
+          fadeToAction(e.mesh, desiredAnim, 0.2);
+          e.mesh.mixer.update(dt);
+        }
       }
 
       const flashLit = e.hitFlash > 0;
@@ -5443,10 +5469,10 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     state.mode = 'menu';
   });
 
-  loadModels(() => {
-    loadingHint.classList.add('hidden');
-    document.querySelectorAll('.totem[data-faction]').forEach(btn => btn.disabled = false);
-  });
+  // Load the rig in the background — the menu is already playable. If the
+  // player is mid-match on capsule fallbacks when it finishes, they'll get the
+  // rig on their next match; if it never finishes, capsules carry the game.
+  loadModels(() => {});
 
   window.__wolfState = state; // debug hooks for iterating on this prototype
   window.__wolfRig = rig;
