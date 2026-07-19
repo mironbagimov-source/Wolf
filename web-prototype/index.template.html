@@ -29,44 +29,23 @@
 
   html, body {
     margin: 0;
-    min-height: 100%;
-    background: radial-gradient(ellipse at 50% 30%, #14140d 0%, var(--void) 70%);
+    width: 100%;
+    height: 100%;
+    background: var(--void);
     color: var(--ink);
     font-family: var(--font-body);
-    overflow-x: hidden;
-  }
-
-  body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-    gap: 14px;
+    overflow: hidden;
   }
 
   h1, h2 { text-wrap: balance; margin: 0; }
 
-  #page-title {
-    font-family: var(--font-display);
-    font-size: clamp(22px, 4vw, 34px);
-    letter-spacing: 0.06em;
-    color: var(--ink);
-    text-transform: uppercase;
-  }
-  #page-title .accent { color: var(--blood); }
-
+  /* Full-viewport stage — the game fills the whole screen, no letterbox
+     margins ("blind zones") around a small box. */
   #stage {
-    position: relative;
-    width: min(1000px, 96vw);
-    aspect-ratio: 16 / 10;
-    border-radius: 6px;
-    border: 1px solid var(--line);
-    box-shadow:
-      0 0 0 6px var(--panel),
-      0 0 0 7px var(--line),
-      inset 0 0 60px rgba(0,0,0,0.6),
-      0 20px 60px rgba(0,0,0,0.55);
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
     overflow: hidden;
     background: var(--void);
   }
@@ -293,17 +272,16 @@
     pointer-events: none;
   }
 
-  footer {
+  .menu-note {
     color: var(--ink-dim);
     font-size: 12px;
     max-width: 60ch;
     text-align: center;
+    margin-top: 6px;
   }
 </style>
 </head>
 <body>
-
-  <h1 id="page-title">Турбаза «<span class="accent">Волк</span>»</h1>
 
   <div id="stage">
     <canvas id="game" tabindex="0"></canvas>
@@ -344,6 +322,7 @@
         </button>
       </div>
       <p class="controls">Мышь — осмотреться · WASD — движение · Shift — бег · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший)</p>
+      <p class="menu-note">Браузерный прототип от первого лица, параллельно с Unity-проектом. Персонажи — риг Soldier из примеров three.js, перекрашен по фракциям.</p>
     </div>
 
     <div id="end" class="overlay hidden">
@@ -354,8 +333,6 @@
       </button>
     </div>
   </div>
-
-  <footer>Браузерный прототип от первого лица — веб-версия наброска, параллельно с Unity-проектом. Персонажи — риг Soldier из примеров three.js, перекрашен по фракциям; окружение и звук ещё не сделаны.</footer>
 
 <script>
 /* three.js r128 — https://github.com/mrdoob/three.js, MIT license, inlined so this
@@ -499,7 +476,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   // hides the far treeline in murk so the world feels bigger and more menacing.
   scene.fog = new THREE.FogExp2(0x05070c, 0.038);
 
-  const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 80);
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 80);
   camera.position.set(0, EYE_HEIGHT, 0);
 
   const rig = new THREE.Object3D();
@@ -525,8 +502,11 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     scene.add(moonDisc);
   }
 
+  let lastW = 0, lastH = 0;
   function resize() {
     const w = stage.clientWidth, h = stage.clientHeight;
+    if (w === lastW && h === lastH) return;   // only touch the GL context when the size actually changed
+    lastW = w; lastH = h;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -1561,6 +1541,8 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   function frame(ts) {
     const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0);
     lastTs = ts;
+
+    resize();   // cheap (guarded); keeps the canvas filling the viewport as it settles/changes
 
     // Campfire flicker runs always, even on the menu, for ambience.
     if (campfireLight) {
