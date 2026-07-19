@@ -1,0 +1,1059 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Турбаза «Волк»</title>
+<style>
+  /* Deliberately single-theme: this is a fixed nocturnal horror scene,
+     the same way a neon arcade cabinet doesn't get a "daytime" mode. */
+  :root {
+    --void: #0b0d0a;
+    --panel: #16150f;
+    --line: #332c1e;
+    --ink: #cfc2a0;
+    --ink-dim: #8c8367;
+    --blood: #9a2732;
+    --ember: #c9862f;
+    --survivor: #5ec26a;
+    --cannibal: #c23b3b;
+    --killer: #4f8fd1;
+    --leader: #b23fb0;
+
+    --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: radial-gradient(ellipse at 50% 30%, #14140d 0%, var(--void) 70%);
+    color: var(--ink);
+    font-family: var(--font-body);
+    overflow-x: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    gap: 14px;
+  }
+
+  h1, h2 { text-wrap: balance; margin: 0; }
+
+  #page-title {
+    font-family: var(--font-display);
+    font-size: clamp(22px, 4vw, 34px);
+    letter-spacing: 0.06em;
+    color: var(--ink);
+    text-transform: uppercase;
+  }
+  #page-title .accent { color: var(--blood); }
+
+  #stage {
+    position: relative;
+    width: min(1000px, 96vw);
+    aspect-ratio: 1000 / 640;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    box-shadow:
+      0 0 0 6px var(--panel),
+      0 0 0 7px var(--line),
+      inset 0 0 60px rgba(0,0,0,0.6),
+      0 20px 60px rgba(0,0,0,0.55);
+    overflow: hidden;
+    background: var(--void);
+  }
+
+  canvas#game {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  canvas#game:focus-visible { outline: 2px solid var(--ember); outline-offset: -2px; }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px;
+    text-align: center;
+    background: radial-gradient(ellipse at 50% 40%, rgba(20,18,12,0.94) 0%, rgba(6,6,4,0.98) 75%);
+  }
+  .overlay.hidden { display: none; }
+
+  .overlay h1 {
+    font-family: var(--font-display);
+    font-size: clamp(26px, 5vw, 44px);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    position: relative;
+  }
+
+  #menu h1::before {
+    content: "";
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 340px; height: 180px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse, rgba(201,134,47,0.20) 0%, rgba(201,134,47,0) 70%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #menu h1::before { animation: flicker 3.2s ease-in-out infinite; }
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 0.85; }
+    38% { opacity: 1; }
+    46% { opacity: 0.55; }
+    52% { opacity: 0.95; }
+    75% { opacity: 0.7; }
+  }
+
+  .lede {
+    max-width: 46ch;
+    color: var(--ink-dim);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .totems {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: center;
+  }
+
+  .totem {
+    width: 220px;
+    padding: 18px 16px;
+    background: linear-gradient(180deg, #1c1a13, #131209);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--ink);
+    cursor: pointer;
+    font-family: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .totem:hover, .totem:focus-visible {
+    border-color: var(--ember);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(201,134,47,0.15);
+    outline: none;
+  }
+  .totem-role {
+    font-family: var(--font-display);
+    font-size: 18px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .totem[data-faction="survivor"] .totem-role { color: var(--survivor); }
+  .totem[data-faction="cannibal"] .totem-role { color: var(--cannibal); }
+  .totem[data-faction="killer"] .totem-role { color: var(--killer); }
+  .totem-desc { font-size: 13px; color: var(--ink-dim); line-height: 1.4; }
+
+  .totem-restart {
+    width: auto;
+    align-items: center;
+    text-align: center;
+  }
+  .totem-restart .totem-role { color: var(--ember); }
+
+  .controls {
+    font-size: 12px;
+    color: var(--ink-dim);
+    letter-spacing: 0.02em;
+    max-width: 60ch;
+  }
+
+  #hud {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+  }
+  #hud.hidden { display: none; }
+
+  .hud-row { display: flex; justify-content: space-between; align-items: flex-start; }
+
+  .hud-left, .hud-right { display: flex; flex-direction: column; gap: 4px; }
+  .hud-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .hud-bar {
+    width: 140px;
+    height: 8px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid var(--line);
+  }
+  .hud-bar-fill {
+    height: 100%;
+    width: 100%;
+    background: var(--blood);
+    transition: width 0.15s linear;
+  }
+  .hud-value {
+    font-size: 16px;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .hud-right { align-items: flex-end; text-align: right; }
+
+  #hud-prompt {
+    align-self: center;
+    color: var(--ember);
+    font-family: var(--font-body);
+    font-size: 14px;
+    background: rgba(0,0,0,0.55);
+    padding: 6px 14px;
+    border-radius: 3px;
+    min-height: 1.4em;
+  }
+
+  footer {
+    color: var(--ink-dim);
+    font-size: 12px;
+    max-width: 60ch;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+  <h1 id="page-title">Турбаза «<span class="accent">Волк</span>»</h1>
+
+  <div id="stage">
+    <canvas id="game" tabindex="0"></canvas>
+
+    <div id="hud" class="hidden">
+      <div class="hud-row">
+        <div class="hud-left">
+          <div class="hud-label">Здоровье</div>
+          <div class="hud-bar"><div id="hud-health-fill" class="hud-bar-fill"></div></div>
+        </div>
+        <div class="hud-right">
+          <div class="hud-label">Генераторы</div>
+          <div id="hud-gen-count" class="hud-value">0/3</div>
+        </div>
+      </div>
+      <div id="hud-prompt"></div>
+    </div>
+
+    <div id="menu" class="overlay">
+      <h1>Турбаза «Волк»</h1>
+      <p class="lede">Секта каннибалов захватила базу этой ночью. Выбери, за кого играть.</p>
+      <div class="totems">
+        <button class="totem" data-faction="survivor">
+          <span class="totem-role">Выживший</span>
+          <span class="totem-desc">Почини три генератора и уйди по дороге, пока тебя не поймали.</span>
+        </button>
+        <button class="totem" data-faction="cannibal">
+          <span class="totem-role">Секта</span>
+          <span class="totem-desc">Ты — Вожак. Лови туристов и приноси их в жертву на алтаре.</span>
+        </button>
+        <button class="totem" data-faction="killer">
+          <span class="totem-role">Охотник</span>
+          <span class="totem-desc">Пробейся через культистов и убей их Вожака.</span>
+        </button>
+      </div>
+      <p class="controls">WASD — движение · мышь — обзор · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший)</p>
+    </div>
+
+    <div id="end" class="overlay hidden">
+      <h1 id="end-title"></h1>
+      <p id="end-sub" class="lede"></p>
+      <button id="restart-btn" class="totem totem-restart">
+        <span class="totem-role">Играть снова</span>
+      </button>
+    </div>
+  </div>
+
+  <footer>Браузерный прототип боевой петли — веб-версия наброска, параллельно с Unity-проектом. Скрины/звук/арт ещё не сделаны.</footer>
+
+<script>
+(() => {
+  'use strict';
+
+  const W = 1000, H = 640;
+  const canvas = document.getElementById('game');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const lightCanvas = document.createElement('canvas');
+  lightCanvas.width = W; lightCanvas.height = H;
+  const lctx = lightCanvas.getContext('2d');
+
+  const menuOverlay = document.getElementById('menu');
+  const endOverlay = document.getElementById('end');
+  const hudOverlay = document.getElementById('hud');
+  const hudHealthFill = document.getElementById('hud-health-fill');
+  const hudGenCount = document.getElementById('hud-gen-count');
+  const hudPrompt = document.getElementById('hud-prompt');
+  const endTitle = document.getElementById('end-title');
+  const endSub = document.getElementById('end-sub');
+
+  const COLORS = {
+    survivor: '#5ec26a',
+    cannibal: '#c23b3b',
+    leader: '#b23fb0',
+    killer: '#4f8fd1',
+  };
+
+  const CONFIG = {
+    survivor: { speed: 95, sprintMul: 1.6, hp: 60, radius: 12, visionRadius: 130 },
+    cannibal: { speed: 110, sprintMul: 1.4, hp: 100, radius: 14, visionRadius: 230,
+      attackRange: 46, attackDamage: 28, attackCooldown: 0.8,
+      grabRange: 42, grabCooldown: 3.5, senseRadius: 250 },
+    killer: { speed: 100, sprintMul: 1.5, hp: 150, radius: 14, visionRadius: 230,
+      attackRange: 52, attackDamage: 45, attackCooldown: 0.7,
+      blockSpeedMul: 0.4, blockDamageMul: 0.25 },
+  };
+
+  const GENERATORS_REQUIRED = 3;
+  const SACRIFICE_TIME = 9;
+  const INTERACT_RANGE = 55;
+  const FLASHLIGHT_RANGE = 260;
+  const FLASHLIGHT_HALF_ANGLE = 0.4;
+  const FLEE_RADIUS = 170;
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function normalizeAngle(a) {
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  }
+
+  // --- input ---
+
+  let keys = new Set(), keysPrev = new Set();
+  let mouseButtons = new Set(), mouseButtonsPrev = new Set();
+  const mouse = { x: W / 2, y: H / 2 };
+
+  const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyF', 'ShiftLeft', 'ShiftRight'];
+  window.addEventListener('keydown', e => {
+    if (trackedKeys.includes(e.code)) e.preventDefault();
+    keys.add(e.code);
+  });
+  window.addEventListener('keyup', e => keys.delete(e.code));
+
+  canvas.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = (e.clientX - rect.left) * (W / rect.width);
+    mouse.y = (e.clientY - rect.top) * (H / rect.height);
+  });
+  canvas.addEventListener('mousedown', e => { mouseButtons.add(e.button); e.preventDefault(); canvas.focus(); });
+  window.addEventListener('mouseup', e => mouseButtons.delete(e.button));
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  function keyHeld(code) { return keys.has(code); }
+  function keyPressed(code) { return keys.has(code) && !keysPrev.has(code); }
+  function mouseHeld(btn) { return mouseButtons.has(btn); }
+  function mousePressed(btn) { return mouseButtons.has(btn) && !mouseButtonsPrev.has(btn); }
+
+  // --- state ---
+
+  let nextId = 1;
+  function makeEntity(faction, x, y, opts) {
+    opts = opts || {};
+    const cfg = CONFIG[faction];
+    return {
+      id: nextId++, faction,
+      isPlayer: !!opts.isPlayer, isLeader: !!opts.isLeader,
+      x, y, angle: 0,
+      hp: cfg.hp, maxHp: cfg.hp,
+      isDead: false, escaped: false,
+      isGrabbed: false, grabbedBy: null, carrying: null,
+      isBlocking: false, flashlightOn: false, sprinting: false,
+      moveX: 0, moveY: 0,
+      wantsAttack: false, wantsGrab: false,
+      interactHeld: false, interactPressed: false,
+      cdAttack: 0, cdGrab: 0,
+      wanderAngle: Math.random() * Math.PI * 2, wanderTimer: 0,
+      hitFlash: 0,
+    };
+  }
+
+  const state = {
+    mode: 'menu',
+    result: null,
+    playerFaction: null,
+    entities: [],
+    player: null,
+    leader: null,
+    generators: [],
+    altar: null,
+    gate: null,
+    generatorsDone: 0,
+    survivorsEscaped: 0,
+    requiredEscape: 1,
+  };
+
+  function setupLevel() {
+    state.generators = [
+      { x: 180, y: 120, r: 20, progress: 0, required: 6, done: false },
+      { x: 820, y: 120, r: 20, progress: 0, required: 6, done: false },
+      { x: 500, y: 560, r: 20, progress: 0, required: 6, done: false },
+    ];
+    state.altar = { x: 500, y: 320, r: 40, captive: null, timer: 0 };
+    state.gate = { x: 430, y: 14, w: 140, h: 26 };
+    state.generatorsDone = 0;
+    state.survivorsEscaped = 0;
+  }
+
+  const DECOR = (() => {
+    const trees = [];
+    const rng = mulberry32(1337);
+    for (let i = 0; i < 26; i++) {
+      const edge = Math.floor(rng() * 4);
+      let x, y;
+      if (edge === 0) { x = 20 + rng() * (W - 40); y = 20 + rng() * 60; }
+      else if (edge === 1) { x = 20 + rng() * (W - 40); y = H - 20 - rng() * 60; }
+      else if (edge === 2) { x = 20 + rng() * 60; y = 60 + rng() * (H - 120); }
+      else { x = W - 20 - rng() * 60; y = 60 + rng() * (H - 120); }
+      trees.push({ x, y, r: 10 + rng() * 14 });
+    }
+    return { trees };
+  })();
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function spawnMatch(faction) {
+    state.entities = [];
+    state.player = null;
+    state.leader = null;
+    state.playerFaction = faction;
+    setupLevel();
+
+    const survivorSpawns = [[150, 560], [110, 600], [190, 600]];
+    const cannibalSpawns = [[850, 560], [890, 600], [810, 600]];
+    const killerSpawn = [500, 615];
+
+    for (let i = 0; i < 3; i++) {
+      const isHuman = faction === 'survivor' && i === 0;
+      const [sx, sy] = survivorSpawns[i];
+      const e = makeEntity('survivor', sx, sy, { isPlayer: isHuman });
+      state.entities.push(e);
+      if (isHuman) state.player = e;
+    }
+
+    for (let i = 0; i < 3; i++) {
+      const isHuman = faction === 'cannibal' && i === 0;
+      const isLeader = i === 0;
+      const [cx, cy] = cannibalSpawns[i];
+      const e = makeEntity('cannibal', cx, cy, { isPlayer: isHuman, isLeader });
+      if (isLeader) { e.hp = e.maxHp = 220; state.leader = e; }
+      state.entities.push(e);
+      if (isHuman) state.player = e;
+    }
+
+    if (faction === 'killer') {
+      const e = makeEntity('killer', killerSpawn[0], killerSpawn[1], { isPlayer: true });
+      state.entities.push(e);
+      state.player = e;
+    }
+
+    state.mode = 'playing';
+    state.result = null;
+  }
+
+  // --- shared helpers ---
+
+  function nearestLivingSurvivor(fromX, fromY, excludeGrabbed) {
+    let best = null, bestD = Infinity;
+    for (const e of state.entities) {
+      if (e.faction !== 'survivor' || e.isDead || e.escaped) continue;
+      if (excludeGrabbed && e.isGrabbed) continue;
+      const d = Math.hypot(e.x - fromX, e.y - fromY);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return { entity: best, dist: bestD };
+  }
+
+  function nearestLivingThreat(x, y) {
+    let best = null, bestD = Infinity;
+    for (const e of state.entities) {
+      if ((e.faction !== 'cannibal' && e.faction !== 'killer') || e.isDead) continue;
+      const d = Math.hypot(e.x - x, e.y - y);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return { entity: best, dist: bestD };
+  }
+
+  function steerTo(e, tx, ty) {
+    const dx = tx - e.x, dy = ty - e.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1) { e.moveX = 0; e.moveY = 0; return d; }
+    e.moveX = dx / d; e.moveY = dy / d;
+    e.angle = Math.atan2(dy, dx);
+    return d;
+  }
+
+  function wander(e, dt) {
+    e.wanderTimer -= dt;
+    if (e.wanderTimer <= 0) {
+      e.wanderAngle = Math.random() * Math.PI * 2;
+      e.wanderTimer = 2 + Math.random() * 3;
+    }
+    e.moveX = Math.cos(e.wanderAngle);
+    e.moveY = Math.sin(e.wanderAngle);
+    e.angle = e.wanderAngle;
+  }
+
+  // --- player input ---
+
+  function updatePlayerInput() {
+    const p = state.player;
+    if (!p || p.isDead || p.escaped) return;
+
+    if (p.isGrabbed) { p.moveX = 0; p.moveY = 0; return; }
+
+    let mx = 0, my = 0;
+    if (keyHeld('KeyW') || keyHeld('ArrowUp')) my -= 1;
+    if (keyHeld('KeyS') || keyHeld('ArrowDown')) my += 1;
+    if (keyHeld('KeyA') || keyHeld('ArrowLeft')) mx -= 1;
+    if (keyHeld('KeyD') || keyHeld('ArrowRight')) mx += 1;
+    p.moveX = mx; p.moveY = my;
+    p.angle = Math.atan2(mouse.y - p.y, mouse.x - p.x);
+    p.sprinting = keyHeld('ShiftLeft') || keyHeld('ShiftRight');
+
+    p.interactHeld = keyHeld('KeyE');
+    p.interactPressed = keyPressed('KeyE');
+
+    if (p.faction === 'survivor' && keyPressed('KeyF')) p.flashlightOn = !p.flashlightOn;
+    if (p.faction === 'cannibal' || p.faction === 'killer') p.wantsAttack = mousePressed(0);
+    if (p.faction === 'cannibal') p.wantsGrab = mousePressed(2);
+    if (p.faction === 'killer') p.isBlocking = mouseHeld(2);
+  }
+
+  // --- bot AI ---
+
+  function updateBotAI(e, dt) {
+    if (e.isGrabbed) return;
+    if (e.faction === 'survivor') updateSurvivorBot(e, dt);
+    else if (e.faction === 'cannibal') updateCannibalBot(e, dt);
+  }
+
+  function pickSurvivorObjective(e) {
+    if (state.generatorsDone < GENERATORS_REQUIRED) {
+      let best = null, bestD = Infinity;
+      for (const g of state.generators) {
+        if (g.done) continue;
+        const d = Math.hypot(g.x - e.x, g.y - e.y);
+        if (d < bestD) { bestD = d; best = g; }
+      }
+      if (best) return { type: 'generator', x: best.x, y: best.y };
+    }
+    return { type: 'gate', x: state.gate.x + state.gate.w / 2, y: state.gate.y + state.gate.h / 2 };
+  }
+
+  function updateSurvivorBot(e, dt) {
+    e.interactHeld = false; e.interactPressed = false; e.sprinting = false;
+
+    const threat = nearestLivingThreat(e.x, e.y);
+    if (threat.entity && threat.dist < FLEE_RADIUS) {
+      const dx = e.x - threat.entity.x, dy = e.y - threat.entity.y;
+      const d = Math.hypot(dx, dy) || 1;
+      e.moveX = dx / d; e.moveY = dy / d; e.angle = Math.atan2(dy, dx);
+      e.sprinting = true;
+      return;
+    }
+
+    const target = pickSurvivorObjective(e);
+    const d = steerTo(e, target.x, target.y);
+    if (target.type === 'generator' && d <= INTERACT_RANGE) {
+      e.moveX = 0; e.moveY = 0; e.interactHeld = true;
+    }
+  }
+
+  function updateCannibalBot(e, dt) {
+    e.wantsAttack = false; e.wantsGrab = false; e.sprinting = false;
+
+    if (e.carrying) {
+      steerTo(e, state.altar.x, state.altar.y);
+      e.sprinting = true;
+      return;
+    }
+
+    const cfg = CONFIG.cannibal;
+    const { entity: target, dist } = nearestLivingSurvivor(e.x, e.y, true);
+    if (target && dist <= cfg.senseRadius) {
+      steerTo(e, target.x, target.y);
+      e.sprinting = true;
+      if (dist <= cfg.grabRange) e.wantsGrab = true;
+      if (dist <= cfg.attackRange) e.wantsAttack = true;
+      return;
+    }
+
+    wander(e, dt);
+  }
+
+  // --- actions ---
+
+  function performAttack(e) {
+    const cfg = CONFIG[e.faction];
+    let best = null, bestD = Infinity;
+    for (const t of state.entities) {
+      if (t === e || t.isDead || t.escaped || t.faction === e.faction) continue;
+      const dx = t.x - e.x, dy = t.y - e.y;
+      const d = Math.hypot(dx, dy);
+      if (d > cfg.attackRange) continue;
+      const facing = Math.atan2(dy, dx);
+      if (Math.abs(normalizeAngle(facing - e.angle)) > Math.PI / 2.2) continue;
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (!best) return;
+    let dmg = cfg.attackDamage;
+    if (best.faction === 'killer' && best.isBlocking) dmg *= CONFIG.killer.blockDamageMul;
+    damageEntity(best, dmg);
+  }
+
+  function performGrab(e) {
+    const { entity: target, dist } = nearestLivingSurvivor(e.x, e.y, true);
+    if (!target || dist > CONFIG.cannibal.grabRange) return;
+    target.isGrabbed = true;
+    target.grabbedBy = e;
+    e.carrying = target;
+  }
+
+  function placeOnAltar(e) {
+    const captive = e.carrying;
+    if (!captive) return;
+    e.carrying = null;
+    captive.x = state.altar.x; captive.y = state.altar.y;
+    captive.grabbedBy = null;
+    state.altar.captive = captive;
+    state.altar.timer = 0;
+  }
+
+  function rescueCaptive() {
+    const c = state.altar.captive;
+    if (!c) return;
+    c.isGrabbed = false;
+    c.grabbedBy = null;
+    state.altar.captive = null;
+    state.altar.timer = 0;
+  }
+
+  function damageEntity(target, dmg) {
+    target.hp -= dmg;
+    target.hitFlash = 0.15;
+    if (target.hp <= 0 && !target.isDead) {
+      target.isDead = true;
+      target.hp = 0;
+      if (target.isGrabbed) {
+        if (target.grabbedBy) target.grabbedBy.carrying = null;
+        if (state.altar.captive === target) { state.altar.timer = 0; state.altar.captive = null; }
+      }
+      checkWinConditions();
+    }
+  }
+
+  function applyInteract(e, dt) {
+    if (e.faction !== 'survivor') return;
+
+    if (e.interactHeld) {
+      for (const g of state.generators) {
+        if (g.done) continue;
+        if (Math.hypot(g.x - e.x, g.y - e.y) <= INTERACT_RANGE) {
+          g.progress += dt;
+          if (g.progress >= g.required) { g.done = true; state.generatorsDone++; }
+          break;
+        }
+      }
+    }
+
+    if (e.interactPressed && state.altar.captive && state.altar.captive !== e) {
+      if (Math.hypot(state.altar.x - e.x, state.altar.y - e.y) <= INTERACT_RANGE + state.altar.r) {
+        rescueCaptive();
+      }
+    }
+  }
+
+  function checkEscape(e) {
+    if (e.faction !== 'survivor' || e.isDead || e.escaped || e.isGrabbed) return;
+    if (state.generatorsDone < GENERATORS_REQUIRED) return;
+    const g = state.gate;
+    if (e.x >= g.x && e.x <= g.x + g.w && e.y >= g.y && e.y <= g.y + g.h) {
+      e.escaped = true;
+      state.survivorsEscaped++;
+      checkWinConditions();
+    }
+  }
+
+  // Applies to bot AND human-controlled Cannibals alike — whoever is carrying
+  // someone and walks into the altar radius hands them off.
+  function checkAltarHandoff(e) {
+    if (e.faction !== 'cannibal' || !e.carrying) return;
+    if (Math.hypot(state.altar.x - e.x, state.altar.y - e.y) <= state.altar.r + 6) {
+      placeOnAltar(e);
+    }
+  }
+
+  function applyEntity(e, dt) {
+    if (e.isDead || e.escaped) return;
+
+    e.cdAttack = Math.max(0, e.cdAttack - dt);
+    e.cdGrab = Math.max(0, e.cdGrab - dt);
+    e.hitFlash = Math.max(0, e.hitFlash - dt);
+
+    if (e.isGrabbed) {
+      if (e.grabbedBy) {
+        const carrier = e.grabbedBy;
+        e.x = carrier.x - Math.cos(carrier.angle) * 18;
+        e.y = carrier.y - Math.sin(carrier.angle) * 18;
+      }
+    } else {
+      const cfg = CONFIG[e.faction];
+      let speed = cfg.speed;
+      if (e.faction === 'killer' && e.isBlocking) speed *= cfg.blockSpeedMul;
+      else if (e.sprinting) speed *= cfg.sprintMul;
+
+      const mv = Math.hypot(e.moveX, e.moveY);
+      if (mv > 0.001) {
+        e.x += (e.moveX / mv) * speed * dt;
+        e.y += (e.moveY / mv) * speed * dt;
+      }
+      e.x = clamp(e.x, cfg.radius + 4, W - cfg.radius - 4);
+      e.y = clamp(e.y, cfg.radius + 4, H - cfg.radius - 4);
+    }
+
+    if (e.wantsAttack && e.cdAttack <= 0 && (e.faction === 'cannibal' || e.faction === 'killer')) {
+      performAttack(e);
+      e.cdAttack = CONFIG[e.faction].attackCooldown;
+    }
+    e.wantsAttack = false;
+
+    if (e.wantsGrab && e.cdGrab <= 0 && e.faction === 'cannibal' && !e.carrying) {
+      performGrab(e);
+      e.cdGrab = CONFIG.cannibal.grabCooldown;
+    }
+    e.wantsGrab = false;
+
+    applyInteract(e, dt);
+    checkEscape(e);
+    checkAltarHandoff(e);
+  }
+
+  // --- win / lose ---
+
+  const RESULT_COPY = {
+    survivors: { title: 'Выжившие ушли', sub: 'Кто-то добрался до дороги живым.', color: 'var(--survivor)' },
+    cannibals: { title: 'Секта победила', sub: 'Ни один турист не ушёл с базы.', color: 'var(--cannibal)' },
+    killers: { title: 'Вожак мёртв', sub: 'Ритуалы секты прерваны.', color: 'var(--killer)' },
+  };
+
+  function checkWinConditions() {
+    if (state.mode !== 'playing') return;
+    if (state.leader && state.leader.isDead) return endGame('killers');
+    if (state.survivorsEscaped >= state.requiredEscape) return endGame('survivors');
+    const anyAlive = state.entities.some(e => e.faction === 'survivor' && !e.isDead && !e.escaped);
+    if (!anyAlive) return endGame('cannibals');
+  }
+
+  function endGame(result) {
+    state.mode = 'ended';
+    state.result = result;
+    const c = RESULT_COPY[result];
+    endTitle.textContent = c.title;
+    endTitle.style.color = c.color;
+    endSub.textContent = c.sub;
+    hudOverlay.classList.add('hidden');
+    endOverlay.classList.remove('hidden');
+  }
+
+  // --- rendering ---
+
+  function drawGround() {
+    ctx.fillStyle = '#12160f';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = 'rgba(90,110,80,0.06)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    for (const t of DECOR.trees) {
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(20,32,18,0.9)';
+      ctx.fill();
+    }
+  }
+
+  function drawObjectives() {
+    for (const g of state.generators) {
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, g.r, 0, Math.PI * 2);
+      ctx.fillStyle = g.done ? 'rgba(90,140,90,0.35)' : 'rgba(60,55,40,0.6)';
+      ctx.fill();
+      ctx.strokeStyle = g.done ? '#5ec26a' : '#c9862f';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      if (!g.done && g.progress > 0) {
+        ctx.beginPath();
+        ctx.arc(g.x, g.y, g.r + 6, -Math.PI / 2, -Math.PI / 2 + (g.progress / g.required) * Math.PI * 2);
+        ctx.strokeStyle = '#c9862f';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+    }
+
+    const a = state.altar;
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2);
+    ctx.fillStyle = a.captive ? 'rgba(154,39,50,0.45)' : 'rgba(90,30,35,0.3)';
+    ctx.fill();
+    ctx.strokeStyle = '#9a2732';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    if (a.captive) {
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, a.r + 6, -Math.PI / 2, -Math.PI / 2 + (a.timer / SACRIFICE_TIME) * Math.PI * 2);
+      ctx.strokeStyle = '#ff4d4d';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    const gate = state.gate;
+    const open = state.generatorsDone >= GENERATORS_REQUIRED;
+    ctx.fillStyle = open ? 'rgba(207,194,160,0.5)' : 'rgba(80,75,60,0.4)';
+    ctx.fillRect(gate.x, gate.y, gate.w, gate.h);
+    ctx.strokeStyle = open ? '#cfc2a0' : '#5a5340';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(gate.x, gate.y, gate.w, gate.h);
+  }
+
+  function drawEntity(e) {
+    if (e.escaped) return;
+    const cfg = CONFIG[e.faction];
+
+    if (e.isDead) {
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      ctx.rotate(e.angle);
+      ctx.fillStyle = 'rgba(120,110,90,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, cfg.radius * 1.3, cfg.radius * 0.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
+    ctx.save();
+    ctx.translate(e.x, e.y);
+
+    ctx.save();
+    ctx.rotate(e.angle);
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.moveTo(cfg.radius * 0.2, 0);
+    ctx.lineTo(cfg.radius * 1.8, -5);
+    ctx.lineTo(cfg.radius * 1.8, 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    let color = COLORS[e.faction];
+    if (e.isLeader) color = COLORS.leader;
+    if (e.hitFlash > 0) color = '#ffffff';
+
+    ctx.beginPath();
+    ctx.arc(0, 0, cfg.radius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = e.isPlayer ? 3 : 1.5;
+    ctx.strokeStyle = e.isPlayer ? '#f5ecd2' : 'rgba(0,0,0,0.5)';
+    ctx.stroke();
+
+    if (e.isLeader) {
+      ctx.beginPath();
+      ctx.arc(0, 0, cfg.radius + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = COLORS.leader;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    if (e.faction === 'killer' && e.isBlocking) {
+      ctx.beginPath();
+      ctx.arc(0, 0, cfg.radius + 6, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(150,200,255,0.7)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    if (e.isGrabbed) {
+      ctx.fillStyle = '#ff4d4d';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('!', 0, -cfg.radius - 10);
+    }
+
+    ctx.restore();
+
+    const barW = 28;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(e.x - barW / 2, e.y - cfg.radius - 16, barW, 4);
+    ctx.fillStyle = COLORS[e.faction];
+    ctx.fillRect(e.x - barW / 2, e.y - cfg.radius - 16, barW * Math.max(0, e.hp / e.maxHp), 4);
+  }
+
+  function drawLightGradient(c, x, y, r) {
+    const g = c.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(0.7, 'rgba(0,0,0,0.85)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(x, y, r, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  function drawConeLight(c, x, y, angle, range, halfAngle) {
+    c.save();
+    c.beginPath();
+    c.moveTo(x, y);
+    c.arc(x, y, range, angle - halfAngle, angle + halfAngle);
+    c.closePath();
+    c.clip();
+    drawLightGradient(c, x, y, range);
+    c.restore();
+  }
+
+  function drawLighting() {
+    const p = state.player;
+    if (!p || p.isDead) return;
+
+    lctx.clearRect(0, 0, W, H);
+    lctx.globalCompositeOperation = 'source-over';
+    lctx.fillStyle = 'rgba(0,0,0,0.92)';
+    lctx.fillRect(0, 0, W, H);
+    lctx.globalCompositeOperation = 'destination-out';
+
+    const cfg = CONFIG[p.faction];
+    drawLightGradient(lctx, p.x, p.y, cfg.visionRadius);
+    if (p.faction === 'survivor' && p.flashlightOn) {
+      drawConeLight(lctx, p.x, p.y, p.angle, FLASHLIGHT_RANGE, FLASHLIGHT_HALF_ANGLE);
+    }
+
+    lctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(lightCanvas, 0, 0);
+  }
+
+  function computePrompt(p) {
+    if (p.isDead) return 'Вы мертвы.';
+    if (p.isGrabbed) return 'Вас схватили — ждите спасения...';
+    if (p.faction === 'survivor') {
+      for (const g of state.generators) {
+        if (!g.done && Math.hypot(g.x - p.x, g.y - p.y) <= INTERACT_RANGE) return '[E] Чинить генератор';
+      }
+      if (state.altar.captive && state.altar.captive !== p &&
+          Math.hypot(state.altar.x - p.x, state.altar.y - p.y) <= INTERACT_RANGE + state.altar.r) {
+        return '[E] Спасти пленника';
+      }
+      if (state.generatorsDone >= GENERATORS_REQUIRED) return 'Ворота открыты — беги к дороге!';
+      return '';
+    }
+    if (p.faction === 'cannibal') return p.carrying ? 'Тащи пленника к алтарю' : '[ЛКМ] Атака · [ПКМ] Схватить';
+    if (p.faction === 'killer') return p.isBlocking ? 'Блок' : '[ЛКМ] Атака · [ПКМ] Блок';
+    return '';
+  }
+
+  function updateHud() {
+    if (state.mode !== 'playing' || !state.player) return;
+    const p = state.player;
+    hudHealthFill.style.width = Math.max(0, (p.hp / p.maxHp) * 100) + '%';
+    hudGenCount.textContent = state.generatorsDone + '/' + GENERATORS_REQUIRED;
+    hudPrompt.textContent = computePrompt(p);
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    drawGround();
+    if (state.mode === 'menu') return;
+
+    drawObjectives();
+    for (const e of state.entities) drawEntity(e);
+    if (state.mode === 'playing') drawLighting();
+    updateHud();
+  }
+
+  // --- main loop ---
+
+  let lastTs = 0;
+  function frame(ts) {
+    const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0);
+    lastTs = ts;
+
+    if (state.mode === 'playing') {
+      updatePlayerInput();
+      for (const e of state.entities) if (!e.isPlayer) updateBotAI(e, dt);
+      for (const e of state.entities) applyEntity(e, dt);
+
+      if (state.altar.captive) {
+        state.altar.timer += dt;
+        if (state.altar.timer >= SACRIFICE_TIME) damageEntity(state.altar.captive, 9999);
+      }
+    }
+
+    render();
+    keysPrev = new Set(keys);
+    mouseButtonsPrev = new Set(mouseButtons);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // --- menu wiring ---
+
+  document.querySelectorAll('.totem[data-faction]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      spawnMatch(btn.dataset.faction);
+      menuOverlay.classList.add('hidden');
+      endOverlay.classList.add('hidden');
+      hudOverlay.classList.remove('hidden');
+      canvas.focus();
+    });
+  });
+
+  document.getElementById('restart-btn').addEventListener('click', () => {
+    endOverlay.classList.add('hidden');
+    menuOverlay.classList.remove('hidden');
+    state.mode = 'menu';
+  });
+
+  window.__wolfState = state; // debug hook for iterating on this prototype
+})();
+</script>
+</body>
+</html>
