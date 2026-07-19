@@ -266,6 +266,38 @@
   }
   #look-hint.hidden { display: none; }
 
+  /* Shown while a match is running but the mouse is released (ESC). Clicking it
+     re-captures the mouse. */
+  #pause-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6,7,5,0.55);
+    cursor: pointer;
+    z-index: 5;
+  }
+  #pause-overlay.show { display: flex; }
+  .pause-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-display);
+    font-size: clamp(20px, 3vw, 30px);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .pause-card span {
+    font-family: var(--font-body);
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: var(--ink-dim);
+  }
+
   .totem:disabled {
     opacity: 0.4;
     cursor: default;
@@ -289,6 +321,7 @@
     <div id="damage-flash"></div>
     <div id="vignette"></div>
     <div id="look-hint" class="hidden">Двигай мышь — осмотреться</div>
+    <div id="pause-overlay"><div class="pause-card">Курсор свободен<span>Нажми, чтобы вернуться в игру · ESC — снова освободить</span></div></div>
 
     <div id="hud" class="hidden">
       <div class="hud-row">
@@ -4590,11 +4623,14 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   const crosshair = document.getElementById('crosshair');
   const damageFlash = document.getElementById('damage-flash');
   const lookHint = document.getElementById('look-hint');
+  const pauseOverlay = document.getElementById('pause-overlay');
+  pauseOverlay.addEventListener('mousedown', e => { e.preventDefault(); requestCapture(); });
 
   function updateLookHint() {
-    if (state.mode !== 'playing') { lookHint.classList.add('hidden'); return; }
-    // Only surface the drag-look tip when pointer lock isn't in effect.
-    lookHint.classList.toggle('hidden', pointerLocked);
+    // Show the "move mouse to look" tip only while captured without a real
+    // lock (the one case where the movement-delta look benefits from a nudge).
+    const show = state.mode === 'playing' && captured && !pointerLocked;
+    lookHint.classList.toggle('hidden', !show);
   }
 
   // ---------------------------------------------------------------------
@@ -4948,51 +4984,72 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   let keys = new Set(), keysPrev = new Set();
   let mouseButtons = new Set(), mouseButtonsPrev = new Set();
 
-  // Look input. Just move the mouse over the game to look around — no button,
-  // no dragging. Pointer Lock (real FPS mouse, hidden cursor, infinite spin)
-  // is used when the browser allows it; the Artifact runs in a sandboxed
-  // iframe that blocks it, so there the same movement deltas drive the view
-  // while the cursor is over the canvas. Arrow keys turn too, as an assist.
-  let pointerLocked = false;
-  let lockDenied = false;     // once refused (sandbox), stop retrying — free-look carries it
+  // Mouse capture, FPS-style. Clicking the game captures the mouse: the cursor
+  // hides and moving the mouse turns the camera. Pressing ESC releases it and
+  // the cursor comes back (a "click to play" overlay appears); clicking
+  // re-captures. Pointer Lock is the real deal (infinite 1:1 look, native ESC)
+  // and is used whenever the browser grants it; where it's blocked (a strict
+  // sandbox) the same capture UX runs on hidden-cursor movement deltas.
+  let pointerLocked = false;  // a real Pointer Lock is held
+  let captured = false;       // mouse is driving the view (lock OR hidden-cursor free-look)
   let lookYawDelta = 0, lookPitchDelta = 0;   // accumulated mouse delta since last frame
 
   const LOOK_SENS = 0.0024;   // radians per pixel of mouse movement
 
   const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyF', 'ShiftLeft', 'ShiftRight', 'Space'];
   window.addEventListener('keydown', e => {
+    if (e.code === 'Escape') { releaseCapture(); return; }
     if (trackedKeys.includes(e.code)) e.preventDefault();
     keys.add(e.code);
   });
   window.addEventListener('keyup', e => keys.delete(e.code));
 
-  function tryLock() {
-    if (pointerLocked || lockDenied || state.mode !== 'playing') return;
+  function setCaptured(on) {
+    captured = on;
+    canvas.classList.toggle('playing', on);                 // cursor:none only while captured
+    pauseOverlay.classList.toggle('show', state.mode === 'playing' && !on);
+    updateLookHint();
+  }
+
+  function requestCapture() {
+    if (state.mode !== 'playing') return;
+    // Ask for a real Pointer Lock (best); the click that calls this is the
+    // required user gesture. Whether or not it's granted, engage capture now —
+    // pointerlockchange will upgrade us to a true lock if it lands.
     try {
       const r = canvas.requestPointerLock();
-      if (r && r.catch) r.catch(() => { lockDenied = true; });   // refusal is fine — free-look still works
-    } catch (_) { lockDenied = true; /* sandboxed iframe: free-look carries it */ }
+      if (r && r.catch) r.catch(() => {});
+    } catch (_) { /* blocked: hidden-cursor free-look carries it */ }
+    setCaptured(true);
   }
+
+  function releaseCapture() {
+    if (!captured) return;
+    if (pointerLocked && document.exitPointerLock) document.exitPointerLock();
+    setCaptured(false);
+  }
+
   document.addEventListener('pointerlockchange', () => {
     pointerLocked = document.pointerLockElement === canvas;
-    updateLookHint();
+    // Losing a real lock (the native ESC) means the mouse is free again.
+    if (!pointerLocked && captured) setCaptured(false);
   });
 
   canvas.addEventListener('mousedown', e => {
-    mouseButtons.add(e.button);
     e.preventDefault();
     canvas.focus();
-    if (e.button === 0 && !pointerLocked) tryLock();  // opportunistic upgrade to true FPS lock
+    if (!captured) { if (e.button === 0) requestCapture(); return; }  // first click just re-captures
+    mouseButtons.add(e.button);
   });
   window.addEventListener('mouseup', e => mouseButtons.delete(e.button));
 
-  // Locked: deltas arrive on document. Free-look: only while the cursor is
-  // over the canvas, and huge jumps (cursor re-entering the canvas) are ignored.
+  // Locked: deltas arrive on document. Free-look: on the canvas, with huge
+  // jumps (cursor re-entering) ignored. Both only while captured.
   document.addEventListener('mousemove', e => {
-    if (pointerLocked) { lookYawDelta += e.movementX || 0; lookPitchDelta += e.movementY || 0; }
+    if (captured && pointerLocked) { lookYawDelta += e.movementX || 0; lookPitchDelta += e.movementY || 0; }
   });
   canvas.addEventListener('mousemove', e => {
-    if (pointerLocked || state.mode !== 'playing') return;
+    if (!captured || pointerLocked) return;
     const dx = e.movementX || 0, dy = e.movementY || 0;
     if (Math.abs(dx) > 140 || Math.abs(dy) > 140) return;
     lookYawDelta += dx; lookPitchDelta += dy;
@@ -5298,6 +5355,10 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     const p = state.player;
     if (!p) return;
 
+    // Mouse is released (ESC): freeze the player, drop any queued look, and
+    // don't act on clicks — the pause overlay owns the next click.
+    if (!captured) { p.moveX = 0; p.moveZ = 0; lookYawDelta = 0; lookPitchDelta = 0; return; }
+
     // Mouse look (pointer-lock delta or drag delta — same code path).
     rig.rotation.y -= lookYawDelta * LOOK_SENS;
     pitch = clamp(pitch - lookPitchDelta * LOOK_SENS, -PITCH_LIMIT, PITCH_LIMIT);
@@ -5581,7 +5642,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     endSub.textContent = c.sub;
     hudOverlay.classList.add('hidden');
     crosshair.classList.add('hidden');
-    canvas.classList.remove('playing');   // bring the cursor back for the end screen
+    releaseCapture();                     // free the mouse for the end screen (mode is 'ended', so no pause overlay)
     endOverlay.classList.remove('hidden');
   }
 
@@ -5763,12 +5824,11 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       endOverlay.classList.add('hidden');
       hudOverlay.classList.remove('hidden');
       crosshair.classList.remove('hidden');
-      canvas.classList.add('playing');   // hide the OS cursor; mouse merges with the crosshair
       pitch = 0; camera.rotation.x = 0;
       rig.rotation.y = state.player.yaw;
       canvas.focus();
       startAudio();
-      updateLookHint();
+      requestCapture();   // capture the mouse right away (this click is the user gesture Pointer Lock needs)
     });
   });
 
@@ -5776,6 +5836,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     endOverlay.classList.add('hidden');
     menuOverlay.classList.remove('hidden');
     state.mode = 'menu';
+    setCaptured(false);   // ensure cursor free + overlay hidden on the menu
     updateLookHint();
   });
 
@@ -5789,7 +5850,9 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   window.__wolfCamera = camera;
   window.__wolfScene = scene;
   window.__wolfAudio = AUDIO;
-  window.__wolfInput = () => ({ pointerLocked });
+  window.__wolfInput = () => ({ pointerLocked, captured });
+  window.__wolfEsc = () => releaseCapture();       // test hook: ESC while a real lock swallows the keydown
+  window.__wolfCapture = () => requestCapture();
 })();
 </script>
 </body>
