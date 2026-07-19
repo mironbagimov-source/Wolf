@@ -236,14 +236,20 @@
   #crosshair {
     position: absolute;
     left: 50%; top: 50%;
-    width: 6px; height: 6px;
-    margin: -3px 0 0 -3px;
+    width: 5px; height: 5px;
+    margin: -2.5px 0 0 -2.5px;
     border-radius: 50%;
-    background: rgba(207,194,160,0.85);
-    box-shadow: 0 0 3px rgba(0,0,0,0.8);
+    background: rgba(230,220,190,0.95);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.45), 0 0 6px rgba(0,0,0,0.9);
     pointer-events: none;
   }
   #crosshair.hidden { display: none; }
+
+  /* While a match is running the OS cursor is hidden over the game, so the
+     mouse "merges" with the centre crosshair instead of a separate arrow
+     drifting around (Pointer Lock hides it natively when the browser allows
+     it; this covers the sandbox where it doesn't). */
+  #game.playing { cursor: none; }
 
   #damage-flash {
     position: absolute;
@@ -304,7 +310,7 @@
     <div id="crosshair" class="hidden"></div>
     <div id="damage-flash"></div>
     <div id="vignette"></div>
-    <div id="look-hint" class="hidden">Веди мышь над игрой — осмотреться</div>
+    <div id="look-hint" class="hidden">Двигай мышь — осмотреться</div>
 
     <div id="hud" class="hidden">
       <div class="hud-row">
@@ -5595,6 +5601,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     endSub.textContent = c.sub;
     hudOverlay.classList.add('hidden');
     crosshair.classList.add('hidden');
+    canvas.classList.remove('playing');   // bring the cursor back for the end screen
     endOverlay.classList.remove('hidden');
   }
 
@@ -5774,6 +5781,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       endOverlay.classList.add('hidden');
       hudOverlay.classList.remove('hidden');
       crosshair.classList.remove('hidden');
+      canvas.classList.add('playing');   // hide the OS cursor; mouse merges with the crosshair
       pitch = 0; camera.rotation.x = 0;
       rig.rotation.y = state.player.yaw;
       canvas.focus();
