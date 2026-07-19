@@ -304,7 +304,7 @@
     <div id="crosshair" class="hidden"></div>
     <div id="damage-flash"></div>
     <div id="vignette"></div>
-    <div id="look-hint" class="hidden">Зажми мышь и веди — осмотреться</div>
+    <div id="look-hint" class="hidden">Веди мышь над игрой — осмотреться</div>
 
     <div id="hud" class="hidden">
       <div class="hud-row">
@@ -337,7 +337,7 @@
           <span class="totem-desc">Пробейся через культистов и убей их Вожака.</span>
         </button>
       </div>
-      <p class="controls">Мышь к краю экрана — поворот камеры · WASD — движение · Shift — бег · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший)</p>
+      <p class="controls">Мышь — осмотреться · WASD — движение · Shift — бег · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший)</p>
     </div>
 
     <div id="end" class="overlay hidden">
@@ -4962,20 +4962,14 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   let keys = new Set(), keysPrev = new Set();
   let mouseButtons = new Set(), mouseButtonsPrev = new Set();
 
-  // Look input. Real FPS games use Pointer Lock (mouse delta -> rotation,
-  // hidden cursor, infinite spin). That's the primary path here — but the
-  // Artifact runs the page in a sandboxed iframe that BLOCKS pointer lock
-  // (requestPointerLock throws), which is exactly why the mouse felt broken
-  // before. So the robust, always-available path is drag-look, the same way
-  // Sketchfab / Street View / most no-lock browser 3D does it: hold the mouse
-  // and drag to turn. Whichever the browser allows, the feel is 1:1 mouse
-  // delta. Arrow keys always turn too, as a guaranteed assist.
-  let lockAvailable = true;   // flips to false the first time a lock request is refused
+  // Look input. Just move the mouse over the game to look around — no button,
+  // no dragging. Pointer Lock (real FPS mouse, hidden cursor, infinite spin)
+  // is used when the browser allows it; the Artifact runs in a sandboxed
+  // iframe that blocks it, so there the same movement deltas drive the view
+  // while the cursor is over the canvas. Arrow keys turn too, as an assist.
   let pointerLocked = false;
-  let dragging = false;
+  let lockDenied = false;     // once refused (sandbox), stop retrying — free-look carries it
   let lookYawDelta = 0, lookPitchDelta = 0;   // accumulated mouse delta since last frame
-  let downX = 0, downY = 0, downT = 0, movedSinceDown = 0;   // click-vs-drag discrimination
-  let tapAttackQueued = false;
 
   const LOOK_SENS = 0.0024;   // radians per pixel of mouse movement
 
@@ -4987,13 +4981,11 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   window.addEventListener('keyup', e => keys.delete(e.code));
 
   function tryLock() {
-    if (!lockAvailable || pointerLocked || state.mode !== 'playing') return;
+    if (pointerLocked || lockDenied || state.mode !== 'playing') return;
     try {
       const r = canvas.requestPointerLock();
-      if (r && r.catch) r.catch(() => { lockAvailable = false; });
-    } catch (_) {
-      lockAvailable = false;   // sandboxed iframe: fall back to drag-look for good
-    }
+      if (r && r.catch) r.catch(() => { lockDenied = true; });   // refusal is fine — free-look still works
+    } catch (_) { lockDenied = true; /* sandboxed iframe: free-look carries it */ }
   }
   document.addEventListener('pointerlockchange', () => {
     pointerLocked = document.pointerLockElement === canvas;
@@ -5004,27 +4996,20 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     mouseButtons.add(e.button);
     e.preventDefault();
     canvas.focus();
-    if (e.button === 0) {
-      if (!pointerLocked) tryLock();          // one attempt; if it works, future frames use lock
-      dragging = !pointerLocked;              // in no-lock mode, left button drags the view
-      downX = e.clientX; downY = e.clientY; downT = performance.now(); movedSinceDown = 0;
-    }
+    if (e.button === 0 && !pointerLocked) tryLock();  // opportunistic upgrade to true FPS lock
   });
-  window.addEventListener('mouseup', e => {
-    if (e.button === 0 && dragging) {
-      // A quick press that didn't drag is a tap = attack (so combat still works without pointer lock).
-      if (movedSinceDown < 6 && performance.now() - downT < 260) tapAttackQueued = true;
-      dragging = false;
-    }
-    mouseButtons.delete(e.button);
+  window.addEventListener('mouseup', e => mouseButtons.delete(e.button));
+
+  // Locked: deltas arrive on document. Free-look: only while the cursor is
+  // over the canvas, and huge jumps (cursor re-entering the canvas) are ignored.
+  document.addEventListener('mousemove', e => {
+    if (pointerLocked) { lookYawDelta += e.movementX || 0; lookPitchDelta += e.movementY || 0; }
   });
-  window.addEventListener('mousemove', e => {
+  canvas.addEventListener('mousemove', e => {
+    if (pointerLocked || state.mode !== 'playing') return;
     const dx = e.movementX || 0, dy = e.movementY || 0;
-    if (pointerLocked || dragging) {
-      lookYawDelta += dx;
-      lookPitchDelta += dy;
-      movedSinceDown += Math.abs(dx) + Math.abs(dy);
-    }
+    if (Math.abs(dx) > 140 || Math.abs(dy) > 140) return;
+    lookYawDelta += dx; lookPitchDelta += dy;
   });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -5342,7 +5327,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     p.yaw = rig.rotation.y;
 
     if (p.isDead || p.escaped) { p.moveX = 0; p.moveZ = 0; return; }
-    if (p.isGrabbed) { p.moveX = 0; p.moveZ = 0; tapAttackQueued = false; return; }
+    if (p.isGrabbed) { p.moveX = 0; p.moveZ = 0; return; }
 
     let ix = 0, iz = 0;
     if (keyHeld('KeyW')) iz += 1;
@@ -5357,13 +5342,11 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
 
     if (p.faction === 'survivor' && keyPressed('KeyF')) p.flashlightOn = !p.flashlightOn;
 
-    // Attack fires from: a locked-mode left click, a no-lock left tap, or Space
-    // (always). Space keeps combat usable even while you're drag-looking.
-    const attack = (pointerLocked && mousePressed(0)) || tapAttackQueued || keyPressed('Space');
+    // Left click attacks (Space works too, for keyboard-only play).
+    const attack = mousePressed(0) || keyPressed('Space');
     if (p.faction === 'cannibal' || p.faction === 'killer') p.wantsAttack = attack;
     if (p.faction === 'cannibal') p.wantsGrab = mousePressed(2) || keyPressed('KeyG');
     if (p.faction === 'killer') p.isBlocking = mouseHeld(2);
-    tapAttackQueued = false;
   }
 
   // ---------------------------------------------------------------------
@@ -5816,7 +5799,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   window.__wolfCamera = camera;
   window.__wolfScene = scene;
   window.__wolfAudio = AUDIO;
-  window.__wolfInput = () => ({ lockAvailable, pointerLocked, dragging });
+  window.__wolfInput = () => ({ pointerLocked });
 })();
 </script>
 </body>
