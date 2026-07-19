@@ -320,7 +320,7 @@
     <div id="crosshair" class="hidden"></div>
     <div id="damage-flash"></div>
     <div id="vignette"></div>
-    <div id="look-hint" class="hidden">Двигай мышь — осмотреться</div>
+    <div id="look-hint" class="hidden">Двигай мышь в сторону — камера поворачивается · в центр — стоп</div>
     <div id="pause-overlay"><div class="pause-card">Курсор свободен<span>Нажми, чтобы вернуться в игру · ESC — снова освободить</span></div></div>
 
     <div id="hud" class="hidden">
@@ -4991,10 +4991,19 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   // and is used whenever the browser grants it; where it's blocked (a strict
   // sandbox) the same capture UX runs on hidden-cursor movement deltas.
   let pointerLocked = false;  // a real Pointer Lock is held
-  let captured = false;       // mouse is driving the view (lock OR hidden-cursor free-look)
-  let lookYawDelta = 0, lookPitchDelta = 0;   // accumulated mouse delta since last frame
+  let captured = false;       // mouse is driving the view (lock OR hidden-cursor steering)
+  let lookYawDelta = 0, lookPitchDelta = 0;   // Pointer-Lock mode: raw mouse delta since last frame
+  let steerX = 0, steerY = 0; // fallback mode: cursor offset from screen centre, in [-1, 1]
 
-  const LOOK_SENS = 0.0024;   // radians per pixel of mouse movement
+  const LOOK_SENS = 0.0024;   // radians per pixel (Pointer-Lock mode)
+  // Fallback (no Pointer Lock): position steering. The OS cursor can't spin
+  // infinitely — it pins at the window edge and stops sending deltas, which is
+  // why plain delta-look dies after a quarter turn. So instead the cursor's
+  // distance from centre sets a turn *speed*: push toward an edge and the view
+  // keeps turning (full 360° always reachable); centre the mouse to stop.
+  const STEER_DEADZONE = 0.05;
+  const STEER_YAW_SPEED = 3.4;    // rad/s at full horizontal deflection
+  const STEER_PITCH_SPEED = 2.4;  // rad/s at full vertical deflection
 
   const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyF', 'ShiftLeft', 'ShiftRight', 'Space'];
   window.addEventListener('keydown', e => {
@@ -5008,6 +5017,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     captured = on;
     canvas.classList.toggle('playing', on);                 // cursor:none only while captured
     pauseOverlay.classList.toggle('show', state.mode === 'playing' && !on);
+    if (!on) { steerX = 0; steerY = 0; lookYawDelta = 0; lookPitchDelta = 0; }  // no residual turn when released
     updateLookHint();
   }
 
@@ -5043,18 +5053,28 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   });
   window.addEventListener('mouseup', e => mouseButtons.delete(e.button));
 
-  // Locked: deltas arrive on document. Free-look: on the canvas, with huge
-  // jumps (cursor re-entering) ignored. Both only while captured.
+  // Pointer-Lock mode: accumulate raw deltas from document (true 1:1 look).
   document.addEventListener('mousemove', e => {
     if (captured && pointerLocked) { lookYawDelta += e.movementX || 0; lookPitchDelta += e.movementY || 0; }
   });
+  // Fallback mode: track the cursor's offset from the canvas centre. The turn
+  // itself is applied per-frame in updatePlayerInput, so the view keeps turning
+  // even when the pinned cursor stops sending events at the edge.
   canvas.addEventListener('mousemove', e => {
-    if (!captured || pointerLocked) return;
-    const dx = e.movementX || 0, dy = e.movementY || 0;
-    if (Math.abs(dx) > 140 || Math.abs(dy) > 140) return;
-    lookYawDelta += dx; lookPitchDelta += dy;
+    if (pointerLocked) return;
+    const r = canvas.getBoundingClientRect();
+    steerX = clamp(((e.clientX - r.left) / r.width) * 2 - 1, -1, 1);
+    steerY = clamp(((e.clientY - r.top) / r.height) * 2 - 1, -1, 1);
   });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  // Deadzone + eased response: gentle and precise near centre, fast at the edge.
+  function steerResponse(v) {
+    const a = Math.abs(v);
+    if (a < STEER_DEADZONE) return 0;
+    const t = (a - STEER_DEADZONE) / (1 - STEER_DEADZONE);
+    return Math.sign(v) * t * t;   // quadratic falloff
+  }
 
   function keyHeld(code) { return keys.has(code); }
   function keyPressed(code) { return keys.has(code) && !keysPrev.has(code); }
@@ -5359,10 +5379,17 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     // don't act on clicks — the pause overlay owns the next click.
     if (!captured) { p.moveX = 0; p.moveZ = 0; lookYawDelta = 0; lookPitchDelta = 0; return; }
 
-    // Mouse look (pointer-lock delta or drag delta — same code path).
-    rig.rotation.y -= lookYawDelta * LOOK_SENS;
-    pitch = clamp(pitch - lookPitchDelta * LOOK_SENS, -PITCH_LIMIT, PITCH_LIMIT);
-    lookYawDelta = 0; lookPitchDelta = 0;
+    if (pointerLocked) {
+      // True 1:1 look from raw mouse deltas.
+      rig.rotation.y -= lookYawDelta * LOOK_SENS;
+      pitch = clamp(pitch - lookPitchDelta * LOOK_SENS, -PITCH_LIMIT, PITCH_LIMIT);
+      lookYawDelta = 0; lookPitchDelta = 0;
+    } else {
+      // Position steering: cursor offset from centre -> turn speed. Reaches a
+      // full turn without the cursor pinning at the edge and stalling.
+      rig.rotation.y -= steerResponse(steerX) * STEER_YAW_SPEED * dt;
+      pitch = clamp(pitch - steerResponse(steerY) * STEER_PITCH_SPEED * dt, -PITCH_LIMIT, PITCH_LIMIT);
+    }
 
     // Arrow keys always turn, as a guaranteed assist when the mouse can't spin.
     if (keyHeld('ArrowLeft')) rig.rotation.y += KEY_TURN_SPEED * dt;
@@ -5850,7 +5877,8 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   window.__wolfCamera = camera;
   window.__wolfScene = scene;
   window.__wolfAudio = AUDIO;
-  window.__wolfInput = () => ({ pointerLocked, captured });
+  window.__wolfInput = () => ({ pointerLocked, captured, steerX, steerY });
+  window.__wolfSteer = (x, y) => { steerX = x; steerY = y; };   // test hook for the steering fallback
   window.__wolfEsc = () => releaseCapture();       // test hook: ESC while a real lock swallows the keydown
   window.__wolfCapture = () => requestCapture();
 })();
