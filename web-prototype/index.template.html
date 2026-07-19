@@ -1,0 +1,1245 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Турбаза «Волк»</title>
+<style>
+  /* Deliberately single-theme: this is a fixed nocturnal horror scene,
+     the same way a neon arcade cabinet doesn't get a "daytime" mode. */
+  :root {
+    --void: #0b0d0a;
+    --panel: #16150f;
+    --line: #332c1e;
+    --ink: #cfc2a0;
+    --ink-dim: #8c8367;
+    --blood: #9a2732;
+    --ember: #c9862f;
+    --survivor: #5ec26a;
+    --cannibal: #c23b3b;
+    --killer: #4f8fd1;
+    --leader: #b23fb0;
+
+    --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif;
+    --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: radial-gradient(ellipse at 50% 30%, #14140d 0%, var(--void) 70%);
+    color: var(--ink);
+    font-family: var(--font-body);
+    overflow-x: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    gap: 14px;
+  }
+
+  h1, h2 { text-wrap: balance; margin: 0; }
+
+  #page-title {
+    font-family: var(--font-display);
+    font-size: clamp(22px, 4vw, 34px);
+    letter-spacing: 0.06em;
+    color: var(--ink);
+    text-transform: uppercase;
+  }
+  #page-title .accent { color: var(--blood); }
+
+  #stage {
+    position: relative;
+    width: min(1000px, 96vw);
+    aspect-ratio: 16 / 10;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    box-shadow:
+      0 0 0 6px var(--panel),
+      0 0 0 7px var(--line),
+      inset 0 0 60px rgba(0,0,0,0.6),
+      0 20px 60px rgba(0,0,0,0.55);
+    overflow: hidden;
+    background: var(--void);
+  }
+
+  canvas#game {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  canvas#game:focus-visible { outline: 2px solid var(--ember); outline-offset: -2px; }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px;
+    text-align: center;
+    background: radial-gradient(ellipse at 50% 40%, rgba(20,18,12,0.94) 0%, rgba(6,6,4,0.98) 75%);
+  }
+  .overlay.hidden { display: none; }
+
+  .overlay h1 {
+    font-family: var(--font-display);
+    font-size: clamp(26px, 5vw, 44px);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    position: relative;
+  }
+
+  #menu h1::before {
+    content: "";
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 340px; height: 180px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse, rgba(201,134,47,0.20) 0%, rgba(201,134,47,0) 70%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #menu h1::before { animation: flicker 3.2s ease-in-out infinite; }
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 0.85; }
+    38% { opacity: 1; }
+    46% { opacity: 0.55; }
+    52% { opacity: 0.95; }
+    75% { opacity: 0.7; }
+  }
+
+  .lede {
+    max-width: 46ch;
+    color: var(--ink-dim);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .totems {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: center;
+  }
+
+  .totem {
+    width: 220px;
+    padding: 18px 16px;
+    background: linear-gradient(180deg, #1c1a13, #131209);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--ink);
+    cursor: pointer;
+    font-family: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .totem:hover, .totem:focus-visible {
+    border-color: var(--ember);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(201,134,47,0.15);
+    outline: none;
+  }
+  .totem-role {
+    font-family: var(--font-display);
+    font-size: 18px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .totem[data-faction="survivor"] .totem-role { color: var(--survivor); }
+  .totem[data-faction="cannibal"] .totem-role { color: var(--cannibal); }
+  .totem[data-faction="killer"] .totem-role { color: var(--killer); }
+  .totem-desc { font-size: 13px; color: var(--ink-dim); line-height: 1.4; }
+
+  .totem-restart {
+    width: auto;
+    align-items: center;
+    text-align: center;
+  }
+  .totem-restart .totem-role { color: var(--ember); }
+
+  .controls {
+    font-size: 12px;
+    color: var(--ink-dim);
+    letter-spacing: 0.02em;
+    max-width: 60ch;
+  }
+
+  #hud {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+  }
+  #hud.hidden { display: none; }
+
+  .hud-row { display: flex; justify-content: space-between; align-items: flex-start; }
+
+  .hud-left, .hud-right { display: flex; flex-direction: column; gap: 4px; }
+  .hud-label {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .hud-bar {
+    width: 140px;
+    height: 8px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid var(--line);
+  }
+  .hud-bar-fill {
+    height: 100%;
+    width: 100%;
+    background: var(--blood);
+    transition: width 0.15s linear;
+  }
+  .hud-value {
+    font-size: 16px;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .hud-right { align-items: flex-end; text-align: right; }
+
+  #hud-prompt {
+    align-self: center;
+    color: var(--ember);
+    font-family: var(--font-body);
+    font-size: 14px;
+    background: rgba(0,0,0,0.55);
+    padding: 6px 14px;
+    border-radius: 3px;
+    min-height: 1.4em;
+  }
+
+  #crosshair {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 6px; height: 6px;
+    margin: -3px 0 0 -3px;
+    border-radius: 50%;
+    background: rgba(207,194,160,0.85);
+    box-shadow: 0 0 3px rgba(0,0,0,0.8);
+    pointer-events: none;
+  }
+  #crosshair.hidden { display: none; }
+
+  #damage-flash {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, rgba(154,39,50,0) 40%, rgba(154,39,50,0.55) 100%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  #damage-flash.show { opacity: 1; transition: none; }
+
+  #pause-hint {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(6,6,4,0.75);
+    color: var(--ink);
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+  #pause-hint.show { display: flex; }
+
+  footer {
+    color: var(--ink-dim);
+    font-size: 12px;
+    max-width: 60ch;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+  <h1 id="page-title">Турбаза «<span class="accent">Волк</span>»</h1>
+
+  <div id="stage">
+    <canvas id="game" tabindex="0"></canvas>
+    <div id="crosshair" class="hidden"></div>
+    <div id="damage-flash"></div>
+
+    <div id="hud" class="hidden">
+      <div class="hud-row">
+        <div class="hud-left">
+          <div class="hud-label">Здоровье</div>
+          <div class="hud-bar"><div id="hud-health-fill" class="hud-bar-fill"></div></div>
+        </div>
+        <div class="hud-right">
+          <div class="hud-label">Генераторы</div>
+          <div id="hud-gen-count" class="hud-value">0/3</div>
+        </div>
+      </div>
+      <div id="hud-prompt"></div>
+    </div>
+
+    <div id="pause-hint"><div>Курсор освобождён — щёлкни, чтобы вернуться в игру</div></div>
+
+    <div id="menu" class="overlay">
+      <h1>Турбаза «Волк»</h1>
+      <p class="lede">Секта каннибалов захватила базу этой ночью. Выбери, за кого играть.</p>
+      <div class="totems">
+        <button class="totem" data-faction="survivor">
+          <span class="totem-role">Выживший</span>
+          <span class="totem-desc">Почини три генератора и уйди по дороге, пока тебя не поймали.</span>
+        </button>
+        <button class="totem" data-faction="cannibal">
+          <span class="totem-role">Секта</span>
+          <span class="totem-desc">Ты — Вожак. Лови туристов и приноси их в жертву на алтаре.</span>
+        </button>
+        <button class="totem" data-faction="killer">
+          <span class="totem-role">Охотник</span>
+          <span class="totem-desc">Пробейся через культистов и убей их Вожака.</span>
+        </button>
+      </div>
+      <p class="controls">Клик — захватить курсор · мышь — обзор · WASD — движение · Shift — бег · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший) · Esc — отпустить курсор</p>
+    </div>
+
+    <div id="end" class="overlay hidden">
+      <h1 id="end-title"></h1>
+      <p id="end-sub" class="lede"></p>
+      <button id="restart-btn" class="totem totem-restart">
+        <span class="totem-role">Играть снова</span>
+      </button>
+    </div>
+  </div>
+
+  <footer>Браузерный прототип от первого лица — веб-версия наброска, параллельно с Unity-проектом. Арт/звук ещё не сделаны, тела — временные примитивы.</footer>
+
+<script>
+/* three.js r128 — https://github.com/mrdoob/three.js, MIT license, inlined so this
+   page has zero external requests. Vendored, not authored here. */
+<!--THREE_JS_SOURCE-->
+</script>
+<script>
+(() => {
+  'use strict';
+
+  // ---------------------------------------------------------------------
+  // config
+  // ---------------------------------------------------------------------
+
+  const BOUNDS = { minX: -28, maxX: 28, minZ: -18, maxZ: 18 };
+  const ENTITY_RADIUS = 0.4;
+  const EYE_HEIGHT = 1.62;
+
+  const FACTION_COLOR = {
+    survivor: 0x5ec26a,
+    cannibal: 0xc23b3b,
+    leader: 0xb23fb0,
+    killer: 0x4f8fd1,
+  };
+
+  const CONFIG = {
+    survivor: { speed: 3.3, sprintMul: 1.7, hp: 60, visionLight: 0.55, visionRange: 7 },
+    cannibal: { speed: 3.7, sprintMul: 1.45, hp: 100, visionLight: 0.8, visionRange: 10,
+      attackRange: 2.2, attackDamage: 28, attackCooldown: 0.8,
+      grabRange: 2.0, grabCooldown: 3.5, senseRadius: 15 },
+    killer: { speed: 3.5, sprintMul: 1.55, hp: 150, visionLight: 0.8, visionRange: 10,
+      attackRange: 2.5, attackDamage: 45, attackCooldown: 0.7,
+      blockSpeedMul: 0.4, blockDamageMul: 0.25 },
+  };
+
+  const GENERATORS_REQUIRED = 3;
+  const SACRIFICE_TIME = 9;
+  const INTERACT_RANGE = 2.6;
+  const FLASHLIGHT_RANGE = 22;
+  const FLASHLIGHT_HALF_ANGLE = 0.36;
+  const FLEE_RADIUS = 11;
+  const FLASHLIGHT_NOISE_BONUS = 4;
+  const SPRINT_NOISE_BONUS = 3;
+
+  const BUILDINGS = [
+    { minX: -13, maxX: -7, minZ: 1, maxZ: 7 },
+    { minX: 7, maxX: 13, minZ: -7, maxZ: -1 },
+  ];
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function normalizeAngle(a) {
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  }
+  // Three.js convention here: rotation.y = yaw, forward = (-sin(yaw), 0, -cos(yaw)).
+  function yawToward(dx, dz) { return Math.atan2(-dx, -dz); }
+  function forwardVector(yaw) { return { x: -Math.sin(yaw), z: -Math.cos(yaw) }; }
+  function rightVector(yaw) { return { x: Math.cos(yaw), z: -Math.sin(yaw) }; }
+
+  function collidesAt(x, z) {
+    const r = ENTITY_RADIUS;
+    for (const b of BUILDINGS) {
+      if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ) return true;
+    }
+    return false;
+  }
+  function moveWithCollision(e, dx, dz) {
+    const oldX = e.x, oldZ = e.z;
+    let x = oldX + dx, z = oldZ + dz;
+    if (!collidesAt(x, z)) { e.x = x; e.z = z; }
+    else if (!collidesAt(oldX + dx, oldZ)) { e.x = oldX + dx; }
+    else if (!collidesAt(oldX, oldZ + dz)) { e.z = oldZ + dz; }
+    e.x = clamp(e.x, BOUNDS.minX + ENTITY_RADIUS, BOUNDS.maxX - ENTITY_RADIUS);
+    e.z = clamp(e.z, BOUNDS.minZ + ENTITY_RADIUS, BOUNDS.maxZ - ENTITY_RADIUS);
+  }
+
+  // ---------------------------------------------------------------------
+  // dom
+  // ---------------------------------------------------------------------
+
+  const canvas = document.getElementById('game');
+  const stage = document.getElementById('stage');
+  const menuOverlay = document.getElementById('menu');
+  const endOverlay = document.getElementById('end');
+  const hudOverlay = document.getElementById('hud');
+  const hudHealthFill = document.getElementById('hud-health-fill');
+  const hudGenCount = document.getElementById('hud-gen-count');
+  const hudPrompt = document.getElementById('hud-prompt');
+  const endTitle = document.getElementById('end-title');
+  const endSub = document.getElementById('end-sub');
+  const crosshair = document.getElementById('crosshair');
+  const damageFlash = document.getElementById('damage-flash');
+  const pauseHint = document.getElementById('pause-hint');
+
+  // ---------------------------------------------------------------------
+  // three.js scene
+  // ---------------------------------------------------------------------
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x05070a);
+  scene.fog = new THREE.Fog(0x05070a, 6, 40);
+
+  const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 60);
+  camera.position.set(0, EYE_HEIGHT, 0);
+
+  const rig = new THREE.Object3D();
+  rig.add(camera);
+  scene.add(rig);
+
+  scene.add(new THREE.AmbientLight(0x1a2230, 0.6));
+  const moon = new THREE.DirectionalLight(0x3a4a63, 0.22);
+  moon.position.set(-14, 22, -8);
+  scene.add(moon);
+
+  function resize() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+
+  // ground
+  {
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(BOUNDS.maxX - BOUNDS.minX + 6, BOUNDS.maxZ - BOUNDS.minZ + 6),
+      new THREE.MeshStandardMaterial({ color: 0x141a10, roughness: 1 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+  }
+
+  // buildings
+  for (const b of BUILDINGS) {
+    const w = b.maxX - b.minX, d = b.maxZ - b.minZ;
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a2013, roughness: 0.9 });
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 2.6, d), wallMat);
+    wall.position.set(cx, 1.3, cz);
+    scene.add(wall);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.72, 1.4, 4), new THREE.MeshStandardMaterial({ color: 0x1c150c, roughness: 1 }));
+    roof.position.set(cx, 2.6 + 0.7, cz);
+    roof.rotation.y = Math.PI / 4;
+    scene.add(roof);
+  }
+
+  // treeline
+  {
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x1c150e, roughness: 1 });
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x111d12, roughness: 1 });
+    const rng = mulberry32(1337);
+    for (let i = 0; i < 46; i++) {
+      const edge = Math.floor(rng() * 4);
+      let x, z;
+      if (edge === 0) { x = BOUNDS.minX - 1 + rng() * 3; z = BOUNDS.minZ + rng() * (BOUNDS.maxZ - BOUNDS.minZ); }
+      else if (edge === 1) { x = BOUNDS.maxX + 1 - rng() * 3; z = BOUNDS.minZ + rng() * (BOUNDS.maxZ - BOUNDS.minZ); }
+      else if (edge === 2) { z = BOUNDS.minZ - 1 + rng() * 3; x = BOUNDS.minX + rng() * (BOUNDS.maxX - BOUNDS.minX); }
+      else { z = BOUNDS.maxZ + 1 - rng() * 3; x = BOUNDS.minX + rng() * (BOUNDS.maxX - BOUNDS.minX); }
+      if (Math.abs(x) < 5 && z > BOUNDS.maxZ - 4) continue; // keep the gate clear
+      const h = 3 + rng() * 3;
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, h * 0.4, 6), trunkMat);
+      trunk.position.set(x, h * 0.2, z);
+      scene.add(trunk);
+      const leaf = new THREE.Mesh(new THREE.ConeGeometry(1.1, h, 7), leafMat);
+      leaf.position.set(x, h * 0.4 + h * 0.5, z);
+      scene.add(leaf);
+    }
+  }
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // objectives (meshes rebuilt per match so state can just be array data)
+  const objectiveMeshes = { generators: [], altar: null, gatePosts: [], gateGlow: null };
+
+  function buildObjectiveMeshes(state) {
+    for (const g of objectiveMeshes.generators) scene.remove(g.mesh, g.ring);
+    objectiveMeshes.generators = [];
+    for (const g of state.generators) {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(1.1, 1.2, 0.8),
+        new THREE.MeshStandardMaterial({ color: 0x2c2716, emissive: 0x000000, roughness: 0.7 })
+      );
+      mesh.position.set(g.x, 0.6, g.z);
+      scene.add(mesh);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.05, 6, 20), new THREE.MeshBasicMaterial({ color: 0xc9862f }));
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(g.x, 0.05, g.z);
+      scene.add(ring);
+      objectiveMeshes.generators.push({ mesh, ring, ref: g });
+    }
+
+    if (objectiveMeshes.altar) scene.remove(objectiveMeshes.altar.base, objectiveMeshes.altar.spike, objectiveMeshes.altar.glow);
+    {
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.4, 0.6, 16), new THREE.MeshStandardMaterial({ color: 0x2a1418, roughness: 0.9 }));
+      base.position.set(state.altar.x, 0.3, state.altar.z);
+      scene.add(base);
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.22, 1.6, 6), new THREE.MeshStandardMaterial({ color: 0x1a0d10 }));
+      spike.position.set(state.altar.x, 1.4, state.altar.z);
+      scene.add(spike);
+      const glow = new THREE.PointLight(0x9a2732, 0.5, 6, 2);
+      glow.position.set(state.altar.x, 1.0, state.altar.z);
+      scene.add(glow);
+      objectiveMeshes.altar = { base, spike, glow, ref: state.altar };
+    }
+
+    for (const p of objectiveMeshes.gatePosts) scene.remove(p);
+    objectiveMeshes.gatePosts = [];
+    const gate = state.gate;
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x241d10, roughness: 0.8 });
+    for (const side of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 0.5), postMat);
+      post.position.set(gate.x + side * gate.halfW, 1.5, gate.z);
+      scene.add(post);
+      objectiveMeshes.gatePosts.push(post);
+    }
+    if (objectiveMeshes.gateGlow) scene.remove(objectiveMeshes.gateGlow);
+    const glowPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(gate.halfW * 2, 3),
+      new THREE.MeshBasicMaterial({ color: 0xcfc2a0, transparent: true, opacity: 0.08, side: THREE.DoubleSide })
+    );
+    glowPlane.position.set(gate.x, 1.5, gate.z);
+    scene.add(glowPlane);
+    objectiveMeshes.gateGlow = glowPlane;
+  }
+
+  function syncObjectiveVisuals(state) {
+    for (const g of objectiveMeshes.generators) {
+      g.mesh.material.emissive.setHex(g.ref.done ? 0x1a3d1e : (g.ref.progress > 0 ? 0x3a2a10 : 0x000000));
+      g.ring.material.color.setHex(g.ref.done ? 0x5ec26a : 0xc9862f);
+      g.ring.scale.setScalar(0.4 + Math.min(1, g.ref.progress / g.ref.required) * 0.6);
+    }
+    const open = state.generatorsDone >= GENERATORS_REQUIRED;
+    objectiveMeshes.gateGlow.material.opacity = open ? 0.28 : 0.06;
+    objectiveMeshes.altar.glow.intensity = state.altar.captive ? 1.6 : 0.5;
+  }
+
+  // ---------------------------------------------------------------------
+  // input
+  // ---------------------------------------------------------------------
+
+  let keys = new Set(), keysPrev = new Set();
+  let mouseButtons = new Set(), mouseButtonsPrev = new Set();
+  let mouseDX = 0, mouseDY = 0;
+  let pointerLocked = false;
+
+  const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyF', 'ShiftLeft', 'ShiftRight'];
+  window.addEventListener('keydown', e => {
+    if (trackedKeys.includes(e.code)) e.preventDefault();
+    keys.add(e.code);
+  });
+  window.addEventListener('keyup', e => keys.delete(e.code));
+
+  canvas.addEventListener('click', () => {
+    if (state.mode === 'playing' && document.pointerLockElement !== canvas) canvas.requestPointerLock();
+  });
+  document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === canvas;
+    pauseHint.classList.toggle('show', state.mode === 'playing' && !pointerLocked);
+  });
+  document.addEventListener('mousemove', e => {
+    if (pointerLocked) { mouseDX += e.movementX || 0; mouseDY += e.movementY || 0; }
+  });
+  canvas.addEventListener('mousedown', e => { mouseButtons.add(e.button); e.preventDefault(); });
+  window.addEventListener('mouseup', e => mouseButtons.delete(e.button));
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  function keyHeld(code) { return keys.has(code); }
+  function keyPressed(code) { return keys.has(code) && !keysPrev.has(code); }
+  function mouseHeld(btn) { return mouseButtons.has(btn); }
+  function mousePressed(btn) { return mouseButtons.has(btn) && !mouseButtonsPrev.has(btn); }
+
+  // ---------------------------------------------------------------------
+  // entities / state
+  // ---------------------------------------------------------------------
+
+  let nextId = 1;
+  function makeEntity(faction, x, z, opts) {
+    opts = opts || {};
+    const cfg = CONFIG[faction];
+    return {
+      id: nextId++, faction,
+      isPlayer: !!opts.isPlayer, isLeader: !!opts.isLeader,
+      x, z, yaw: 0,
+      hp: cfg.hp, maxHp: cfg.hp,
+      isDead: false, escaped: false,
+      isGrabbed: false, grabbedBy: null, carrying: null,
+      isBlocking: false, flashlightOn: false, sprinting: false,
+      moveX: 0, moveZ: 0,
+      wantsAttack: false, wantsGrab: false,
+      interactHeld: false, interactPressed: false,
+      cdAttack: 0, cdGrab: 0,
+      wanderYaw: Math.random() * Math.PI * 2, wanderTimer: 0,
+      hitFlash: 0,
+      mesh: null,
+    };
+  }
+
+  const state = {
+    mode: 'menu', result: null, playerFaction: null,
+    entities: [], player: null, leader: null,
+    generators: [], altar: null, gate: null,
+    generatorsDone: 0, survivorsEscaped: 0, requiredEscape: 1,
+  };
+
+  function setupLevel() {
+    state.generators = [
+      { x: -18, z: 14, progress: 0, required: 6, done: false },
+      { x: 18, z: 14, progress: 0, required: 6, done: false },
+      { x: 0, z: -14, progress: 0, required: 6, done: false },
+    ];
+    state.altar = { x: 0, z: 0, r: 2.6, captive: null, timer: 0 };
+    state.gate = { x: 0, z: 17.5, halfW: 4 };
+    state.generatorsDone = 0;
+    state.survivorsEscaped = 0;
+    buildObjectiveMeshes(state);
+  }
+
+  function clearEntityMeshes() {
+    for (const e of state.entities) if (e.mesh) scene.remove(e.mesh.group);
+  }
+
+  function buildEntityMesh(e) {
+    const group = new THREE.Group();
+    const bodyColor = FACTION_COLOR[e.faction];
+    const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.85 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.42, 1.4, 10), bodyMat);
+    body.position.y = 0.7;
+    group.add(body);
+
+    const headColor = e.isLeader ? FACTION_COLOR.leader : bodyColor;
+    const headMat = new THREE.MeshStandardMaterial({ color: headColor, emissive: headColor, emissiveIntensity: 0.8 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8), headMat);
+    head.position.y = 1.55;
+    group.add(head);
+
+    if (e.isLeader) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.04, 6, 24), new THREE.MeshBasicMaterial({ color: FACTION_COLOR.leader }));
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 2.05;
+      group.add(ring);
+    }
+
+    const healthBar = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xff5050, transparent: true }));
+    healthBar.position.y = 2.0;
+    healthBar.scale.set(0.7, 0.09, 1);
+    group.add(healthBar);
+
+    const carryPoint = new THREE.Object3D();
+    carryPoint.position.set(0, 1.25, -0.55);
+    group.add(carryPoint);
+
+    scene.add(group);
+    e.mesh = { group, body, head, bodyMat, headMat, healthBar, carryPoint };
+  }
+
+  function spawnMatch(faction) {
+    clearEntityMeshes();
+    state.entities = [];
+    state.player = null;
+    state.leader = null;
+    state.playerFaction = faction;
+    setupLevel();
+
+    const survivorSpawns = [[-24, -10], [-24, 0], [-24, 10]];
+    const cannibalSpawns = [[24, -10], [24, 0], [24, 10]];
+    const killerSpawn = [0, -16];
+
+    for (let i = 0; i < 3; i++) {
+      const isHuman = faction === 'survivor' && i === 0;
+      const [sx, sz] = survivorSpawns[i];
+      const e = makeEntity('survivor', sx, sz, { isPlayer: isHuman });
+      e.yaw = yawToward(24 - sx, 0 - sz);
+      if (!isHuman) buildEntityMesh(e);
+      state.entities.push(e);
+      if (isHuman) state.player = e;
+    }
+
+    for (let i = 0; i < 3; i++) {
+      const isHuman = faction === 'cannibal' && i === 0;
+      const isLeader = i === 0;
+      const [cx, cz] = cannibalSpawns[i];
+      const e = makeEntity('cannibal', cx, cz, { isPlayer: isHuman, isLeader });
+      e.yaw = yawToward(-24 - cx, 0 - cz);
+      if (isLeader) { e.hp = e.maxHp = 220; state.leader = e; }
+      if (!isHuman) buildEntityMesh(e);
+      state.entities.push(e);
+      if (isHuman) state.player = e;
+    }
+
+    if (faction === 'killer') {
+      const e = makeEntity('killer', killerSpawn[0], killerSpawn[1], { isPlayer: true });
+      e.yaw = 0;
+      state.entities.push(e);
+      state.player = e;
+    }
+
+    setupPlayerLight();
+    state.mode = 'playing';
+    state.result = null;
+  }
+
+  // player-attached lights, rebuilt per faction on spawn
+  let selfLight = null, flashlight = null, flashTarget = null;
+  function setupPlayerLight() {
+    if (selfLight) camera.remove(selfLight);
+    if (flashlight) { camera.remove(flashlight); camera.remove(flashTarget); }
+    const cfg = CONFIG[state.player.faction];
+    const lightColor = state.player.faction === 'survivor' ? 0x9fd7a8 : (state.player.faction === 'killer' ? 0xbcd3ff : 0xffb27a);
+    selfLight = new THREE.PointLight(lightColor, cfg.visionLight, cfg.visionRange, 2);
+    camera.add(selfLight);
+
+    if (state.player.faction === 'survivor') {
+      flashlight = new THREE.SpotLight(0xfff2cf, 0, FLASHLIGHT_RANGE, FLASHLIGHT_HALF_ANGLE, 0.45, 1.3);
+      flashTarget = new THREE.Object3D();
+      flashTarget.position.set(0, 0, -1);
+      camera.add(flashTarget);
+      flashlight.target = flashTarget;
+      camera.add(flashlight);
+    } else {
+      flashlight = null;
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // shared helpers
+  // ---------------------------------------------------------------------
+
+  function nearestLivingSurvivor(fromX, fromZ, excludeGrabbed) {
+    let best = null, bestD = Infinity;
+    for (const e of state.entities) {
+      if (e.faction !== 'survivor' || e.isDead || e.escaped) continue;
+      if (excludeGrabbed && e.isGrabbed) continue;
+      const d = Math.hypot(e.x - fromX, e.z - fromZ);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return { entity: best, dist: bestD };
+  }
+
+  function nearestLivingThreat(x, z) {
+    let best = null, bestD = Infinity;
+    for (const e of state.entities) {
+      if ((e.faction !== 'cannibal' && e.faction !== 'killer') || e.isDead) continue;
+      const d = Math.hypot(e.x - x, e.z - z);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return { entity: best, dist: bestD };
+  }
+
+  function steerTo(e, tx, tz) {
+    const dx = tx - e.x, dz = tz - e.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.3) { e.moveX = 0; e.moveZ = 0; return d; }
+    e.yaw = yawToward(dx, dz);
+    e.moveX = 0; e.moveZ = 1; // "forward" is defined by yaw, see applyEntity
+    return d;
+  }
+
+  function wander(e, dt) {
+    e.wanderTimer -= dt;
+    if (e.wanderTimer <= 0) {
+      e.wanderYaw = Math.random() * Math.PI * 2;
+      e.wanderTimer = 2 + Math.random() * 3;
+    }
+    e.yaw = e.wanderYaw;
+    e.moveX = 0; e.moveZ = 1;
+  }
+
+  // ---------------------------------------------------------------------
+  // player input -> intent
+  // ---------------------------------------------------------------------
+
+  const PITCH_LIMIT = 1.4;
+  let pitch = 0;
+
+  function updatePlayerInput(dt) {
+    const p = state.player;
+    if (!p) return;
+
+    const sens = 0.0022;
+    rig.rotation.y -= mouseDX * sens;
+    pitch = clamp(pitch - mouseDY * sens, -PITCH_LIMIT, PITCH_LIMIT);
+    camera.rotation.x = pitch;
+    mouseDX = 0; mouseDY = 0;
+    p.yaw = rig.rotation.y;
+
+    if (p.isDead || p.escaped) return;
+
+    if (p.isGrabbed) { p.moveX = 0; p.moveZ = 0; return; }
+
+    let ix = 0, iz = 0;
+    if (keyHeld('KeyW') || keyHeld('ArrowUp')) iz += 1;
+    if (keyHeld('KeyS') || keyHeld('ArrowDown')) iz -= 1;
+    if (keyHeld('KeyD') || keyHeld('ArrowRight')) ix += 1;
+    if (keyHeld('KeyA') || keyHeld('ArrowLeft')) ix -= 1;
+    p.moveX = ix; p.moveZ = iz;
+    p.sprinting = keyHeld('ShiftLeft') || keyHeld('ShiftRight');
+
+    p.interactHeld = keyHeld('KeyE');
+    p.interactPressed = keyPressed('KeyE');
+
+    if (p.faction === 'survivor' && keyPressed('KeyF')) p.flashlightOn = !p.flashlightOn;
+    if (p.faction === 'cannibal' || p.faction === 'killer') p.wantsAttack = mousePressed(0);
+    if (p.faction === 'cannibal') p.wantsGrab = mousePressed(2);
+    if (p.faction === 'killer') p.isBlocking = mouseHeld(2);
+  }
+
+  // ---------------------------------------------------------------------
+  // bot ai
+  // ---------------------------------------------------------------------
+
+  function updateBotAI(e, dt) {
+    if (e.isGrabbed) return;
+    if (e.faction === 'survivor') updateSurvivorBot(e, dt);
+    else if (e.faction === 'cannibal') updateCannibalBot(e, dt);
+  }
+
+  function pickSurvivorObjective(e) {
+    if (state.generatorsDone < GENERATORS_REQUIRED) {
+      let best = null, bestD = Infinity;
+      for (const g of state.generators) {
+        if (g.done) continue;
+        const d = Math.hypot(g.x - e.x, g.z - e.z);
+        if (d < bestD) { bestD = d; best = g; }
+      }
+      if (best) return { type: 'generator', x: best.x, z: best.z };
+    }
+    return { type: 'gate', x: state.gate.x, z: state.gate.z };
+  }
+
+  function updateSurvivorBot(e, dt) {
+    e.interactHeld = false; e.interactPressed = false; e.sprinting = false;
+
+    const threat = nearestLivingThreat(e.x, e.z);
+    if (threat.entity && threat.dist < FLEE_RADIUS) {
+      const dx = e.x - threat.entity.x, dz = e.z - threat.entity.z;
+      e.yaw = yawToward(dx, dz);
+      e.moveX = 0; e.moveZ = 1;
+      e.sprinting = true;
+      return;
+    }
+
+    const target = pickSurvivorObjective(e);
+    const d = steerTo(e, target.x, target.z);
+    if (target.type === 'generator' && d <= INTERACT_RANGE) {
+      e.moveX = 0; e.moveZ = 0; e.interactHeld = true;
+    }
+  }
+
+  function updateCannibalBot(e, dt) {
+    e.wantsAttack = false; e.wantsGrab = false; e.sprinting = false;
+
+    if (e.carrying) {
+      steerTo(e, state.altar.x, state.altar.z);
+      e.sprinting = true;
+      return;
+    }
+
+    const cfg = CONFIG.cannibal;
+    const { entity: target, dist } = nearestLivingSurvivor(e.x, e.z, true);
+    if (target) {
+      let bonus = 0;
+      if (target.sprinting) bonus += SPRINT_NOISE_BONUS;
+      if (target.flashlightOn) bonus += FLASHLIGHT_NOISE_BONUS;
+      if (dist <= cfg.senseRadius + bonus) {
+        steerTo(e, target.x, target.z);
+        e.sprinting = true;
+        if (dist <= cfg.grabRange) e.wantsGrab = true;
+        if (dist <= cfg.attackRange) e.wantsAttack = true;
+        return;
+      }
+    }
+
+    wander(e, dt);
+  }
+
+  // ---------------------------------------------------------------------
+  // actions
+  // ---------------------------------------------------------------------
+
+  function performAttack(e) {
+    const cfg = CONFIG[e.faction];
+    let best = null, bestD = Infinity;
+    for (const t of state.entities) {
+      if (t === e || t.isDead || t.escaped || t.faction === e.faction) continue;
+      const dx = t.x - e.x, dz = t.z - e.z;
+      const d = Math.hypot(dx, dz);
+      if (d > cfg.attackRange) continue;
+      const facing = yawToward(dx, dz);
+      if (Math.abs(normalizeAngle(facing - e.yaw)) > Math.PI / 2.2) continue;
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    if (!best) return;
+    let dmg = cfg.attackDamage;
+    if (best.faction === 'killer' && best.isBlocking) dmg *= CONFIG.killer.blockDamageMul;
+    damageEntity(best, dmg);
+    if (e.isPlayer) flashCrosshair();
+  }
+
+  function performGrab(e) {
+    const { entity: target, dist } = nearestLivingSurvivor(e.x, e.z, true);
+    if (!target || dist > CONFIG.cannibal.grabRange) return;
+    target.isGrabbed = true;
+    target.grabbedBy = e;
+    e.carrying = target;
+  }
+
+  function placeOnAltar(e) {
+    const captive = e.carrying;
+    if (!captive) return;
+    e.carrying = null;
+    captive.x = state.altar.x; captive.z = state.altar.z;
+    captive.grabbedBy = null;
+    state.altar.captive = captive;
+    state.altar.timer = 0;
+  }
+
+  function rescueCaptive() {
+    const c = state.altar.captive;
+    if (!c) return;
+    c.isGrabbed = false;
+    c.grabbedBy = null;
+    state.altar.captive = null;
+    state.altar.timer = 0;
+  }
+
+  function damageEntity(target, dmg) {
+    target.hp -= dmg;
+    target.hitFlash = 0.15;
+    if (target.isPlayer) triggerDamageFlash();
+    if (target.hp <= 0 && !target.isDead) {
+      target.isDead = true;
+      target.hp = 0;
+      if (target.isGrabbed) {
+        if (target.grabbedBy) target.grabbedBy.carrying = null;
+        if (state.altar.captive === target) { state.altar.timer = 0; state.altar.captive = null; }
+      }
+      checkWinConditions();
+    }
+  }
+
+  function applyInteract(e, dt) {
+    if (e.faction !== 'survivor') return;
+
+    if (e.interactHeld) {
+      for (const g of state.generators) {
+        if (g.done) continue;
+        if (Math.hypot(g.x - e.x, g.z - e.z) <= INTERACT_RANGE) {
+          g.progress += dt;
+          if (g.progress >= g.required) { g.done = true; state.generatorsDone++; }
+          break;
+        }
+      }
+    }
+
+    if (e.interactPressed && state.altar.captive && state.altar.captive !== e) {
+      if (Math.hypot(state.altar.x - e.x, state.altar.z - e.z) <= INTERACT_RANGE + state.altar.r) {
+        rescueCaptive();
+      }
+    }
+  }
+
+  function checkEscape(e) {
+    if (e.faction !== 'survivor' || e.isDead || e.escaped || e.isGrabbed) return;
+    if (state.generatorsDone < GENERATORS_REQUIRED) return;
+    const g = state.gate;
+    if (Math.abs(e.x - g.x) <= g.halfW && Math.abs(e.z - g.z) <= 2.5) {
+      e.escaped = true;
+      state.survivorsEscaped++;
+      checkWinConditions();
+    }
+  }
+
+  function checkAltarHandoff(e) {
+    if (e.faction !== 'cannibal' || !e.carrying) return;
+    if (Math.hypot(state.altar.x - e.x, state.altar.z - e.z) <= state.altar.r + 0.6) {
+      placeOnAltar(e);
+    }
+  }
+
+  function applyEntity(e, dt) {
+    if (e.isDead || e.escaped) return;
+
+    e.cdAttack = Math.max(0, e.cdAttack - dt);
+    e.cdGrab = Math.max(0, e.cdGrab - dt);
+    e.hitFlash = Math.max(0, e.hitFlash - dt);
+
+    if (e.isGrabbed) {
+      if (e.grabbedBy) {
+        const carrier = e.grabbedBy;
+        const f = forwardVector(carrier.yaw);
+        e.x = carrier.x - f.x * 0.7;
+        e.z = carrier.z - f.z * 0.7;
+      }
+    } else {
+      const cfg = CONFIG[e.faction];
+      let speed = cfg.speed;
+      if (e.faction === 'killer' && e.isBlocking) speed *= cfg.blockSpeedMul;
+      else if (e.sprinting) speed *= cfg.sprintMul;
+
+      const mv = Math.hypot(e.moveX, e.moveZ);
+      if (mv > 0.001) {
+        const f = forwardVector(e.yaw), r = rightVector(e.yaw);
+        const nx = e.moveX / mv, nz = e.moveZ / mv;
+        const dirX = f.x * nz + r.x * nx, dirZ = f.z * nz + r.z * nx;
+        moveWithCollision(e, dirX * speed * dt, dirZ * speed * dt);
+      }
+    }
+
+    if (e.wantsAttack && e.cdAttack <= 0 && (e.faction === 'cannibal' || e.faction === 'killer')) {
+      performAttack(e);
+      e.cdAttack = CONFIG[e.faction].attackCooldown;
+    }
+    e.wantsAttack = false;
+
+    if (e.wantsGrab && e.cdGrab <= 0 && e.faction === 'cannibal' && !e.carrying) {
+      performGrab(e);
+      e.cdGrab = CONFIG.cannibal.grabCooldown;
+    }
+    e.wantsGrab = false;
+
+    applyInteract(e, dt);
+    checkEscape(e);
+    checkAltarHandoff(e);
+  }
+
+  // ---------------------------------------------------------------------
+  // win / lose
+  // ---------------------------------------------------------------------
+
+  const RESULT_COPY = {
+    survivors: { title: 'Выжившие ушли', sub: 'Кто-то добрался до дороги живым.', color: 'var(--survivor)' },
+    cannibals: { title: 'Секта победила', sub: 'Ни один турист не ушёл с базы.', color: 'var(--cannibal)' },
+    killers: { title: 'Вожак мёртв', sub: 'Ритуалы секты прерваны.', color: 'var(--killer)' },
+  };
+
+  function checkWinConditions() {
+    if (state.mode !== 'playing') return;
+    if (state.leader && state.leader.isDead) return endGame('killers');
+    if (state.survivorsEscaped >= state.requiredEscape) return endGame('survivors');
+    const anyAlive = state.entities.some(e => e.faction === 'survivor' && !e.isDead && !e.escaped);
+    if (!anyAlive) return endGame('cannibals');
+  }
+
+  function endGame(result) {
+    state.mode = 'ended';
+    state.result = result;
+    const c = RESULT_COPY[result];
+    endTitle.textContent = c.title;
+    endTitle.style.color = c.color;
+    endSub.textContent = c.sub;
+    hudOverlay.classList.add('hidden');
+    crosshair.classList.add('hidden');
+    pauseHint.classList.remove('show');
+    endOverlay.classList.remove('hidden');
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+  }
+
+  // ---------------------------------------------------------------------
+  // hud / fx
+  // ---------------------------------------------------------------------
+
+  let flashTimer = 0;
+  function flashCrosshair() { flashTimer = 0.1; }
+
+  function triggerDamageFlash() {
+    damageFlash.classList.remove('show');
+    void damageFlash.offsetWidth;
+    damageFlash.classList.add('show');
+    requestAnimationFrame(() => damageFlash.classList.remove('show'));
+  }
+
+  function computePrompt(p) {
+    if (p.isDead) return 'Вы мертвы.';
+    if (p.isGrabbed) return 'Вас схватили — ждите спасения...';
+    if (p.faction === 'survivor') {
+      for (const g of state.generators) {
+        if (!g.done && Math.hypot(g.x - p.x, g.z - p.z) <= INTERACT_RANGE) return '[E] Чинить генератор';
+      }
+      if (state.altar.captive && state.altar.captive !== p &&
+          Math.hypot(state.altar.x - p.x, state.altar.z - p.z) <= INTERACT_RANGE + state.altar.r) {
+        return '[E] Спасти пленника';
+      }
+      if (state.generatorsDone >= GENERATORS_REQUIRED) return 'Ворота открыты — беги к дороге!';
+      return '';
+    }
+    if (p.faction === 'cannibal') return p.carrying ? 'Тащи пленника к алтарю' : '[ЛКМ] Атака · [ПКМ] Схватить';
+    if (p.faction === 'killer') return p.isBlocking ? 'Блок' : '[ЛКМ] Атака · [ПКМ] Блок';
+    return '';
+  }
+
+  function updateHud() {
+    if (state.mode !== 'playing' || !state.player) return;
+    const p = state.player;
+    hudHealthFill.style.width = Math.max(0, (p.hp / p.maxHp) * 100) + '%';
+    hudGenCount.textContent = state.generatorsDone + '/' + GENERATORS_REQUIRED;
+    hudPrompt.textContent = computePrompt(p);
+  }
+
+  // ---------------------------------------------------------------------
+  // render sync
+  // ---------------------------------------------------------------------
+
+  function syncEntityMeshes(dt) {
+    for (const e of state.entities) {
+      if (!e.mesh) continue; // the human player has no self-mesh (first person)
+      const g = e.mesh.group;
+      if (e.escaped) { g.visible = false; continue; }
+      g.visible = true;
+
+      if (e.isDead) {
+        g.position.set(e.x, 0.2, e.z);
+        g.rotation.set(0, e.yaw, Math.PI / 2);
+      } else {
+        g.position.set(e.x, 0, e.z);
+        g.rotation.set(0, e.yaw, 0);
+      }
+
+      const flashLit = e.hitFlash > 0;
+      e.mesh.bodyMat.emissive.setHex(flashLit ? 0xffffff : (e.isGrabbed ? 0x660000 : 0x000000));
+      e.mesh.bodyMat.emissiveIntensity = flashLit ? 0.9 : (e.isGrabbed ? Math.abs(Math.sin(performance.now() / 120)) * 0.6 : 0);
+
+      e.mesh.healthBar.visible = !e.isDead;
+      e.mesh.healthBar.scale.x = 0.7 * Math.max(0, e.hp / e.maxHp);
+    }
+
+    if (flashlight) flashlight.intensity = state.player.flashlightOn ? 1.5 : 0;
+    if (flashTimer > 0) { flashTimer -= dt; }
+  }
+
+  // ---------------------------------------------------------------------
+  // main loop
+  // ---------------------------------------------------------------------
+
+  let lastTs = 0;
+  function frame(ts) {
+    const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0);
+    lastTs = ts;
+
+    if (state.mode === 'playing') {
+      updatePlayerInput(dt);
+      rig.position.set(state.player.x, 0, state.player.z);
+
+      for (const e of state.entities) if (!e.isPlayer) updateBotAI(e, dt);
+      for (const e of state.entities) applyEntity(e, dt);
+      rig.position.set(state.player.x, 0, state.player.z);
+
+      const bob = state.player.moveX || state.player.moveZ ? Math.sin(ts / 140) * 0.03 : 0;
+      camera.position.y = EYE_HEIGHT + bob;
+
+      if (state.altar.captive) {
+        state.altar.timer += dt;
+        if (state.altar.timer >= SACRIFICE_TIME) damageEntity(state.altar.captive, 9999);
+      }
+
+      syncObjectiveVisuals(state);
+      syncEntityMeshes(dt);
+      updateHud();
+    }
+
+    resize();
+    renderer.render(scene, camera);
+
+    keysPrev = new Set(keys);
+    mouseButtonsPrev = new Set(mouseButtons);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---------------------------------------------------------------------
+  // menu wiring
+  // ---------------------------------------------------------------------
+
+  document.querySelectorAll('.totem[data-faction]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      spawnMatch(btn.dataset.faction);
+      menuOverlay.classList.add('hidden');
+      endOverlay.classList.add('hidden');
+      hudOverlay.classList.remove('hidden');
+      crosshair.classList.remove('hidden');
+      pitch = 0; camera.rotation.x = 0;
+      rig.rotation.y = state.player.yaw;
+      canvas.focus();
+      canvas.requestPointerLock();
+    });
+  });
+
+  document.getElementById('restart-btn').addEventListener('click', () => {
+    endOverlay.classList.add('hidden');
+    menuOverlay.classList.remove('hidden');
+    state.mode = 'menu';
+  });
+
+  pauseHint.addEventListener('click', () => { if (state.mode === 'playing') canvas.requestPointerLock(); });
+
+  window.__wolfState = state; // debug hooks for iterating on this prototype
+  window.__wolfRig = rig;
+})();
+</script>
+</body>
+</html>
