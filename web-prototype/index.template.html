@@ -91,6 +91,7 @@
     background: radial-gradient(ellipse at 50% 40%, rgba(20,18,12,0.94) 0%, rgba(6,6,4,0.98) 75%);
   }
   .overlay.hidden { display: none; }
+  .hidden { display: none !important; }
 
   .overlay h1 {
     font-family: var(--font-display);
@@ -254,19 +255,11 @@
   }
   #damage-flash.show { opacity: 1; transition: none; }
 
-  #pause-hint {
-    position: absolute;
-    inset: 0;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    background: rgba(6,6,4,0.75);
-    color: var(--ink);
-    font-size: 15px;
-    letter-spacing: 0.04em;
-    cursor: pointer;
+  .totem:disabled {
+    opacity: 0.4;
+    cursor: default;
+    pointer-events: none;
   }
-  #pause-hint.show { display: flex; }
 
   footer {
     color: var(--ink-dim);
@@ -299,26 +292,25 @@
       <div id="hud-prompt"></div>
     </div>
 
-    <div id="pause-hint"><div>Курсор освобождён — щёлкни, чтобы вернуться в игру</div></div>
-
     <div id="menu" class="overlay">
       <h1>Турбаза «Волк»</h1>
       <p class="lede">Секта каннибалов захватила базу этой ночью. Выбери, за кого играть.</p>
       <div class="totems">
-        <button class="totem" data-faction="survivor">
+        <button class="totem" data-faction="survivor" disabled>
           <span class="totem-role">Выживший</span>
           <span class="totem-desc">Почини три генератора и уйди по дороге, пока тебя не поймали.</span>
         </button>
-        <button class="totem" data-faction="cannibal">
+        <button class="totem" data-faction="cannibal" disabled>
           <span class="totem-role">Секта</span>
           <span class="totem-desc">Ты — Вожак. Лови туристов и приноси их в жертву на алтаре.</span>
         </button>
-        <button class="totem" data-faction="killer">
+        <button class="totem" data-faction="killer" disabled>
           <span class="totem-role">Охотник</span>
           <span class="totem-desc">Пробейся через культистов и убей их Вожака.</span>
         </button>
       </div>
-      <p class="controls">Клик — захватить курсор · мышь — обзор · WASD — движение · Shift — бег · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший) · Esc — отпустить курсор</p>
+      <p id="loading-hint" class="controls">Загрузка моделей...</p>
+      <p class="controls">Мышь к краю экрана — поворот камеры · WASD — движение · Shift — бег · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший)</p>
     </div>
 
     <div id="end" class="overlay hidden">
@@ -330,12 +322,27 @@
     </div>
   </div>
 
-  <footer>Браузерный прототип от первого лица — веб-версия наброска, параллельно с Unity-проектом. Арт/звук ещё не сделаны, тела — временные примитивы.</footer>
+  <footer>Браузерный прототип от первого лица — веб-версия наброска, параллельно с Unity-проектом. Персонажи — риг Soldier из примеров three.js, перекрашен по фракциям; окружение и звук ещё не сделаны.</footer>
 
 <script>
 /* three.js r128 — https://github.com/mrdoob/three.js, MIT license, inlined so this
    page has zero external requests. Vendored, not authored here. */
 <!--THREE_JS_SOURCE-->
+</script>
+<script>
+/* THREE.GLTFLoader (examples/js/loaders/GLTFLoader.js, r128) — same license/origin as three.js above. */
+<!--GLTFLOADER_JS_SOURCE-->
+</script>
+<script>
+/* THREE.SkeletonUtils (examples/js/utils/SkeletonUtils.js, r128) — needed to clone the same
+   skinned rig multiple times (one clone per bot) without the clones sharing one skeleton. */
+<!--SKELETONUTILS_JS_SOURCE-->
+</script>
+<script>
+/* Vendored glTF character rig, base64-inlined so the page makes zero network requests.
+   Soldier.glb — a free Mixamo-sourced example model shipped in the three.js repo
+   (examples/models/gltf/), same MIT-licensed project as three.js itself. */
+window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
 </script>
 <script>
 (() => {
@@ -354,6 +361,19 @@
     cannibal: 0xc23b3b,
     leader: 0xb23fb0,
     killer: 0x4f8fd1,
+  };
+
+  // One real rigged model (Soldier) stands in for all three factions, told
+  // apart by tint + scale. A second model (Xbot) was tried for Survivors —
+  // dropped after THREE.SkeletonUtils.clone() produced a corrupted skin on
+  // it specifically (confirmed by hiding meshes one at a time in testing);
+  // Soldier clones correctly, so every faction uses it rather than risk the
+  // same corruption recurring.
+  const MODEL_FOR_FACTION = { survivor: 'soldier', cannibal: 'soldier', killer: 'soldier' };
+  const MODEL_SCALE = { soldier: 1 }; // native scale already composes to real-world size — measured via THREE.Box3, not assumed
+  const MODEL_YAW_OFFSET = { soldier: Math.PI };
+  const ANIM_NAMES = {
+    soldier: { idle: 'Idle', walk: 'Walk', run: 'Run', captive: 'Idle' },
   };
 
   const CONFIG = {
@@ -424,7 +444,7 @@
   const endSub = document.getElementById('end-sub');
   const crosshair = document.getElementById('crosshair');
   const damageFlash = document.getElementById('damage-flash');
-  const pauseHint = document.getElementById('pause-hint');
+  const loadingHint = document.getElementById('loading-hint');
 
   // ---------------------------------------------------------------------
   // three.js scene
@@ -457,6 +477,24 @@
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize);
+
+  // ---------------------------------------------------------------------
+  // vendored character models
+  // ---------------------------------------------------------------------
+
+  const ASSETS = { soldier: null };
+
+  function base64ToArrayBuffer(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  function loadModels(onDone) {
+    const gltfLoader = new THREE.GLTFLoader();
+    gltfLoader.parse(base64ToArrayBuffer(window.__ASSET_SOLDIER_B64), '', gltf => { ASSETS.soldier = gltf; onDone(); }, err => { console.error('Soldier load failed', err); onDone(); });
+  }
 
   // ground
   {
@@ -585,8 +623,14 @@
 
   let keys = new Set(), keysPrev = new Set();
   let mouseButtons = new Set(), mouseButtonsPrev = new Set();
-  let mouseDX = 0, mouseDY = 0;
-  let pointerLocked = false;
+
+  // Pointer Lock needs a permission the Artifact's sandboxed iframe doesn't
+  // grant (it silently no-ops there), so look is driven by cursor position
+  // instead: how far the cursor sits from the canvas centre sets a turn
+  // *speed* (like a flight-stick), not an absolute angle. Deadzone near the
+  // middle for fine aim, faster turning toward the edges, full 360° reachable
+  // by parking the cursor at an edge. Needs no browser permission at all.
+  let mouseNormX = 0, mouseNormY = 0;
 
   const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyF', 'ShiftLeft', 'ShiftRight'];
   window.addEventListener('keydown', e => {
@@ -595,17 +639,12 @@
   });
   window.addEventListener('keyup', e => keys.delete(e.code));
 
-  canvas.addEventListener('click', () => {
-    if (state.mode === 'playing' && document.pointerLockElement !== canvas) canvas.requestPointerLock();
+  window.addEventListener('mousemove', e => {
+    const rect = canvas.getBoundingClientRect();
+    mouseNormX = clamp(((e.clientX - rect.left) / rect.width) * 2 - 1, -1, 1);
+    mouseNormY = clamp(((e.clientY - rect.top) / rect.height) * 2 - 1, -1, 1);
   });
-  document.addEventListener('pointerlockchange', () => {
-    pointerLocked = document.pointerLockElement === canvas;
-    pauseHint.classList.toggle('show', state.mode === 'playing' && !pointerLocked);
-  });
-  document.addEventListener('mousemove', e => {
-    if (pointerLocked) { mouseDX += e.movementX || 0; mouseDY += e.movementY || 0; }
-  });
-  canvas.addEventListener('mousedown', e => { mouseButtons.add(e.button); e.preventDefault(); });
+  canvas.addEventListener('mousedown', e => { mouseButtons.add(e.button); e.preventDefault(); canvas.focus(); });
   window.addEventListener('mouseup', e => mouseButtons.delete(e.button));
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -665,37 +704,59 @@
   }
 
   function buildEntityMesh(e) {
+    const modelKey = MODEL_FOR_FACTION[e.faction];
+    const src = ASSETS[modelKey];
     const group = new THREE.Group();
-    const bodyColor = FACTION_COLOR[e.faction];
-    const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.85 });
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.42, 1.4, 10), bodyMat);
-    body.position.y = 0.7;
-    group.add(body);
 
-    const headColor = e.isLeader ? FACTION_COLOR.leader : bodyColor;
-    const headMat = new THREE.MeshStandardMaterial({ color: headColor, emissive: headColor, emissiveIntensity: 0.8 });
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8), headMat);
-    head.position.y = 1.55;
-    group.add(head);
+    const charRig = THREE.SkeletonUtils.clone(src.scene);
+    charRig.scale.setScalar(MODEL_SCALE[modelKey]);
+    charRig.rotation.y = MODEL_YAW_OFFSET[modelKey];
+    if (e.isLeader) charRig.scale.multiplyScalar(1.12); // the boss reads as bigger, not just differently colored
+
+    const tintColor = e.isLeader ? FACTION_COLOR.leader : FACTION_COLOR[e.faction];
+    const materials = [];
+    charRig.traverse(node => {
+      if (node.isMesh) {
+        node.material = node.material.clone();
+        node.material.emissive = new THREE.Color(tintColor);
+        node.material.emissiveIntensity = 0.18;
+        node.material.color.lerp(new THREE.Color(tintColor), 0.16);
+        node.frustumCulled = false;
+        materials.push(node.material);
+      }
+    });
+    group.add(charRig);
+
+    const mixer = new THREE.AnimationMixer(charRig);
+    const actions = {};
+    for (const clip of src.animations) actions[clip.name] = mixer.clipAction(clip);
 
     if (e.isLeader) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.04, 6, 24), new THREE.MeshBasicMaterial({ color: FACTION_COLOR.leader }));
       ring.rotation.x = Math.PI / 2;
-      ring.position.y = 2.05;
+      ring.position.y = 2.15;
       group.add(ring);
     }
 
     const healthBar = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xff5050, transparent: true }));
-    healthBar.position.y = 2.0;
+    healthBar.position.y = 2.05;
     healthBar.scale.set(0.7, 0.09, 1);
     group.add(healthBar);
 
-    const carryPoint = new THREE.Object3D();
-    carryPoint.position.set(0, 1.25, -0.55);
-    group.add(carryPoint);
-
     scene.add(group);
-    e.mesh = { group, body, head, bodyMat, headMat, healthBar, carryPoint };
+    e.mesh = { group, charRig, materials, mixer, actions, modelKey, currentAnimName: null, healthBar };
+  }
+
+  function fadeToAction(mesh, animName, duration) {
+    const names = ANIM_NAMES[mesh.modelKey];
+    const clipName = names[animName] || names.idle;
+    const nextAction = mesh.actions[clipName];
+    if (!nextAction || mesh.currentAnimName === animName) return;
+    const prevClipName = mesh.currentAnimName ? names[mesh.currentAnimName] : null;
+    const prevAction = prevClipName ? mesh.actions[prevClipName] : null;
+    mesh.currentAnimName = animName;
+    nextAction.reset().setEffectiveWeight(1).play();
+    if (prevAction && prevAction !== nextAction) nextAction.crossFadeFrom(prevAction, duration, true);
   }
 
   function spawnMatch(faction) {
@@ -815,17 +876,23 @@
   // ---------------------------------------------------------------------
 
   const PITCH_LIMIT = 1.4;
+  const LOOK_DEADZONE = 0.15;
+  const LOOK_SPEED = 2.6; // rad/s at full cursor deflection
   let pitch = 0;
+
+  function lookAxis(v) {
+    if (Math.abs(v) < LOOK_DEADZONE) return 0;
+    const sign = Math.sign(v);
+    return sign * (Math.abs(v) - LOOK_DEADZONE) / (1 - LOOK_DEADZONE);
+  }
 
   function updatePlayerInput(dt) {
     const p = state.player;
     if (!p) return;
 
-    const sens = 0.0022;
-    rig.rotation.y -= mouseDX * sens;
-    pitch = clamp(pitch - mouseDY * sens, -PITCH_LIMIT, PITCH_LIMIT);
+    rig.rotation.y -= lookAxis(mouseNormX) * LOOK_SPEED * dt;
+    pitch = clamp(pitch - lookAxis(mouseNormY) * LOOK_SPEED * dt, -PITCH_LIMIT, PITCH_LIMIT);
     camera.rotation.x = pitch;
-    mouseDX = 0; mouseDY = 0;
     p.yaw = rig.rotation.y;
 
     if (p.isDead || p.escaped) return;
@@ -1095,9 +1162,7 @@
     endSub.textContent = c.sub;
     hudOverlay.classList.add('hidden');
     crosshair.classList.add('hidden');
-    pauseHint.classList.remove('show');
     endOverlay.classList.remove('hidden');
-    if (document.pointerLockElement === canvas) document.exitPointerLock();
   }
 
   // ---------------------------------------------------------------------
@@ -1158,11 +1223,20 @@
       } else {
         g.position.set(e.x, 0, e.z);
         g.rotation.set(0, e.yaw, 0);
+
+        const moving = Math.hypot(e.moveX, e.moveZ) > 0.05 && !e.isGrabbed;
+        const desiredAnim = e.isGrabbed ? 'captive' : (!moving ? 'idle' : (e.sprinting ? 'run' : 'walk'));
+        fadeToAction(e.mesh, desiredAnim, 0.2);
+        e.mesh.mixer.update(dt);
       }
 
       const flashLit = e.hitFlash > 0;
-      e.mesh.bodyMat.emissive.setHex(flashLit ? 0xffffff : (e.isGrabbed ? 0x660000 : 0x000000));
-      e.mesh.bodyMat.emissiveIntensity = flashLit ? 0.9 : (e.isGrabbed ? Math.abs(Math.sin(performance.now() / 120)) * 0.6 : 0);
+      const grabPulse = e.isGrabbed ? Math.abs(Math.sin(performance.now() / 120)) * 0.5 : 0;
+      for (const mat of e.mesh.materials) {
+        if (flashLit) { mat.emissive.setHex(0xffffff); mat.emissiveIntensity = 0.9; }
+        else if (e.isGrabbed) { mat.emissive.setHex(0x990000); mat.emissiveIntensity = grabPulse; }
+        else { mat.emissive.setHex(e.isLeader ? FACTION_COLOR.leader : FACTION_COLOR[e.faction]); mat.emissiveIntensity = 0.18; }
+      }
 
       e.mesh.healthBar.visible = !e.isDead;
       e.mesh.healthBar.scale.x = 0.7 * Math.max(0, e.hp / e.maxHp);
@@ -1202,13 +1276,13 @@
       updateHud();
     }
 
-    resize();
     renderer.render(scene, camera);
 
     keysPrev = new Set(keys);
     mouseButtonsPrev = new Set(mouseButtons);
     requestAnimationFrame(frame);
   }
+  resize();
   requestAnimationFrame(frame);
 
   // ---------------------------------------------------------------------
@@ -1225,7 +1299,6 @@
       pitch = 0; camera.rotation.x = 0;
       rig.rotation.y = state.player.yaw;
       canvas.focus();
-      canvas.requestPointerLock();
     });
   });
 
@@ -1235,10 +1308,15 @@
     state.mode = 'menu';
   });
 
-  pauseHint.addEventListener('click', () => { if (state.mode === 'playing') canvas.requestPointerLock(); });
+  loadModels(() => {
+    loadingHint.classList.add('hidden');
+    document.querySelectorAll('.totem[data-faction]').forEach(btn => btn.disabled = false);
+  });
 
   window.__wolfState = state; // debug hooks for iterating on this prototype
   window.__wolfRig = rig;
+  window.__wolfCamera = camera;
+  window.__wolfScene = scene;
 })();
 </script>
 </body>
