@@ -860,15 +860,22 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   let lookYawDelta = 0, lookPitchDelta = 0;   // Pointer-Lock mode: raw mouse delta since last frame
   let steerX = 0, steerY = 0; // fallback mode: cursor offset from screen centre, in [-1, 1]
 
-  const LOOK_SENS = 0.0024;   // radians per pixel (Pointer-Lock mode)
+  const LOOK_SENS = 0.0016;   // radians per pixel (Pointer-Lock mode)
   // Fallback (no Pointer Lock): position steering. The OS cursor can't spin
   // infinitely — it pins at the window edge and stops sending deltas, which is
   // why plain delta-look dies after a quarter turn. So instead the cursor's
-  // distance from centre sets a turn *speed*: push toward an edge and the view
-  // keeps turning (full 360° always reachable); centre the mouse to stop.
-  const STEER_DEADZONE = 0.05;
-  const STEER_YAW_SPEED = 3.4;    // rad/s at full horizontal deflection
-  const STEER_PITCH_SPEED = 2.4;  // rad/s at full vertical deflection
+  // distance from centre sets a turn *speed*: the further off-centre, the
+  // faster the view turns; centre the mouse to stop.
+  //
+  // STEER_RANGE is the key to not losing the cursor: max turn speed is reached
+  // at only 45% of the way to an edge, and it's clamped past that. So you never
+  // need to shove the cursor into a window edge (which, with no real lock, would
+  // let it escape the iframe — that was the "looking up frees the mouse" bug).
+  // Everything happens inside the central ~half of the screen.
+  const STEER_DEADZONE = 0.06;
+  const STEER_RANGE = 0.45;       // offset from centre at which turn speed maxes out
+  const STEER_YAW_SPEED = 2.1;    // rad/s at full deflection (was 3.4 — toned down)
+  const STEER_PITCH_SPEED = 1.5;  // rad/s at full deflection
 
   const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyF', 'ShiftLeft', 'ShiftRight', 'Space'];
   window.addEventListener('keydown', e => {
@@ -931,14 +938,18 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     steerX = clamp(((e.clientX - r.left) / r.width) * 2 - 1, -1, 1);
     steerY = clamp(((e.clientY - r.top) / r.height) * 2 - 1, -1, 1);
   });
+  // If the cursor slips out of the canvas anyway, stop turning (don't let the
+  // view spin off) — moving back in resumes steering.
+  canvas.addEventListener('mouseleave', () => { steerX = 0; steerY = 0; });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-  // Deadzone + eased response: gentle and precise near centre, fast at the edge.
+  // Deadzone, then ramp to full speed by STEER_RANGE (well before the edge),
+  // eased so it's gentle and precise near centre.
   function steerResponse(v) {
     const a = Math.abs(v);
     if (a < STEER_DEADZONE) return 0;
-    const t = (a - STEER_DEADZONE) / (1 - STEER_DEADZONE);
-    return Math.sign(v) * t * t;   // quadratic falloff
+    const t = clamp((a - STEER_DEADZONE) / (STEER_RANGE - STEER_DEADZONE), 0, 1);
+    return Math.sign(v) * t * t;   // quadratic ease-in
   }
 
   function keyHeld(code) { return keys.has(code); }
