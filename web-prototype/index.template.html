@@ -3,24 +3,27 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Турбаза «Волк»</title>
+<title>WOLF — ночной квартал</title>
 <style>
-  /* Deliberately single-theme: this is a fixed nocturnal horror scene,
-     the same way a neon arcade cabinet doesn't get a "daytime" mode. */
+  /* Deliberately single-theme: a fixed rain-slick cyberpunk night. Like a
+     neon arcade cabinet, it doesn't get a "daytime" mode. */
   :root {
-    --void: #0b0d0a;
-    --panel: #16150f;
-    --line: #332c1e;
-    --ink: #cfc2a0;
-    --ink-dim: #8c8367;
-    --blood: #9a2732;
-    --ember: #c9862f;
-    --survivor: #5ec26a;
-    --cannibal: #c23b3b;
-    --killer: #4f8fd1;
-    --leader: #b23fb0;
+    --void: #05060d;
+    --panel: #0b1022;
+    --line: #1d2a47;
+    --ink: #cfe6ff;
+    --ink-dim: #6f83a6;
+    --blood: #ff2d5e;
+    --ember: #00e5ff;          /* neon cyan — the accent / interact color */
+    --neon-magenta: #ff2d95;
+    --neon-cyan: #00e5ff;
+    --neon-yellow: #f4e04d;
+    --survivor: #46d6c4;       /* Жертва — холодный бирюзовый */
+    --cannibal: #ff2d6a;       /* Кибер-псих — раскалённый красный */
+    --killer: #7fe081;         /* Наёмник — тактический зелёный */
+    --leader: #c04cff;         /* Альфа — неоновый фиолет */
 
-    --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif;
+    --font-display: 'Rajdhani', 'Segoe UI', system-ui, -apple-system, sans-serif;
     --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
   }
@@ -86,7 +89,7 @@
     left: 50%; top: 50%;
     width: 340px; height: 180px;
     transform: translate(-50%, -50%);
-    background: radial-gradient(ellipse, rgba(201,134,47,0.20) 0%, rgba(201,134,47,0) 70%);
+    background: radial-gradient(ellipse, rgba(0,229,255,0.20) 0%, rgba(255,45,149,0.10) 45%, rgba(0,229,255,0) 72%);
     z-index: -1;
     pointer-events: none;
   }
@@ -118,7 +121,7 @@
   .totem {
     width: 220px;
     padding: 18px 16px;
-    background: linear-gradient(180deg, #1c1a13, #131209);
+    background: linear-gradient(180deg, #101a33, #080d1c);
     border: 1px solid var(--line);
     border-radius: 3px;
     color: var(--ink);
@@ -133,7 +136,7 @@
   .totem:hover, .totem:focus-visible {
     border-color: var(--ember);
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(201,134,47,0.15);
+    box-shadow: 0 8px 28px rgba(0,229,255,0.22);
     outline: none;
   }
   .totem-role {
@@ -218,8 +221,8 @@
     width: 5px; height: 5px;
     margin: -2.5px 0 0 -2.5px;
     border-radius: 50%;
-    background: rgba(230,220,190,0.95);
-    box-shadow: 0 0 0 2px rgba(0,0,0,0.45), 0 0 6px rgba(0,0,0,0.9);
+    background: rgba(210,244,255,0.95);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.45), 0 0 6px rgba(0,229,255,0.7);
     pointer-events: none;
   }
   #crosshair.hidden { display: none; }
@@ -233,7 +236,7 @@
   #damage-flash {
     position: absolute;
     inset: 0;
-    background: radial-gradient(ellipse at center, rgba(154,39,50,0) 40%, rgba(154,39,50,0.55) 100%);
+    background: radial-gradient(ellipse at center, rgba(255,45,94,0) 40%, rgba(255,45,94,0.6) 100%);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.35s ease;
@@ -311,6 +314,51 @@
     text-align: center;
     margin-top: 6px;
   }
+
+  .title-sub {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: clamp(11px, 1.6vw, 15px);
+    letter-spacing: 0.32em;
+    color: var(--neon-magenta);
+    text-transform: uppercase;
+    margin-top: 8px;
+  }
+
+  .totem-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 2px 6px;
+    align-self: flex-start;
+  }
+  .totem[data-faction="survivor"] .totem-tag { color: var(--survivor); border-color: rgba(70,214,196,0.35); }
+  .totem[data-faction="cannibal"] .totem-tag { color: var(--cannibal); border-color: rgba(255,45,106,0.35); }
+  .totem[data-faction="killer"] .totem-tag { color: var(--killer); border-color: rgba(127,224,129,0.35); }
+
+  .hud-sub {
+    font-size: 12px;
+    color: var(--ember);
+    letter-spacing: 0.06em;
+    min-height: 1.2em;
+    text-shadow: 0 0 6px rgba(0,229,255,0.4);
+  }
+
+  .menu-back {
+    background: none;
+    border: none;
+    color: var(--ink-dim);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    padding: 6px 10px;
+  }
+  .menu-back:hover, .menu-back:focus-visible { color: var(--ember); outline: none; }
 </style>
 </head>
 <body>
@@ -328,9 +376,10 @@
         <div class="hud-left">
           <div class="hud-label">Здоровье</div>
           <div class="hud-bar"><div id="hud-health-fill" class="hud-bar-fill"></div></div>
+          <div id="hud-sub" class="hud-sub"></div>
         </div>
         <div class="hud-right">
-          <div class="hud-label">Генераторы</div>
+          <div class="hud-label" id="hud-obj-label">Узлы</div>
           <div id="hud-gen-count" class="hud-value">0/3</div>
         </div>
       </div>
@@ -338,24 +387,34 @@
     </div>
 
     <div id="menu" class="overlay">
-      <h1>Турбаза «Волк»</h1>
-      <p class="lede">Секта каннибалов захватила базу этой ночью. Выбери, за кого играть.</p>
+      <h1>WOLF<span class="title-sub">// ночной квартал</span></h1>
+      <p class="lede">Корпоративный район под дождём и неоном. Импланты свели психов с ума. Выбери сторону.</p>
       <div class="totems">
         <button class="totem" data-faction="survivor">
-          <span class="totem-role">Выживший</span>
-          <span class="totem-desc">Почини три генератора и уйди по дороге, пока тебя не поймали.</span>
+          <span class="totem-tag">Outlast · без оружия</span>
+          <span class="totem-role">Жертва</span>
+          <span class="totem-desc">Взломай три узла и уйди из квартала, пока тебя не выследили. Бежать и прятаться — всё, что у тебя есть.</span>
         </button>
         <button class="totem" data-faction="cannibal">
-          <span class="totem-role">Секта</span>
-          <span class="totem-desc">Ты — Вожак. Лови туристов и приноси их в жертву на алтаре.</span>
+          <span class="totem-tag">Реверсивный хоррор</span>
+          <span class="totem-role">Кибер-псих</span>
+          <span class="totem-desc">Ты — Альфа. Выследи жертв и утащи их на имплант-стол, пока не сбежали. Берегись наёмников.</span>
         </button>
         <button class="totem" data-faction="killer">
-          <span class="totem-role">Охотник</span>
-          <span class="totem-desc">Пробейся через культистов и убей их Вожака.</span>
+          <span class="totem-tag">Ready or Not · стелс</span>
+          <span class="totem-role">Наёмник</span>
+          <span class="totem-desc">Проберись через психов и вырежи Альфу. Ближний бой, удар в спину, метательные ножи.</span>
         </button>
       </div>
-      <p class="controls">Мышь — осмотреться · WASD — движение · Shift — бег · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший)</p>
-      <p class="menu-note">Браузерный прототип от первого лица, параллельно с Unity-проектом. Персонажи — риг Soldier из примеров three.js, перекрашен по фракциям.</p>
+      <p class="controls">Мышь — осмотреться · WASD — движение · Shift — бег · C — присед · ЛКМ — атака/захват · ПКМ — блок (наёмник)/захват (псих) · Q — метнуть нож · E — взаимодействие · F — фонарь</p>
+      <p class="menu-note">Браузерный прототип от первого лица, параллельно с Unity-проектом. Персонаж — риг Soldier из примеров three.js, перекрашен по фракциям.</p>
+    </div>
+
+    <div id="charselect" class="overlay hidden">
+      <h1 id="charselect-title">Персонаж</h1>
+      <p class="lede" id="charselect-lede"></p>
+      <div class="totems" id="charselect-cards"></div>
+      <button id="charselect-back" class="menu-back">← назад к сторонам</button>
     </div>
 
     <div id="end" class="overlay hidden">
@@ -400,11 +459,14 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   const EYE_HEIGHT = 1.62;
 
   const FACTION_COLOR = {
-    survivor: 0x5ec26a,
-    cannibal: 0xc23b3b,
-    leader: 0xb23fb0,
-    killer: 0x4f8fd1,
+    survivor: 0x46d6c4,   // Жертва — холодный бирюзовый
+    cannibal: 0xff2d6a,   // Кибер-псих — раскалённый красный
+    leader: 0xc04cff,     // Альфа — неоновый фиолет
+    killer: 0x7fe081,     // Наёмник — тактический зелёный
   };
+  // User-facing faction names. Internal keys stay survivor/cannibal/killer so
+  // the whole engine below (spawns, AI, win checks) is untouched by the re-theme.
+  const FACTION_NAME = { survivor: 'Жертва', cannibal: 'Кибер-псих', killer: 'Наёмник' };
 
   // One real rigged model (Soldier) stands in for all three factions, told
   // apart by tint + scale. A second model (Xbot) was tried for Survivors —
@@ -423,10 +485,42 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     survivor: { speed: 3.3, sprintMul: 1.7, hp: 60, visionLight: 0.55, visionRange: 7 },
     cannibal: { speed: 3.7, sprintMul: 1.45, hp: 100, visionLight: 0.8, visionRange: 10,
       attackRange: 2.2, attackDamage: 28, attackCooldown: 0.8,
-      grabRange: 2.0, grabCooldown: 3.5, senseRadius: 15 },
+      grabRange: 2.0, grabCooldown: 3.5, senseRadius: 15,
+      // A psycho also notices a mercenary who gets close, and much further if
+      // that merc is running or standing tall (see noise bonuses below).
+      killerAggroRadius: 5.5 },
     killer: { speed: 3.5, sprintMul: 1.55, hp: 150, visionLight: 0.8, visionRange: 10,
       attackRange: 2.5, attackDamage: 45, attackCooldown: 0.7,
-      blockSpeedMul: 0.4, blockDamageMul: 0.25 },
+      blockSpeedMul: 0.4, blockDamageMul: 0.25,
+      // Throwing knives: a small stock, high damage, short cooldown. Enough to
+      // drop a normal psycho outright; only chips the Alpha's deep HP pool.
+      knives: 3, throwDamage: 75, throwSpeed: 26, throwRange: 24, throwCooldown: 0.55 },
+  };
+
+  // Stealth / combat tuning shared across factions.
+  const CROUCH_SPEED_MUL = 0.5;   // crouch is quiet but slow
+  const STAND_EYE = EYE_HEIGHT;   // 1.62 standing
+  const CROUCH_EYE = 1.02;        // camera drops when crouched
+  const BACKSTAB_ARC = Math.PI / 2; // hit inside this cone behind a psycho = silent lethal takedown
+  const CROUCH_NOISE_MUL = 0.4;   // crouching shrinks how far psychos sense you
+  const KNIFE_HIT_RADIUS = 0.75;  // a flying knife connects within this of an entity
+  const KNIFE_EYE = 1.25;         // knives fly at chest height
+
+  // Playable characters within each side — a light roster. Each is a stat
+  // variant on its faction's base, applied to the player entity at spawn.
+  const CHARACTERS = {
+    survivor: [
+      { id: 'courier', name: 'Курьер', tag: 'скорость', desc: 'Быстрый и хрупкий. Живёт только за счёт ног.', speedMul: 1.12, hpMul: 0.85 },
+      { id: 'medtech', name: 'Медтех', tag: 'живучесть', desc: 'Медленнее, зато держится под погоней дольше.', speedMul: 0.95, hpMul: 1.25 },
+    ],
+    cannibal: [
+      { id: 'butcher', name: 'Мясник', tag: 'танк', desc: 'Ломится напролом, бьёт тяжело, но медленный.', speedMul: 0.92, hpMul: 1.15, dmgMul: 1.15 },
+      { id: 'mantis', name: 'Богомол', tag: 'скорость', desc: 'Быстрый, длинный замах, но хрупкий как стекло.', speedMul: 1.12, hpMul: 0.85, attackRangeAdd: 0.4 },
+    ],
+    killer: [
+      { id: 'blade', name: 'Клинок', tag: 'стелс · ножи', desc: 'Скорость и лишние ножи. Ставка на добивания.', speedMul: 1.1, hpMul: 0.85, knivesAdd: 2 },
+      { id: 'armor', name: 'Броня', tag: 'танк', desc: 'Медленный таран, держит удар и держит блок.', speedMul: 0.9, hpMul: 1.25, blockDamageMul: 0.15 },
+    ],
   };
 
   const GENERATORS_REQUIRED = 3;
@@ -482,6 +576,8 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   const hudOverlay = document.getElementById('hud');
   const hudHealthFill = document.getElementById('hud-health-fill');
   const hudGenCount = document.getElementById('hud-gen-count');
+  const hudSub = document.getElementById('hud-sub');
+  const hudObjLabel = document.getElementById('hud-obj-label');
   const hudPrompt = document.getElementById('hud-prompt');
   const endTitle = document.getElementById('end-title');
   const endSub = document.getElementById('end-sub');
@@ -507,10 +603,10 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x04060a);
-  // Exponential fog reads more like real volumetric night haze than linear, and
-  // hides the far treeline in murk so the world feels bigger and more menacing.
-  scene.fog = new THREE.FogExp2(0x05070c, 0.038);
+  scene.background = new THREE.Color(0x05060d);
+  // Exponential fog reads like real volumetric smog; a magenta-tinted night
+  // haze that swallows the far towers so the district feels endless.
+  scene.fog = new THREE.FogExp2(0x0a0714, 0.040);
 
   const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 80);
   camera.position.set(0, EYE_HEIGHT, 0);
@@ -519,23 +615,34 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   rig.add(camera);
   scene.add(rig);
 
-  // Very low cold ambient — the night is genuinely dark; the light you carry
-  // and the campfire are what you see by.
-  scene.add(new THREE.AmbientLight(0x1a2436, 0.32));
-  const moon = new THREE.DirectionalLight(0x4a5b7a, 0.28);
+  // Very low cold ambient — the night is genuinely dark; neon and the barrel
+  // fire are what you see by.
+  scene.add(new THREE.AmbientLight(0x14304a, 0.34));
+  const moon = new THREE.DirectionalLight(0x3f6f9a, 0.30);
   moon.position.set(-16, 26, -10);
   scene.add(moon);
+  // A low magenta fill from the opposite side — the district's neon spill
+  // bouncing off the smog, so nothing is lit from one direction only.
+  const cityGlow = new THREE.DirectionalLight(0xff2d95, 0.14);
+  cityGlow.position.set(18, 10, 14);
+  scene.add(cityGlow);
 
-  // Moon disc + hazy halo, high in the -Z sky, so looking up reads as night.
+  // A corporate holo-billboard hangs over the block instead of a moon —
+  // a magenta disc ringed by a cyan halo, high in the -Z sky, so looking up
+  // reads as a neon night rather than open country.
   {
-    const halo = new THREE.Mesh(new THREE.CircleGeometry(7, 40), new THREE.MeshBasicMaterial({ color: 0x6a7ba0, transparent: true, opacity: 0.10, fog: false }));
+    const halo = new THREE.Mesh(new THREE.CircleGeometry(9, 40), new THREE.MeshBasicMaterial({ color: 0x00e5ff, transparent: true, opacity: 0.09, fog: false }));
     halo.position.set(-30, 34, -60);
     halo.lookAt(0, EYE_HEIGHT, 0);
     scene.add(halo);
-    const moonDisc = new THREE.Mesh(new THREE.CircleGeometry(3.4, 40), new THREE.MeshBasicMaterial({ color: 0xcdd6e6, fog: false }));
-    moonDisc.position.set(-30, 34, -59.5);
-    moonDisc.lookAt(0, EYE_HEIGHT, 0);
-    scene.add(moonDisc);
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(3.4, 40), new THREE.MeshBasicMaterial({ color: 0xff2d95, transparent: true, opacity: 0.85, fog: false }));
+    disc.position.set(-30, 34, -59.5);
+    disc.lookAt(0, EYE_HEIGHT, 0);
+    scene.add(disc);
+    const discCore = new THREE.Mesh(new THREE.CircleGeometry(2.2, 40), new THREE.MeshBasicMaterial({ color: 0xffd0e6, transparent: true, opacity: 0.5, fog: false }));
+    discCore.position.set(-30, 34, -59.3);
+    discCore.lookAt(0, EYE_HEIGHT, 0);
+    scene.add(discCore);
   }
 
   let lastW = 0, lastH = 0;
@@ -582,30 +689,42 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   {
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(BOUNDS.maxX - BOUNDS.minX + 6, BOUNDS.maxZ - BOUNDS.minZ + 6),
-      new THREE.MeshStandardMaterial({ color: 0x141a10, roughness: 1 })
+      // wet asphalt — low roughness + a little metalness so the neon smears
+      // across the street the way rain-slick tarmac does.
+      new THREE.MeshStandardMaterial({ color: 0x0a0d16, roughness: 0.55, metalness: 0.25 })
     );
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
   }
 
-  // buildings
-  for (const b of BUILDINGS) {
+  // buildings — concrete blocks with a glowing neon trim near the roofline and
+  // a lit doorway facing the plaza. Collision is still their 2D footprint.
+  BUILDINGS.forEach((b, bi) => {
     const w = b.maxX - b.minX, d = b.maxZ - b.minZ;
     const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a2013, roughness: 0.9 });
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 2.6, d), wallMat);
-    wall.position.set(cx, 1.3, cz);
+    const H = 4.2;
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x11151f, roughness: 0.85, metalness: 0.15 });
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, H, d), wallMat);
+    wall.position.set(cx, H / 2, cz);
     scene.add(wall);
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.72, 1.4, 4), new THREE.MeshStandardMaterial({ color: 0x1c150c, roughness: 1 }));
-    roof.position.set(cx, 2.6 + 0.7, cz);
-    roof.rotation.y = Math.PI / 4;
-    scene.add(roof);
-  }
+    const neonHex = bi % 2 ? 0xff2d95 : 0x00e5ff;   // alternate magenta / cyan
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.06, 0.14, d + 0.06), new THREE.MeshBasicMaterial({ color: neonHex }));
+    trim.position.set(cx, H - 0.5, cz);
+    scene.add(trim);
+    const face = cz < 0 ? -1 : 1;                    // side that looks at the plaza
+    const sign = new THREE.PointLight(neonHex, 0.9, 12, 2);
+    sign.position.set(cx, H - 0.5, cz + face * (d / 2 + 0.4));
+    scene.add(sign);
+    const door = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1.8), new THREE.MeshBasicMaterial({ color: neonHex, transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
+    door.position.set(cx, 0.9, cz + face * (d / 2 + 0.02));
+    scene.add(door);
+  });
 
-  // treeline
+  // skyline — dark tower slabs crowd the perimeter instead of a treeline, some
+  // with lit neon window strips, so the plaza reads as boxed in by a city.
+  // They sit outside BOUNDS, pure backdrop the player is clamped away from.
   {
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x1c150e, roughness: 1 });
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x111d12, roughness: 1 });
+    const slabMat = new THREE.MeshStandardMaterial({ color: 0x0a0e18, roughness: 1 });
     const rng = mulberry32(1337);
     for (let i = 0; i < 46; i++) {
       const edge = Math.floor(rng() * 4);
@@ -615,13 +734,17 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
       else if (edge === 2) { z = BOUNDS.minZ - 1 + rng() * 3; x = BOUNDS.minX + rng() * (BOUNDS.maxX - BOUNDS.minX); }
       else { z = BOUNDS.maxZ + 1 - rng() * 3; x = BOUNDS.minX + rng() * (BOUNDS.maxX - BOUNDS.minX); }
       if (Math.abs(x) < 5 && z > BOUNDS.maxZ - 4) continue; // keep the gate clear
-      const h = 3 + rng() * 3;
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, h * 0.4, 6), trunkMat);
-      trunk.position.set(x, h * 0.2, z);
-      scene.add(trunk);
-      const leaf = new THREE.Mesh(new THREE.ConeGeometry(1.1, h, 7), leafMat);
-      leaf.position.set(x, h * 0.4 + h * 0.5, z);
-      scene.add(leaf);
+      const h = 6 + rng() * 12;
+      const bw = 1.4 + rng() * 1.6;
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(bw, h, bw), slabMat);
+      slab.position.set(x, h / 2, z);
+      scene.add(slab);
+      if (rng() < 0.55) {
+        const winHex = rng() < 0.5 ? 0x00e5ff : 0xff2d95;
+        const win = new THREE.Mesh(new THREE.BoxGeometry(0.12, h * 0.7, 0.12), new THREE.MeshBasicMaterial({ color: winHex }));
+        win.position.set(x + bw * 0.45, h * 0.55, z + bw * 0.45);
+        scene.add(win);
+      }
     }
   }
 
@@ -708,11 +831,11 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     for (const g of state.generators) {
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(1.1, 1.2, 0.8),
-        new THREE.MeshStandardMaterial({ color: 0x2c2716, emissive: 0x000000, roughness: 0.7 })
+        new THREE.MeshStandardMaterial({ color: 0x14202e, emissive: 0x000000, roughness: 0.5, metalness: 0.4 })
       );
       mesh.position.set(g.x, 0.6, g.z);
       scene.add(mesh);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.05, 6, 20), new THREE.MeshBasicMaterial({ color: 0xc9862f }));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.05, 6, 20), new THREE.MeshBasicMaterial({ color: 0x00e5ff }));
       ring.rotation.x = Math.PI / 2;
       ring.position.set(g.x, 0.05, g.z);
       scene.add(ring);
@@ -755,8 +878,8 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
 
   function syncObjectiveVisuals(state) {
     for (const g of objectiveMeshes.generators) {
-      g.mesh.material.emissive.setHex(g.ref.done ? 0x1a3d1e : (g.ref.progress > 0 ? 0x3a2a10 : 0x000000));
-      g.ring.material.color.setHex(g.ref.done ? 0x5ec26a : 0xc9862f);
+      g.mesh.material.emissive.setHex(g.ref.done ? 0x123a35 : (g.ref.progress > 0 ? 0x0a2838 : 0x000000));
+      g.ring.material.color.setHex(g.ref.done ? 0x46d6c4 : 0x00e5ff);
       g.ring.scale.setScalar(0.4 + Math.min(1, g.ref.progress / g.ref.required) * 0.6);
     }
     const open = state.generatorsDone >= GENERATORS_REQUIRED;
@@ -877,7 +1000,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   const STEER_YAW_SPEED = 2.1;    // rad/s at full deflection (was 3.4 — toned down)
   const STEER_PITCH_SPEED = 1.5;  // rad/s at full deflection
 
-  const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyF', 'ShiftLeft', 'ShiftRight', 'Space'];
+  const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyF', 'KeyC', 'KeyQ', 'KeyG', 'ShiftLeft', 'ShiftRight', 'Space'];
   window.addEventListener('keydown', e => {
     if (e.code === 'Escape') { releaseCapture(); return; }
     if (trackedKeys.includes(e.code)) e.preventDefault();
@@ -972,11 +1095,12 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
       hp: cfg.hp, maxHp: cfg.hp,
       isDead: false, escaped: false,
       isGrabbed: false, grabbedBy: null, carrying: null,
-      isBlocking: false, flashlightOn: false, sprinting: false,
+      isBlocking: false, flashlightOn: false, sprinting: false, crouching: false,
       moveX: 0, moveZ: 0,
-      wantsAttack: false, wantsGrab: false,
+      wantsAttack: false, wantsGrab: false, wantsThrow: false,
       interactHeld: false, interactPressed: false,
-      cdAttack: 0, cdGrab: 0,
+      cdAttack: 0, cdGrab: 0, cdThrow: 0,
+      knives: 0, speedMul: 1, dmgMul: 1, attackRangeAdd: 0, charName: null,
       wanderYaw: Math.random() * Math.PI * 2, wanderTimer: 0,
       hitFlash: 0,
       mesh: null,
@@ -984,8 +1108,8 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   }
 
   const state = {
-    mode: 'menu', result: null, playerFaction: null,
-    entities: [], player: null, leader: null,
+    mode: 'menu', result: null, playerFaction: null, playerChar: null,
+    entities: [], player: null, leader: null, projectiles: [],
     generators: [], altar: null, gate: null,
     generatorsDone: 0, survivorsEscaped: 0, requiredEscape: 1,
   };
@@ -1005,6 +1129,26 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
 
   function clearEntityMeshes() {
     for (const e of state.entities) if (e.mesh) scene.remove(e.mesh.group);
+  }
+
+  function clearProjectiles() {
+    for (const p of state.projectiles) if (p.mesh) scene.remove(p.mesh);
+    state.projectiles = [];
+  }
+
+  // Fold a chosen character's stat modifiers onto the player entity. Called
+  // after the base entity (incl. the Alpha's 220 HP bump) is built, so the
+  // multipliers stack on top of the faction baseline.
+  function applyCharacter(e, char) {
+    if (!e || !char) return;
+    e.charName = char.name;
+    e.speedMul = char.speedMul || 1;
+    e.dmgMul = char.dmgMul || 1;
+    e.attackRangeAdd = char.attackRangeAdd || 0;
+    if (char.blockDamageMul != null) e.blockDamageMul = char.blockDamageMul;
+    e.maxHp = Math.max(1, Math.round(e.maxHp * (char.hpMul || 1)));
+    e.hp = e.maxHp;
+    if (e.faction === 'killer') e.knives = CONFIG.killer.knives + (char.knivesAdd || 0);
   }
 
   function buildEntityMesh(e) {
@@ -1078,12 +1222,14 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     if (prevAction && prevAction !== nextAction) nextAction.crossFadeFrom(prevAction, duration, true);
   }
 
-  function spawnMatch(faction) {
+  function spawnMatch(faction, char) {
     clearEntityMeshes();
+    clearProjectiles();
     state.entities = [];
     state.player = null;
     state.leader = null;
     state.playerFaction = faction;
+    state.playerChar = char || CHARACTERS[faction][0];
     setupLevel();
 
     const survivorSpawns = [[-24, -10], [-24, 0], [-24, 10]];
@@ -1119,6 +1265,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
       state.player = e;
     }
 
+    applyCharacter(state.player, state.playerChar);
     setupPlayerLight();
     state.mode = 'playing';
     state.result = null;
@@ -1130,7 +1277,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     if (selfLight) camera.remove(selfLight);
     if (flashlight) { camera.remove(flashlight); camera.remove(flashTarget); }
     const cfg = CONFIG[state.player.faction];
-    const lightColor = state.player.faction === 'survivor' ? 0x9fd7a8 : (state.player.faction === 'killer' ? 0xbcd3ff : 0xffb27a);
+    const lightColor = state.player.faction === 'survivor' ? 0x8fe6da : (state.player.faction === 'killer' ? 0xbfe7c8 : 0xff8a9a);
     selfLight = new THREE.PointLight(lightColor, cfg.visionLight, cfg.visionRange, 2);
     camera.add(selfLight);
 
@@ -1220,6 +1367,26 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     return { entity: best, dist: bestD };
   }
 
+  function nearestLivingKiller(x, z) {
+    let best = null, bestD = Infinity;
+    for (const e of state.entities) {
+      if (e.faction !== 'killer' || e.isDead) continue;
+      const d = Math.hypot(e.x - x, e.z - z);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return { entity: best, dist: bestD };
+  }
+
+  // How far a psycho can sense a given target: crouching shrinks it, running or
+  // a lit torch swells it. This is the whole point of stealth.
+  function noiseRadiusFor(target, base) {
+    let r = base;
+    if (target.crouching) r *= CROUCH_NOISE_MUL;
+    if (target.sprinting) r += SPRINT_NOISE_BONUS;
+    if (target.flashlightOn) r += FLASHLIGHT_NOISE_BONUS;
+    return r;
+  }
+
   function steerTo(e, tx, tz) {
     const dx = tx - e.x, dz = tz - e.z;
     const d = Math.hypot(dx, dz);
@@ -1246,6 +1413,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   const PITCH_LIMIT = 1.35;
   const KEY_TURN_SPEED = 2.4; // rad/s for arrow-key turning assist
   let pitch = 0;
+  let eyeY = EYE_HEIGHT;      // current camera eye height, lerps for crouch
 
   function updatePlayerInput(dt) {
     const p = state.player;
@@ -1286,6 +1454,8 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     if (keyHeld('KeyA')) ix -= 1;
     p.moveX = ix; p.moveZ = iz;
     p.sprinting = keyHeld('ShiftLeft') || keyHeld('ShiftRight');
+    // Crouch (hold C): quiet + low profile but slow. Sprint wins if both held.
+    p.crouching = keyHeld('KeyC') && !p.sprinting;
 
     p.interactHeld = keyHeld('KeyE');
     p.interactPressed = keyPressed('KeyE');
@@ -1296,7 +1466,10 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     const attack = mousePressed(0) || keyPressed('Space');
     if (p.faction === 'cannibal' || p.faction === 'killer') p.wantsAttack = attack;
     if (p.faction === 'cannibal') p.wantsGrab = mousePressed(2) || keyPressed('KeyG');
-    if (p.faction === 'killer') p.isBlocking = mouseHeld(2);
+    if (p.faction === 'killer') {
+      p.isBlocking = mouseHeld(2);
+      p.wantsThrow = keyPressed('KeyQ');   // throw a knife
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -1351,18 +1524,27 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     }
 
     const cfg = CONFIG.cannibal;
-    const { entity: target, dist } = nearestLivingSurvivor(e.x, e.z, true);
-    if (target) {
-      let bonus = 0;
-      if (target.sprinting) bonus += SPRINT_NOISE_BONUS;
-      if (target.flashlightOn) bonus += FLASHLIGHT_NOISE_BONUS;
-      if (dist <= cfg.senseRadius + bonus) {
-        steerTo(e, target.x, target.z);
-        e.sprinting = true;
-        if (dist <= cfg.grabRange) e.wantsGrab = true;
-        if (dist <= cfg.attackRange) e.wantsAttack = true;
-        return;
-      }
+    let prey = null, preyDist = Infinity;
+
+    // Victims are the primary prey — sensed within the psycho's base radius.
+    const sv = nearestLivingSurvivor(e.x, e.z, true);
+    if (sv.entity && sv.dist <= noiseRadiusFor(sv.entity, cfg.senseRadius) && sv.dist < preyDist) {
+      prey = sv.entity; preyDist = sv.dist;
+    }
+    // A mercenary who gets close or loud is worth turning on too — this is what
+    // makes crouch-sneaking past the psychos actually matter.
+    const km = nearestLivingKiller(e.x, e.z);
+    if (km.entity && km.dist <= noiseRadiusFor(km.entity, cfg.killerAggroRadius) && km.dist < preyDist) {
+      prey = km.entity; preyDist = km.dist;
+    }
+
+    if (prey) {
+      steerTo(e, prey.x, prey.z);
+      e.sprinting = true;
+      // Only victims get grabbed & dragged to the table; mercs just get mauled.
+      if (prey.faction === 'survivor' && preyDist <= cfg.grabRange) e.wantsGrab = true;
+      if (preyDist <= cfg.attackRange) e.wantsAttack = true;
+      return;
     }
 
     wander(e, dt);
@@ -1379,15 +1561,22 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
       if (t === e || t.isDead || t.escaped || t.faction === e.faction) continue;
       const dx = t.x - e.x, dz = t.z - e.z;
       const d = Math.hypot(dx, dz);
-      if (d > cfg.attackRange) continue;
+      if (d > cfg.attackRange + (e.attackRangeAdd || 0)) continue;
       const facing = yawToward(dx, dz);
       if (Math.abs(normalizeAngle(facing - e.yaw)) > Math.PI / 2.2) continue;
       if (d < bestD) { bestD = d; best = t; }
     }
     if (e.isPlayer) { flashCrosshair(); vmRecoil = 1; sfxAttack(); }
     if (!best) return;
-    let dmg = cfg.attackDamage;
-    if (best.faction === 'killer' && best.isBlocking) dmg *= CONFIG.killer.blockDamageMul;
+    let dmg = cfg.attackDamage * (e.dmgMul || 1);
+    if (best.faction === 'killer' && best.isBlocking) dmg *= (best.blockDamageMul || CONFIG.killer.blockDamageMul);
+    // Stealth takedown: a mercenary striking a psycho from behind. Lethal on a
+    // normal psycho; a heavy bonus (not a one-shot) on the Alpha's deep HP.
+    if (e.faction === 'killer' && best.faction === 'cannibal') {
+      const toAtk = yawToward(e.x - best.x, e.z - best.z);
+      const behind = Math.abs(normalizeAngle(toAtk - best.yaw)) > Math.PI - BACKSTAB_ARC / 2;
+      if (behind) { dmg = best.isLeader ? dmg * 2.4 : 9999; if (e.isPlayer) sfxHit(); }
+    }
     damageEntity(best, dmg);
   }
 
@@ -1397,6 +1586,62 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     target.isGrabbed = true;
     target.grabbedBy = e;
     e.carrying = target;
+  }
+
+  // Throwing knives — the one ranged verb in a melee game. A blade flies from
+  // the thrower along their aim and deals heavy damage to the first enemy it
+  // reaches; expires at max range or on hitting a wall / the arena edge.
+  function throwKnife(e) {
+    const cfg = CONFIG[e.faction];
+    const f = forwardVector(e.yaw);
+    const proj = {
+      faction: e.faction, owner: e,
+      x: e.x + f.x * 0.6, z: e.z + f.z * 0.6, y: KNIFE_EYE,
+      vx: f.x * cfg.throwSpeed, vz: f.z * cfg.throwSpeed,
+      dmg: cfg.throwDamage, life: cfg.throwRange / cfg.throwSpeed, spin: 0, mesh: null,
+    };
+    const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, 0.02, 0.4),
+      new THREE.MeshStandardMaterial({ color: 0xcfe6ff, roughness: 0.3, metalness: 0.9, emissive: 0x0a3040, emissiveIntensity: 0.6 })
+    );
+    blade.position.set(proj.x, proj.y, proj.z);
+    scene.add(blade);
+    proj.mesh = blade;
+    state.projectiles.push(proj);
+    if (e.isPlayer) { sfxAttack(); vmRecoil = 1; }
+  }
+
+  function updateProjectiles(dt) {
+    for (let i = state.projectiles.length - 1; i >= 0; i--) {
+      const p = state.projectiles[i];
+      let removed = false;
+      // Sub-step so a fast knife can't tunnel straight through a thin target.
+      const steps = 2, h = dt / steps;
+      for (let s = 0; s < steps && !removed; s++) {
+        p.x += p.vx * h; p.z += p.vz * h; p.life -= h;
+        for (const t of state.entities) {
+          if (t === p.owner || t.isDead || t.escaped || t.faction === p.faction) continue;
+          if (Math.hypot(t.x - p.x, t.z - p.z) <= KNIFE_HIT_RADIUS) {
+            let dmg = p.dmg;
+            if (t.faction === 'killer' && t.isBlocking) dmg *= (t.blockDamageMul || CONFIG.killer.blockDamageMul);
+            damageEntity(t, dmg);
+            removed = true; break;
+          }
+        }
+        if (!removed && (p.life <= 0 || collidesAt(p.x, p.z) ||
+            p.x < BOUNDS.minX || p.x > BOUNDS.maxX || p.z < BOUNDS.minZ || p.z > BOUNDS.maxZ)) {
+          removed = true;
+        }
+      }
+      if (removed) {
+        if (p.mesh) scene.remove(p.mesh);
+        state.projectiles.splice(i, 1);
+      } else {
+        p.spin += dt * 18;
+        p.mesh.position.set(p.x, p.y, p.z);
+        p.mesh.rotation.set(0, Math.atan2(-p.vx, -p.vz), p.spin);
+      }
+    }
   }
 
   function placeOnAltar(e) {
@@ -1477,6 +1722,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
 
     e.cdAttack = Math.max(0, e.cdAttack - dt);
     e.cdGrab = Math.max(0, e.cdGrab - dt);
+    e.cdThrow = Math.max(0, e.cdThrow - dt);
     e.hitFlash = Math.max(0, e.hitFlash - dt);
 
     if (e.isGrabbed) {
@@ -1488,9 +1734,10 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
       }
     } else {
       const cfg = CONFIG[e.faction];
-      let speed = cfg.speed;
+      let speed = cfg.speed * (e.speedMul || 1);
       if (e.faction === 'killer' && e.isBlocking) speed *= cfg.blockSpeedMul;
       else if (e.sprinting) speed *= cfg.sprintMul;
+      else if (e.crouching) speed *= CROUCH_SPEED_MUL;
 
       const mv = Math.hypot(e.moveX, e.moveZ);
       if (mv > 0.001) {
@@ -1513,6 +1760,13 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     }
     e.wantsGrab = false;
 
+    if (e.wantsThrow && e.cdThrow <= 0 && e.faction === 'killer' && e.knives > 0) {
+      throwKnife(e);
+      e.knives--;
+      e.cdThrow = CONFIG.killer.throwCooldown;
+    }
+    e.wantsThrow = false;
+
     applyInteract(e, dt);
     checkEscape(e);
     checkAltarHandoff(e);
@@ -1523,9 +1777,9 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   // ---------------------------------------------------------------------
 
   const RESULT_COPY = {
-    survivors: { title: 'Выжившие ушли', sub: 'Кто-то добрался до дороги живым.', color: 'var(--survivor)' },
-    cannibals: { title: 'Секта победила', sub: 'Ни один турист не ушёл с базы.', color: 'var(--cannibal)' },
-    killers: { title: 'Вожак мёртв', sub: 'Ритуалы секты прерваны.', color: 'var(--killer)' },
+    survivors: { title: 'Жертвы ушли', sub: 'Кто-то выбрался из квартала живым.', color: 'var(--survivor)' },
+    cannibals: { title: 'Психи победили', sub: 'Из квартала не ушёл никто.', color: 'var(--cannibal)' },
+    killers: { title: 'Альфа мёртв', sub: 'Наёмник вырезал вожака стаи.', color: 'var(--killer)' },
   };
 
   function checkWinConditions() {
@@ -1565,20 +1819,24 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
 
   function computePrompt(p) {
     if (p.isDead) return 'Вы мертвы.';
-    if (p.isGrabbed) return 'Вас схватили — ждите спасения...';
+    if (p.isGrabbed) return 'Вас тащат на имплант-стол — держитесь, пока отобьют...';
     if (p.faction === 'survivor') {
       for (const g of state.generators) {
-        if (!g.done && Math.hypot(g.x - p.x, g.z - p.z) <= INTERACT_RANGE) return '[E] Чинить генератор';
+        if (!g.done && Math.hypot(g.x - p.x, g.z - p.z) <= INTERACT_RANGE) return '[E] Взлом узла';
       }
       if (state.altar.captive && state.altar.captive !== p &&
           Math.hypot(state.altar.x - p.x, state.altar.z - p.z) <= INTERACT_RANGE + state.altar.r) {
-        return '[E] Спасти пленника';
+        return '[E] Отбить жертву';
       }
-      if (state.generatorsDone >= GENERATORS_REQUIRED) return 'Ворота открыты — беги к дороге!';
+      if (state.generatorsDone >= GENERATORS_REQUIRED) return 'Выход открыт — беги из квартала!';
       return '';
     }
-    if (p.faction === 'cannibal') return p.carrying ? 'Тащи пленника к алтарю' : 'Клик/Пробел — атака · ПКМ/G — схватить';
-    if (p.faction === 'killer') return p.isBlocking ? 'Блок' : 'Клик/Пробел — атака · ПКМ — блок';
+    if (p.faction === 'cannibal') return p.carrying ? 'Тащи жертву на имплант-стол' : 'ЛКМ — атака · ПКМ/G — схватить';
+    if (p.faction === 'killer') {
+      if (p.isBlocking) return 'Блок';
+      const knife = p.knives > 0 ? ' · Q — нож (' + p.knives + ')' : ' · ножи кончились';
+      return 'ЛКМ — атака (в спину = добивание)' + knife + ' · ПКМ — блок';
+    }
     return '';
   }
 
@@ -1587,6 +1845,13 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     const p = state.player;
     hudHealthFill.style.width = Math.max(0, (p.hp / p.maxHp) * 100) + '%';
     hudGenCount.textContent = state.generatorsDone + '/' + GENERATORS_REQUIRED;
+    // Stance / kit line: character name, knife stock (merc), current stance.
+    const sub = [];
+    if (p.charName) sub.push(p.charName);
+    if (p.faction === 'killer') sub.push('🔪 ' + p.knives);
+    if (p.crouching) sub.push('присед');
+    else if (p.sprinting) sub.push('бег');
+    hudSub.textContent = sub.join('  ·  ');
     hudPrompt.textContent = computePrompt(p);
   }
 
@@ -1638,6 +1903,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
 
   let lastTs = 0, stepPhase = 0;
   function frame(ts) {
+    window.__wolfFrames = (window.__wolfFrames || 0) + 1;   // debug hook: confirms the loop is live
     const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0);
     lastTs = ts;
 
@@ -1656,6 +1922,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
 
       for (const e of state.entities) if (!e.isPlayer) updateBotAI(e, dt);
       for (const e of state.entities) applyEntity(e, dt);
+      updateProjectiles(dt);
       rig.position.set(state.player.x, 0, state.player.z);
 
       const p = state.player;
@@ -1671,7 +1938,10 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
         // one footstep per full stride (each time the sine crosses its trough)
         if (Math.floor(prevPhase / Math.PI) !== Math.floor(stepPhase / Math.PI)) sfxFootstep();
       }
-      camera.position.y = EYE_HEIGHT + bob;
+      // Crouch drops the camera; lerp so it eases down and back up.
+      const targetEye = p.crouching ? CROUCH_EYE : STAND_EYE;
+      eyeY += (targetEye - eyeY) * Math.min(1, dt * 10);
+      camera.position.y = eyeY + bob;
 
       // Viewmodel bob + recoil recovery.
       if (viewmodel) {
@@ -1720,19 +1990,64 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   // menu wiring
   // ---------------------------------------------------------------------
 
-  document.querySelectorAll('.totem[data-faction]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      spawnMatch(btn.dataset.faction);
-      menuOverlay.classList.add('hidden');
-      endOverlay.classList.add('hidden');
-      hudOverlay.classList.remove('hidden');
-      crosshair.classList.remove('hidden');
-      pitch = 0; camera.rotation.x = 0;
-      rig.rotation.y = state.player.yaw;
-      canvas.focus();
-      startAudio();
-      requestCapture();   // capture the mouse right away (this click is the user gesture Pointer Lock needs)
-    });
+  const charselectOverlay = document.getElementById('charselect');
+  const charselectTitle = document.getElementById('charselect-title');
+  const charselectLede = document.getElementById('charselect-lede');
+  const charselectCards = document.getElementById('charselect-cards');
+
+  const CHARSELECT_LEDE = {
+    survivor: 'Оба безоружны. Вопрос лишь в том, чем платишь за жизнь — скоростью или запасом здоровья.',
+    cannibal: 'Ты играешь за Альфу. Выбери, как охотиться: тяжёлым тараном или быстрым хищником.',
+    killer: 'Один против стаи. Выбери снаряжение под свой стиль зачистки.',
+  };
+
+  // Faction picked -> show the two characters of that side. The character card's
+  // click is what finally starts the match (and is the Pointer-Lock gesture).
+  function openCharSelect(faction) {
+    menuOverlay.classList.add('hidden');
+    endOverlay.classList.add('hidden');
+    charselectOverlay.classList.remove('hidden');
+    charselectTitle.textContent = FACTION_NAME[faction] + ' — выбор персонажа';
+    charselectTitle.style.color = 'var(--' + faction + ')';
+    charselectLede.textContent = CHARSELECT_LEDE[faction] || '';
+    charselectCards.innerHTML = '';
+    for (const char of CHARACTERS[faction]) {
+      const btn = document.createElement('button');
+      btn.className = 'totem';
+      btn.dataset.faction = faction;
+      btn.innerHTML =
+        '<span class="totem-tag"></span>' +
+        '<span class="totem-role"></span>' +
+        '<span class="totem-desc"></span>';
+      btn.querySelector('.totem-tag').textContent = char.tag;
+      btn.querySelector('.totem-role').textContent = char.name;
+      btn.querySelector('.totem-desc').textContent = char.desc;
+      btn.addEventListener('click', () => startMatch(faction, char));
+      charselectCards.appendChild(btn);
+    }
+  }
+
+  function startMatch(faction, char) {
+    spawnMatch(faction, char);
+    menuOverlay.classList.add('hidden');
+    charselectOverlay.classList.add('hidden');
+    endOverlay.classList.add('hidden');
+    hudOverlay.classList.remove('hidden');
+    crosshair.classList.remove('hidden');
+    pitch = 0; camera.rotation.x = 0; eyeY = STAND_EYE;
+    rig.rotation.y = state.player.yaw;
+    canvas.focus();
+    startAudio();
+    requestCapture();   // this click is the user gesture Pointer Lock needs
+  }
+
+  document.querySelectorAll('#menu .totem[data-faction]').forEach(btn => {
+    btn.addEventListener('click', () => openCharSelect(btn.dataset.faction));
+  });
+
+  document.getElementById('charselect-back').addEventListener('click', () => {
+    charselectOverlay.classList.add('hidden');
+    menuOverlay.classList.remove('hidden');
   });
 
   document.getElementById('restart-btn').addEventListener('click', () => {
