@@ -4571,6 +4571,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   //  config & math
   // =====================================================================
   const BOUNDS = { minX: -32, maxX: 32, minZ: -26, maxZ: 22 };
+  let state_gate = { x: 0, z: 19 };   // extraction point; set during world build, read by the director
   const EYE = 1.66;
   const PLAYER_R = 0.42;
 
@@ -5085,7 +5086,6 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   // =====================================================================
   //  state & entities
   // =====================================================================
-  let state_gate = { x:0, z:19 };
   const WEAPON = { magSize: 30, reserveMax: 240, fireDelay: 0.09, damage: 26, range: 60, spread: 0.012, reloadTime: 1.9 };
 
   const state = {
@@ -5180,9 +5180,17 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     const pts = new THREE.Points(geo, mat); scene.add(pts);
     state.particles.push({ pts, vel, life: opts.life||0.7, age: 0, count, grav: opts.grav!=null?opts.grav:11 });
   }
+  // One updater for both gib/blood point-clouds and short-lived tracer lines
+  // (each entry is one or the other — never both).
   function updateParticles(dt) {
     for (let i=state.particles.length-1;i>=0;i--){
-      const pr = state.particles[i]; pr.age += dt;
+      const pr = state.particles[i];
+      pr.age += dt;
+      if (pr._isTracer) {
+        pr.tracer.material.opacity = 0.8 * Math.max(0, 1 - pr.age/pr.life);
+        if (pr.age >= pr.life) { scene.remove(pr.tracer); pr.tracer.geometry.dispose(); pr.tracer.material.dispose(); state.particles.splice(i,1); }
+        continue;
+      }
       const arr = pr.pts.geometry.attributes.position.array;
       for (let k=0;k<pr.count;k++){
         pr.vel[k].y -= pr.grav*dt;
@@ -5202,17 +5210,6 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     scene.add(line);
     state.particles.push({ tracer: line, life: 0.06, age: 0, count: 0, vel: [], _isTracer: true });
   }
-  // patch updateParticles to also age tracers
-  const _updateParticles = updateParticles;
-  updateParticles = function(dt) {
-    for (let i=state.particles.length-1;i>=0;i--){
-      const pr = state.particles[i];
-      if (!pr._isTracer) continue;
-      pr.age += dt; pr.tracer.material.opacity = 0.8*Math.max(0,1-pr.age/pr.life);
-      if (pr.age >= pr.life) { scene.remove(pr.tracer); pr.tracer.geometry.dispose(); pr.tracer.material.dispose(); state.particles.splice(i,1); }
-    }
-    _updateParticles(dt);
-  };
 
   // =====================================================================
   //  weapon
@@ -5976,9 +5973,66 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   //  main loop
   // =====================================================================
   let lastTs = 0;
+  // One simulation step of a running match. Split out of frame() so the world
+  // can be advanced deterministically (headless tests pump this via __game.step,
+  // sidestepping requestAnimationFrame throttling in a backgrounded tab).
+  function stepPlaying(rawDt, ts) {
+    const dt = rawDt * state.timeScale;
+
+    updatePlayerInput(rawDt);  // input/look at real time
+    rig.position.set(state.player.x, 0, state.player.z);
+
+    // weapon cooldowns (real time so fire rate is stable feel; reflex slows world not gun much)
+    const p = state.player;
+    p.fireCd = Math.max(0, p.fireCd - rawDt);
+    if (p.reloading > 0) { p.reloading -= rawDt; if (p.reloading <= 0) finishReload(); }
+
+    director.update(rawDt);
+    stepWaves(dt);
+
+    for (const a of state.allies) updateAlly(a, dt);
+    updateWoman(dt);
+    for (const sp of state.spiders) updateSpider(sp, dt);
+    // cull removed spiders
+    state.spiders = state.spiders.filter(s => !s._remove);
+
+    // muzzle/flash decay
+    if (muzzleLight) muzzleLight.intensity = Math.max(0, muzzleLight.intensity - rawDt*24);
+    if (gunFlash) gunFlash.material.opacity = Math.max(0, gunFlash.material.opacity - rawDt*10);
+
+    // viewmodel recoil + sway
+    if (viewmodel) {
+      vmRecoil = Math.max(0, vmRecoil - rawDt*7);
+      const sway = p.moving ? Math.sin(stepPhase)*0.01 : Math.sin(ts/700)*0.003;
+      viewmodel.position.y = vmBaseY + sway - vmRecoil*0.04;
+      viewmodel.position.z = -0.42 + vmRecoil*0.05;
+      viewmodel.rotation.x = -vmRecoil*0.35;
+    }
+
+    // camera shake
+    if (state.shake > 0) {
+      state.shake = Math.max(0, state.shake - rawDt*3);
+      const s = state.shake*0.03;
+      camera.position.x = (Math.random()-0.5)*s;
+      camera.position.y = EYE + (p.moving?Math.sin(stepPhase)*0.035:0) + (Math.random()-0.5)*s;
+    } else camera.position.x = 0;
+
+    // heartbeat when spiders close
+    let nearD = Infinity;
+    for (const sp of state.spiders) { if (sp.dead) continue; const d = dist2(sp.x,sp.z,p.x,p.z); if (d<nearD) nearD=d; }
+    if (nearD < 12 && p.alive) {
+      const close = 1 - nearD/12;
+      AUDIO.heart -= rawDt;
+      if (AUDIO.heart <= 0) { sfx.heartbeat(close); AUDIO.heart = 1.05 - close*0.6; }
+    } else AUDIO.heart = 0;
+
+    updateHud();
+  }
+
   function frame(ts) {
     const rawDt = Math.min(0.05, (ts - lastTs)/1000 || 0);
     lastTs = ts;
+    try {
     resize();
 
     // facility light flicker (always, ambience)
@@ -5994,64 +6048,16 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     updateSnow(rawDt);
     updateParticles(rawDt);
 
-    if (state.mode === 'playing') {
-      const dt = rawDt * state.timeScale;
-
-      updatePlayerInput(rawDt);  // input/look at real time
-      rig.position.set(state.player.x, 0, state.player.z);
-
-      // weapon cooldowns (real time so fire rate is stable feel; reflex slows world not gun much)
-      const p = state.player;
-      p.fireCd = Math.max(0, p.fireCd - rawDt);
-      if (p.reloading > 0) { p.reloading -= rawDt; if (p.reloading <= 0) finishReload(); }
-
-      director.update(rawDt);
-      stepWaves(dt);
-
-      for (const a of state.allies) updateAlly(a, dt);
-      updateWoman(dt);
-      for (const sp of state.spiders) updateSpider(sp, dt);
-      // cull removed spiders
-      state.spiders = state.spiders.filter(s => !s._remove);
-
-      // muzzle/flash decay
-      if (muzzleLight) muzzleLight.intensity = Math.max(0, muzzleLight.intensity - rawDt*24);
-      if (gunFlash) gunFlash.material.opacity = Math.max(0, gunFlash.material.opacity - rawDt*10);
-
-      // viewmodel recoil + sway
-      if (viewmodel) {
-        vmRecoil = Math.max(0, vmRecoil - rawDt*7);
-        const sway = p.moving ? Math.sin(stepPhase)*0.01 : Math.sin(ts/700)*0.003;
-        viewmodel.position.y = vmBaseY + sway - vmRecoil*0.04;
-        viewmodel.position.z = -0.42 + vmRecoil*0.05;
-        viewmodel.rotation.x = -vmRecoil*0.35;
-      }
-
-      // camera shake
-      if (state.shake > 0) {
-        state.shake = Math.max(0, state.shake - rawDt*3);
-        const s = state.shake*0.03;
-        camera.position.x = (Math.random()-0.5)*s;
-        camera.position.y = EYE + (p.moving?Math.sin(stepPhase)*0.035:0) + (Math.random()-0.5)*s;
-      } else camera.position.x = 0;
-
-      // heartbeat when spiders close
-      let nearD = Infinity;
-      for (const sp of state.spiders) { if (sp.dead) continue; const d = dist2(sp.x,sp.z,p.x,p.z); if (d<nearD) nearD=d; }
-      if (nearD < 12 && p.alive) {
-        const close = 1 - nearD/12;
-        AUDIO.heart -= rawDt;
-        if (AUDIO.heart <= 0) { sfx.heartbeat(close); AUDIO.heart = 1.05 - close*0.6; }
-      } else AUDIO.heart = 0;
-
-      updateHud();
-    }
+    if (state.mode === 'playing') stepPlaying(rawDt, ts);
 
     renderer.render(scene, camera);
     updateSubtitle(rawDt);
 
     keysPrev = new Set(keys);
     mBtnsPrev = new Set(mBtns);
+    } catch (err) {
+      console.error('frame error (continuing):', err);
+    }
     requestAnimationFrame(frame);
   }
 
@@ -6073,7 +6079,9 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   loadModels(() => {});
 
   // debug hooks
-  window.__game = { state, director, startMatch, makeSpider, scene, camera, rig };
+  window.__game = { state, director, startMatch, makeSpider, damageSpider, killSpider, onWomanShot, hurtPlayer, scene, camera, rig,
+    step: (dt) => { updateSnow(dt); updateParticles(dt); if (state.mode === 'playing') stepPlaying(dt, performance.now()); },
+    render: () => renderer.render(scene, camera) };
 })();
 </script>
 </body>
