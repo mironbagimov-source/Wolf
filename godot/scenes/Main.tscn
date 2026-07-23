@@ -1,0 +1,10 @@
+[gd_scene load_steps=2 format=3]
+
+; Intentionally minimal: the whole game world, player, enemies, squad and HUD
+; are constructed in code by Main.gd (res://scripts/Main.gd). Keeping the scene
+; empty means there are no fragile node paths or sub-resources to hand-maintain.
+
+[ext_resource type="Script" path="res://scripts/Main.gd" id="1"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1")

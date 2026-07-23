@@ -50,3 +50,10 @@ crashlytics-build.properties
 
 # WebGL build output
 webgl-build/
+
+# Godot 4 generated cache / imports (project is pure text; these are local)
+godot/.godot/
+godot/.import/
+godot/export_presets.cfg
+godot/*.import
+
