@@ -53,3 +53,6 @@ webgl-build/
 
 # Generated photoreal textures/materials — rebuilt via Tools > Wolf menu
 Assets/_Project/Art/Generated/
+
+# Godot import cache
+godot/.godot/
