@@ -185,12 +185,14 @@ func _build_hud() -> void:
 	hp_back.position = Vector2(20, 34)
 	hp_back.size = Vector2(180, 10)
 	hp_back.color = Color(0, 0, 0, 0.6)
+	hp_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(hp_back)
 
 	hp_fill = ColorRect.new()
 	hp_fill.position = Vector2(20, 34)
 	hp_fill.size = Vector2(180, 10)
 	hp_fill.color = Color(1.0, 0.18, 0.37)
+	hp_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(hp_fill)
 
 	stance_label = Label.new()
@@ -221,6 +223,9 @@ func _build_hud() -> void:
 	crosshair.position = Vector2(-2, -2)
 	crosshair.size = Vector2(4, 4)
 	crosshair.color = Color(0.9, 0.96, 1.0, 0.9)
+	# Dead centre = exactly where the captured cursor pins; MUST ignore mouse
+	# or it swallows every motion event (the "no mouse look" bug).
+	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(crosshair)
 
 	pause_hint = Label.new()

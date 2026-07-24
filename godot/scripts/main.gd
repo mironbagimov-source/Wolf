@@ -39,6 +39,7 @@ var _test_shot := ""
 var _test_t := 0.0
 var _test_staged := false
 var _test_shot_taken := false
+var _test_yaw_before := 0.0
 
 const RESULT_COPY := {
 	"survivors": ["Жертвы ушли", "Кто-то выбрался из квартала живым.", "survivor"],
@@ -206,10 +207,16 @@ func _capture_mouse(on: bool) -> void:
 		ui.pause_hint.visible = mode == "playing" and not on
 
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
+	# Mouse look reads raw events BEFORE the GUI: any Control that intercepts
+	# motion (the first build's centre crosshair did) would otherwise eat the
+	# camera — that was the shipped "нет оглядывания" bug.
 	if event is InputEventMouseMotion and _captured:
 		_look_delta += (event as InputEventMouseMotion).relative
-	elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
 		if mode == "playing" and not _captured:
 			_capture_mouse(true)
 	elif event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
@@ -967,6 +974,24 @@ func _run_test(delta: float) -> void:
 			elif _test_staged and _test_t > 2.2 and not _test_shot_taken:
 				_test_shot_taken = true
 				_finish_test("%s ok: entities=%d hp=%.0f knives=%d" % [_test_mode, entities.size(), player.hp, player.knives])
+		"look":
+			# Regression test for the shipped "no mouse look" bug: inject a
+			# synthetic mouse motion through the FULL input pipeline (GUI
+			# included, so a motion-eating Control would fail this) and check
+			# the player actually turned.
+			if _test_t > 0.5 and mode == "menu":
+				_start_match("killer", 0)
+			elif mode == "playing" and _test_t > 1.2 and not _test_staged:
+				_test_staged = true
+				_test_yaw_before = player.rotation.y
+				var ev := InputEventMouseMotion.new()
+				ev.relative = Vector2(300, 0)
+				Input.parse_input_event(ev)
+			elif _test_staged and _test_t > 1.8 and not _test_shot_taken:
+				_test_shot_taken = true
+				var moved := absf(wrapf(player.rotation.y - _test_yaw_before, -PI, PI))
+				print("TEST RESULT: look moved=%.3f rad %s" % [moved, "OK" if moved > 0.3 else "FAIL"])
+				get_tree().quit(0 if moved > 0.3 else 1)
 		"exec":
 			if _test_t > 0.5 and mode == "menu":
 				_start_match("survivor", 0)
