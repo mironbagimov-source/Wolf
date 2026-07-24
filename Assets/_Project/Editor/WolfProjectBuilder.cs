@@ -11,6 +11,7 @@ using Wolf.Objectives;
 using Wolf.Player.Cannibal;
 using Wolf.Player.Killer;
 using Wolf.Player.Survivor;
+using Wolf.Visuals;
 
 namespace Wolf.EditorTools
 {
@@ -30,9 +31,10 @@ namespace Wolf.EditorTools
         [MenuItem("Tools/Wolf/Build Everything")]
         public static void BuildEverything()
         {
+            PhotorealForge.GenerateAll();
             BuildPrefabs();
             BuildLobbyScene();
-            BuildBootstrapScene();
+            NightDistrictBuilder.BuildScene();
             Debug.Log("[Wolf] Done — open Assets/_Project/Scenes/Lobby.unity and press Play.");
         }
 
@@ -40,6 +42,8 @@ namespace Wolf.EditorTools
         public static void BuildPrefabs()
         {
             EnsureFolder(PrefabDir);
+
+            BuildKnifePrefab(); // before the Killer human, which wires it
 
             BuildHumanPrefab("Survivor_Human", typeof(SurvivorController), new Color(0.2f, 0.8f, 0.3f));
             BuildHumanPrefab("Cannibal_Human", typeof(CannibalController), new Color(0.8f, 0.2f, 0.2f));
@@ -51,6 +55,26 @@ namespace Wolf.EditorTools
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("[Wolf] Placeholder prefabs built under " + PrefabDir);
+        }
+
+        private static void BuildKnifePrefab()
+        {
+            var root = new GameObject("ThrowingKnife");
+            root.AddComponent<ThrowingKnife>();
+
+            GameObject blade = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            // Visual-only: ThrowingKnife raycasts its own hits, a collider here
+            // would block the very ray it casts.
+            Object.DestroyImmediate(blade.GetComponent<Collider>());
+            blade.transform.SetParent(root.transform, false);
+            blade.transform.localScale = new Vector3(0.04f, 0.02f, 0.42f);
+            Material metal = PhotorealForge.Load(PhotorealForge.MetalMat);
+            if (metal != null)
+            {
+                blade.GetComponent<Renderer>().sharedMaterial = metal;
+            }
+
+            SaveAsPrefab(root, "ThrowingKnife");
         }
 
         [MenuItem("Tools/Wolf/2 Build Lobby Scene")]
@@ -85,7 +109,8 @@ namespace Wolf.EditorTools
             Button cannBtn = CreateButton(canvasGO.transform, "CannibalButton", new Vector2(0f, 150f), font, "Cannibal");
             Button killBtn = CreateButton(canvasGO.transform, "KillerButton", new Vector2(300f, 150f), font, "Killer");
 
-            Button startBtn = CreateButton(canvasGO.transform, "StartButton", new Vector2(0f, 40f), font, "Start");
+            Button charBtn = CreateButton(canvasGO.transform, "CharacterButton", new Vector2(0f, 100f), font, "Персонаж ▸");
+            Button startBtn = CreateButton(canvasGO.transform, "StartButton", new Vector2(0f, 20f), font, "Start");
 
             GameObject lobbyGO = new GameObject("LobbyUI");
             var lobby = lobbyGO.AddComponent<Wolf.UI.LobbyUI>();
@@ -97,6 +122,7 @@ namespace Wolf.EditorTools
             so.FindProperty("survivorButton").objectReferenceValue = survBtn;
             so.FindProperty("cannibalButton").objectReferenceValue = cannBtn;
             so.FindProperty("killerButton").objectReferenceValue = killBtn;
+            so.FindProperty("characterButton").objectReferenceValue = charBtn;
             so.FindProperty("startButton").objectReferenceValue = startBtn;
             so.FindProperty("statusText").objectReferenceValue = status;
             so.FindProperty("gameplaySceneName").stringValue = "TourBase";
@@ -177,6 +203,15 @@ namespace Wolf.EditorTools
                 so.FindProperty("carryPoint").objectReferenceValue = carryPointGO.transform;
             }
 
+            if (controllerType == typeof(KillerController))
+            {
+                GameObject knifeGO = AssetDatabase.LoadAssetAtPath<GameObject>($"{PrefabDir}/ThrowingKnife.prefab");
+                if (knifeGO != null)
+                {
+                    so.FindProperty("knifePrefab").objectReferenceValue = knifeGO.GetComponent<ThrowingKnife>();
+                }
+            }
+
             so.ApplyModifiedProperties();
             SaveAsPrefab(root, name);
         }
@@ -185,6 +220,25 @@ namespace Wolf.EditorTools
         {
             GameObject root = CreateBody(name, controllerType, color);
             root.AddComponent(brainType);
+
+            // A faction mannequin replaces the bare capsule as the visible body;
+            // CharacterModelSlot swaps it for a real model at spawn when one has
+            // been dropped into Resources/CharacterModels (see that class).
+            FactionType faction = controllerType == typeof(SurvivorController) ? FactionType.Survivor
+                : controllerType == typeof(CannibalController) ? FactionType.Cannibal
+                : FactionType.Killer;
+            GameObject mannequin = CharacterMannequinBuilder.Attach(root, faction);
+            MeshRenderer capsuleRenderer = root.GetComponent<MeshRenderer>();
+            if (capsuleRenderer != null)
+            {
+                capsuleRenderer.enabled = false;
+            }
+
+            var slot = root.AddComponent<CharacterModelSlot>();
+            var slotSo = new SerializedObject(slot);
+            slotSo.FindProperty("mannequinRoot").objectReferenceValue = mannequin;
+            slotSo.ApplyModifiedProperties();
+
             SaveAsPrefab(root, name);
         }
 
@@ -206,7 +260,11 @@ namespace Wolf.EditorTools
                 return;
             }
 
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            Shader shader = Shader.Find("HDRP/Lit");
+            if (shader == null)
+            {
+                shader = Shader.Find("Universal Render Pipeline/Lit");
+            }
             if (shader == null)
             {
                 shader = Shader.Find("Standard");
@@ -223,7 +281,7 @@ namespace Wolf.EditorTools
 
         // --- scene wiring ---
 
-        private static void WireBootstrapperPrefabs(MatchBootstrapper bootstrapper)
+        internal static void WireBootstrapperPrefabs(MatchBootstrapper bootstrapper)
         {
             var so = new SerializedObject(bootstrapper);
             AssignPrefab(so, "survivorHumanPrefab", "Survivor_Human");
@@ -292,7 +350,7 @@ namespace Wolf.EditorTools
 
         // --- shared ---
 
-        private static MatchSettings GetOrCreateMatchSettings()
+        internal static MatchSettings GetOrCreateMatchSettings()
         {
             MatchSettings settings = AssetDatabase.LoadAssetAtPath<MatchSettings>(SettingsPath);
             if (settings == null)
