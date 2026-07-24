@@ -406,8 +406,8 @@
           <span class="totem-desc">Проберись через психов и вырежи Альфу. Ближний бой, удар в спину, метательные ножи.</span>
         </button>
       </div>
-      <p class="controls">Мышь — осмотреться · WASD — движение · Shift — бег · C — присед · ЛКМ — атака/захват · ПКМ — блок (наёмник)/захват (псих) · Q — метнуть нож · E — взаимодействие · F — фонарь</p>
-      <p class="menu-note">Браузерный прототип от первого лица, параллельно с Unity-проектом. Персонаж — риг Soldier из примеров three.js, перекрашен по фракциям.</p>
+      <p class="controls">Мышь — осмотреться · WASD — движение · Shift — бег · C — присед · ЛКМ — атака/захват · ПКМ — блок (наёмник)/захват (псих) · Q — метнуть нож · F — добивание (Мясник, Клинок) / фонарь (жертва) · E — взаимодействие</p>
+      <p class="menu-note">Браузерный прототип от первого лица, параллельно с Unity-проектом. Персонажи — риг Soldier (three.js, MIT) со стилизованной кибер-экипировкой по фракциям: глаза-импланты и клинки психов, шипы Альфы, визор наёмника.</p>
     </div>
 
     <div id="charselect" class="overlay hidden">
@@ -4611,25 +4611,27 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   // same corruption recurring.
   const MODEL_FOR_FACTION = { survivor: 'soldier', cannibal: 'soldier', killer: 'soldier' };
   const MODEL_SCALE = { soldier: 1 }; // native scale already composes to real-world size — measured via THREE.Box3, not assumed
-  const MODEL_YAW_OFFSET = { soldier: Math.PI };
+  // The Soldier rig natively faces local -Z (confirmed in play: with a PI offset
+  // every bot visibly ran backwards). Zero offset = model front matches movement.
+  const MODEL_YAW_OFFSET = { soldier: 0 };
   const ANIM_NAMES = {
     soldier: { idle: 'Idle', walk: 'Walk', run: 'Run', captive: 'Idle' },
   };
 
   const CONFIG = {
-    survivor: { speed: 3.3, sprintMul: 1.7, hp: 60, visionLight: 0.55, visionRange: 7 },
-    cannibal: { speed: 3.7, sprintMul: 1.45, hp: 100, visionLight: 0.8, visionRange: 10,
-      attackRange: 2.2, attackDamage: 28, attackCooldown: 0.8,
+    survivor: { speed: 3.3, sprintMul: 1.7, hp: 110, visionLight: 0.55, visionRange: 7 },
+    cannibal: { speed: 3.7, sprintMul: 1.45, hp: 140, visionLight: 0.8, visionRange: 10,
+      attackRange: 2.2, attackDamage: 34, attackCooldown: 0.8,
       grabRange: 2.0, grabCooldown: 3.5, senseRadius: 15,
       // A psycho also notices a mercenary who gets close, and much further if
       // that merc is running or standing tall (see noise bonuses below).
       killerAggroRadius: 5.5 },
-    killer: { speed: 3.5, sprintMul: 1.55, hp: 150, visionLight: 0.8, visionRange: 10,
+    killer: { speed: 3.5, sprintMul: 1.55, hp: 220, visionLight: 0.8, visionRange: 10,
       attackRange: 2.5, attackDamage: 45, attackCooldown: 0.7,
       blockSpeedMul: 0.4, blockDamageMul: 0.25,
       // Throwing knives: a small stock, high damage, short cooldown. Enough to
       // drop a normal psycho outright; only chips the Alpha's deep HP pool.
-      knives: 3, throwDamage: 75, throwSpeed: 26, throwRange: 24, throwCooldown: 0.55 },
+      knives: 3, throwDamage: 140, throwSpeed: 26, throwRange: 24, throwCooldown: 0.55 },
   };
 
   // Stealth / combat tuning shared across factions.
@@ -4641,6 +4643,18 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   const KNIFE_HIT_RADIUS = 0.75;  // a flying knife connects within this of an entity
   const KNIFE_EYE = 1.25;         // knives fly at chest height
 
+  // Hit reactions: taking a hit staggers you briefly and knocks you back;
+  // bots also freeze for a beat after their own swing, so fights have rhythm
+  // instead of contact-DPS grinding.
+  const STAGGER_TIME = 0.32;
+  const STAGGER_KNOCKBACK = 5.5;  // m/s knockback speed while staggered
+  const BOT_ATTACK_RECOVER = 0.55;
+
+  // Executions: an instant finisher on any enemy below this share of max HP.
+  const EXECUTE_THRESHOLD = 0.30;
+  const EXECUTE_RANGE = 2.4;
+  const EXECUTE_CAM_TIME = 1.35;  // seconds the victim's exec-cam runs before the kill
+
   // Playable characters within each side — a light roster. Each is a stat
   // variant on its faction's base, applied to the player entity at spawn.
   const CHARACTERS = {
@@ -4649,11 +4663,11 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       { id: 'medtech', name: 'Медтех', tag: 'живучесть', desc: 'Медленнее, зато держится под погоней дольше.', speedMul: 0.95, hpMul: 1.25 },
     ],
     cannibal: [
-      { id: 'butcher', name: 'Мясник', tag: 'танк', desc: 'Ломится напролом, бьёт тяжело, но медленный.', speedMul: 0.92, hpMul: 1.15, dmgMul: 1.15 },
+      { id: 'butcher', name: 'Мясник', tag: 'танк · добивание', desc: 'Ломится напролом, бьёт тяжело. Добивает раненых [F].', speedMul: 0.92, hpMul: 1.15, dmgMul: 1.15, canExecute: true },
       { id: 'mantis', name: 'Богомол', tag: 'скорость', desc: 'Быстрый, длинный замах, но хрупкий как стекло.', speedMul: 1.12, hpMul: 0.85, attackRangeAdd: 0.4 },
     ],
     killer: [
-      { id: 'blade', name: 'Клинок', tag: 'стелс · ножи', desc: 'Скорость и лишние ножи. Ставка на добивания.', speedMul: 1.1, hpMul: 0.85, knivesAdd: 2 },
+      { id: 'blade', name: 'Клинок', tag: 'стелс · добивание', desc: 'Скорость, лишние ножи и добивание раненых [F].', speedMul: 1.1, hpMul: 0.85, knivesAdd: 2, canExecute: true },
       { id: 'armor', name: 'Броня', tag: 'танк', desc: 'Медленный таран, держит удар и держит блок.', speedMul: 0.9, hpMul: 1.25, blockDamageMul: 0.15 },
     ],
   };
@@ -5099,6 +5113,11 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     tone(58, 0.16, g, 'sine');
     setTimeout(() => tone(46, 0.2, g * 0.9, 'sine'), 150);
   }
+  function sfxExecute() {
+    noiseBurst(0.3, 190, 0.6, 0.4);
+    tone(62, 0.5, 0.3, 'sawtooth');
+    setTimeout(() => tone(44, 0.45, 0.26, 'sine'), 130);
+  }
 
   // ---------------------------------------------------------------------
   // input
@@ -5232,10 +5251,12 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       isGrabbed: false, grabbedBy: null, carrying: null,
       isBlocking: false, flashlightOn: false, sprinting: false, crouching: false,
       moveX: 0, moveZ: 0,
-      wantsAttack: false, wantsGrab: false, wantsThrow: false,
+      wantsAttack: false, wantsGrab: false, wantsThrow: false, wantsExecute: false,
       interactHeld: false, interactPressed: false,
       cdAttack: 0, cdGrab: 0, cdThrow: 0,
       knives: 0, speedMul: 1, dmgMul: 1, attackRangeAdd: 0, charName: null,
+      canExecute: false, beingExecuted: false,
+      staggerT: 0, recoverT: 0, kbX: 0, kbZ: 0,
       wanderYaw: Math.random() * Math.PI * 2, wanderTimer: 0,
       hitFlash: 0,
       mesh: null,
@@ -5244,7 +5265,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
 
   const state = {
     mode: 'menu', result: null, playerFaction: null, playerChar: null,
-    entities: [], player: null, leader: null, projectiles: [],
+    entities: [], player: null, leader: null, projectiles: [], execCam: null,
     generators: [], altar: null, gate: null,
     generatorsDone: 0, survivorsEscaped: 0, requiredEscape: 1,
   };
@@ -5281,9 +5302,60 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     e.dmgMul = char.dmgMul || 1;
     e.attackRangeAdd = char.attackRangeAdd || 0;
     if (char.blockDamageMul != null) e.blockDamageMul = char.blockDamageMul;
+    e.canExecute = !!char.canExecute;
     e.maxHp = Math.max(1, Math.round(e.maxHp * (char.hpMul || 1)));
     e.hp = e.maxHp;
     if (e.faction === 'killer') e.knives = CONFIG.killer.knives + (char.knivesAdd || 0);
+  }
+
+  // Faction "cyber gear" — stylized implants built from primitives so each side
+  // reads differently at a glance: glowing eyes + an arm blade on psychos,
+  // shoulder spikes on the Alpha, a neon visor + armor pads on mercs, a plain
+  // backpack on victims. (Actual Cyberpunk-2077 game models are copyrighted
+  // assets and can't be shipped; a properly-licensed .glb dropped into vendor/
+  // could replace the Soldier rig the same way later.) Attached at fixed
+  // torso/head heights — they don't ride the animation bones, which at night
+  // in fog reads fine for a prototype.
+  function addCyberGear(e, group) {
+    const FRONT_Z = -0.13; // the rig faces local -Z (see MODEL_YAW_OFFSET)
+    if (e.faction === 'cannibal') {
+      const glowHex = e.isLeader ? FACTION_COLOR.leader : 0xff2222;
+      const eyeMat = new THREE.MeshBasicMaterial({ color: glowHex });
+      for (const side of [-1, 1]) {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), eyeMat);
+        eye.position.set(side * 0.07, 1.67, FRONT_Z);
+        group.add(eye);
+      }
+      const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.07, 0.1), new THREE.MeshStandardMaterial({ color: 0x2a2f3a, roughness: 0.4, metalness: 0.8 }));
+      jaw.position.set(0, 1.52, FRONT_Z);
+      group.add(jaw);
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.16), new THREE.MeshStandardMaterial({ color: 0x9aa4b0, roughness: 0.3, metalness: 0.9, emissive: glowHex, emissiveIntensity: 0.25 }));
+      blade.position.set(0.34, 1.05, -0.05);
+      blade.rotation.z = 0.5;
+      group.add(blade);
+      if (e.isLeader) {
+        for (const side of [-1, 1]) {
+          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.3, 6), new THREE.MeshStandardMaterial({ color: 0x1c2230, emissive: FACTION_COLOR.leader, emissiveIntensity: 0.5 }));
+          spike.position.set(side * 0.26, 1.62, 0);
+          spike.rotation.z = side * -0.5;
+          group.add(spike);
+        }
+      }
+    } else if (e.faction === 'killer') {
+      const visor = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.06), new THREE.MeshBasicMaterial({ color: 0x00e5ff }));
+      visor.position.set(0, 1.66, FRONT_Z);
+      group.add(visor);
+      const padMat = new THREE.MeshStandardMaterial({ color: 0x151b26, roughness: 0.5, metalness: 0.6 });
+      for (const side of [-1, 1]) {
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.22), padMat);
+        pad.position.set(side * 0.27, 1.5, 0);
+        group.add(pad);
+      }
+    } else {
+      const bag = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 0.14), new THREE.MeshStandardMaterial({ color: 0x223028, roughness: 0.9 }));
+      bag.position.set(0, 1.3, 0.16); // on the back (local +Z)
+      group.add(bag);
+    }
   }
 
   function buildEntityMesh(e) {
@@ -5328,6 +5400,8 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       group.add(head);
       materials.push(bodyMat);
     }
+
+    addCyberGear(e, group);
 
     if (e.isLeader) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.04, 6, 24), new THREE.MeshBasicMaterial({ color: FACTION_COLOR.leader }));
@@ -5387,7 +5461,10 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       const [cx, cz] = cannibalSpawns[i];
       const e = makeEntity('cannibal', cx, cz, { isPlayer: isHuman, isLeader });
       e.yaw = yawToward(-24 - cx, 0 - cz);
-      if (isLeader) { e.hp = e.maxHp = 220; state.leader = e; }
+      if (isLeader) { e.hp = e.maxHp = 400; state.leader = e; }
+      // Bot psychos all finish wounded prey — that's how a Victim player gets
+      // to watch their own finisher (see the exec-cam in the frame loop).
+      if (!isHuman) e.canExecute = true;
       if (!isHuman) buildEntityMesh(e);
       state.entities.push(e);
       if (isHuman) state.player = e;
@@ -5402,6 +5479,9 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
 
     applyCharacter(state.player, state.playerChar);
     setupPlayerLight();
+    state.execCam = null;
+    camera.fov = 75;
+    camera.updateProjectionMatrix();
     state.mode = 'playing';
     state.result = null;
   }
@@ -5484,7 +5564,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   function nearestLivingSurvivor(fromX, fromZ, excludeGrabbed) {
     let best = null, bestD = Infinity;
     for (const e of state.entities) {
-      if (e.faction !== 'survivor' || e.isDead || e.escaped) continue;
+      if (e.faction !== 'survivor' || e.isDead || e.escaped || e.beingExecuted) continue;
       if (excludeGrabbed && e.isGrabbed) continue;
       const d = Math.hypot(e.x - fromX, e.z - fromZ);
       if (d < bestD) { bestD = d; best = e; }
@@ -5557,6 +5637,8 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     // Mouse is released (ESC): freeze the player, drop any queued look, and
     // don't act on clicks — the pause overlay owns the next click.
     if (!captured) { p.moveX = 0; p.moveZ = 0; lookYawDelta = 0; lookPitchDelta = 0; return; }
+    // Being executed: input and look are gone — the exec-cam owns the view.
+    if (p.beingExecuted) { p.moveX = 0; p.moveZ = 0; lookYawDelta = 0; lookPitchDelta = 0; return; }
 
     if (pointerLocked) {
       // True 1:1 look from raw mouse deltas.
@@ -5605,6 +5687,9 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       p.isBlocking = mouseHeld(2);
       p.wantsThrow = keyPressed('KeyQ');   // throw a knife
     }
+    // Execution perk (Мясник, Клинок): F — the flashlight is survivor-only,
+    // so the key is free on both combat factions.
+    if (p.canExecute && p.faction !== 'survivor') p.wantsExecute = keyPressed('KeyF');
   }
 
   // ---------------------------------------------------------------------
@@ -5650,7 +5735,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   }
 
   function updateCannibalBot(e, dt) {
-    e.wantsAttack = false; e.wantsGrab = false; e.sprinting = false;
+    e.wantsAttack = false; e.wantsGrab = false; e.wantsExecute = false; e.sprinting = false;
 
     if (e.carrying) {
       steerTo(e, state.altar.x, state.altar.z);
@@ -5676,6 +5761,11 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     if (prey) {
       steerTo(e, prey.x, prey.z);
       e.sprinting = true;
+      // Wounded prey in reach gets finished, not chewed on.
+      if (!e.carrying && preyDist <= EXECUTE_RANGE && prey.hp <= prey.maxHp * EXECUTE_THRESHOLD && !prey.beingExecuted) {
+        e.wantsExecute = true;
+        return;
+      }
       // Only victims get grabbed & dragged to the table; mercs just get mauled.
       if (prey.faction === 'survivor' && preyDist <= cfg.grabRange) e.wantsGrab = true;
       if (preyDist <= cfg.attackRange) e.wantsAttack = true;
@@ -5693,7 +5783,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     const cfg = CONFIG[e.faction];
     let best = null, bestD = Infinity;
     for (const t of state.entities) {
-      if (t === e || t.isDead || t.escaped || t.faction === e.faction) continue;
+      if (t === e || t.isDead || t.escaped || t.faction === e.faction || t.beingExecuted) continue;
       const dx = t.x - e.x, dz = t.z - e.z;
       const d = Math.hypot(dx, dz);
       if (d > cfg.attackRange + (e.attackRangeAdd || 0)) continue;
@@ -5712,7 +5802,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       const behind = Math.abs(normalizeAngle(toAtk - best.yaw)) > Math.PI - BACKSTAB_ARC / 2;
       if (behind) { dmg = best.isLeader ? dmg * 2.4 : 9999; if (e.isPlayer) sfxHit(); }
     }
-    damageEntity(best, dmg);
+    damageEntity(best, dmg, e);
   }
 
   function performGrab(e) {
@@ -5755,11 +5845,11 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       for (let s = 0; s < steps && !removed; s++) {
         p.x += p.vx * h; p.z += p.vz * h; p.life -= h;
         for (const t of state.entities) {
-          if (t === p.owner || t.isDead || t.escaped || t.faction === p.faction) continue;
+          if (t === p.owner || t.isDead || t.escaped || t.faction === p.faction || t.beingExecuted) continue;
           if (Math.hypot(t.x - p.x, t.z - p.z) <= KNIFE_HIT_RADIUS) {
             let dmg = p.dmg;
             if (t.faction === 'killer' && t.isBlocking) dmg *= (t.blockDamageMul || CONFIG.killer.blockDamageMul);
-            damageEntity(t, dmg);
+            damageEntity(t, dmg, p.owner);
             removed = true; break;
           }
         }
@@ -5776,6 +5866,40 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
         p.mesh.position.set(p.x, p.y, p.z);
         p.mesh.rotation.set(0, Math.atan2(-p.vx, -p.vz), p.spin);
       }
+    }
+  }
+
+  // Execution: an instant finisher on any enemy below EXECUTE_THRESHOLD of max
+  // HP. Player characters need the canExecute perk (Мясник, Клинок); every bot
+  // psycho has it — which is how a Victim player gets to watch their own
+  // finisher through the exec-cam (frame loop).
+  function findExecuteTarget(e) {
+    let best = null, bestD = Infinity;
+    for (const t of state.entities) {
+      if (t === e || t.isDead || t.escaped || t.isGrabbed || t.beingExecuted) continue;
+      if (t.faction === e.faction) continue;
+      if (t.hp > t.maxHp * EXECUTE_THRESHOLD) continue;
+      const dx = t.x - e.x, dz = t.z - e.z;
+      const d = Math.hypot(dx, dz);
+      if (d > EXECUTE_RANGE) continue;
+      // The player must be facing the victim; bots just need to be close.
+      if (e.isPlayer && Math.abs(normalizeAngle(yawToward(dx, dz) - e.yaw)) > Math.PI / 2.5) continue;
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    return best;
+  }
+
+  function performExecute(e, victim) {
+    sfxExecute();
+    if (e.isPlayer) { flashCrosshair(); vmRecoil = 1.5; }
+    if (victim.isPlayer) {
+      // The player dies on camera: freeze both, run the exec-cam, kill at the end.
+      victim.beingExecuted = true;
+      e.recoverT = EXECUTE_CAM_TIME + 0.2;
+      state.execCam = { executor: e, victim, t: EXECUTE_CAM_TIME };
+      triggerDamageFlash();
+    } else {
+      damageEntity(victim, 99999, e);
     }
   }
 
@@ -5798,9 +5922,18 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     state.altar.timer = 0;
   }
 
-  function damageEntity(target, dmg) {
+  function damageEntity(target, dmg, source) {
     target.hp -= dmg;
     target.hitFlash = 0.15;
+    // Hit reaction: a short stagger plus knockback away from the attacker.
+    // Staggered bots can't move or act (see applyEntity) — this is the beat
+    // between hits that makes trading blows readable.
+    target.staggerT = STAGGER_TIME;
+    if (source) {
+      const kd = Math.hypot(target.x - source.x, target.z - source.z) || 1;
+      target.kbX = ((target.x - source.x) / kd) * STAGGER_KNOCKBACK;
+      target.kbZ = ((target.z - source.z) / kd) * STAGGER_KNOCKBACK;
+    }
     if (target.isPlayer) { triggerDamageFlash(); sfxHit(); }
     if (target.hp <= 0 && !target.isDead) {
       target.isDead = true;
@@ -5859,6 +5992,16 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     e.cdGrab = Math.max(0, e.cdGrab - dt);
     e.cdThrow = Math.max(0, e.cdThrow - dt);
     e.hitFlash = Math.max(0, e.hitFlash - dt);
+    e.staggerT = Math.max(0, e.staggerT - dt);
+    e.recoverT = Math.max(0, e.recoverT - dt);
+
+    // Frozen for the duration of the exec-cam — the camera sequence kills them.
+    if (e.beingExecuted) { e.moveX = 0; e.moveZ = 0; return; }
+
+    // Knockback slides anyone who was just hit; bots additionally can't act
+    // while staggered or recovering from their own swing.
+    if (e.staggerT > 0 && !e.isGrabbed) moveWithCollision(e, e.kbX * dt, e.kbZ * dt);
+    const stunned = !e.isPlayer && (e.staggerT > 0 || e.recoverT > 0);
 
     if (e.isGrabbed) {
       if (e.grabbedBy) {
@@ -5875,7 +6018,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       else if (e.crouching) speed *= CROUCH_SPEED_MUL;
 
       const mv = Math.hypot(e.moveX, e.moveZ);
-      if (mv > 0.001) {
+      if (mv > 0.001 && !stunned) {
         const f = forwardVector(e.yaw), r = rightVector(e.yaw);
         const nx = e.moveX / mv, nz = e.moveZ / mv;
         const dirX = f.x * nz + r.x * nx, dirZ = f.z * nz + r.z * nx;
@@ -5883,13 +6026,25 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       }
     }
 
-    if (e.wantsAttack && e.cdAttack <= 0 && (e.faction === 'cannibal' || e.faction === 'killer')) {
+    if (e.wantsAttack && e.cdAttack <= 0 && !stunned && (e.faction === 'cannibal' || e.faction === 'killer')) {
       performAttack(e);
       e.cdAttack = CONFIG[e.faction].attackCooldown;
+      if (!e.isPlayer) e.recoverT = BOT_ATTACK_RECOVER;   // bots pause after a swing
     }
     e.wantsAttack = false;
 
-    if (e.wantsGrab && e.cdGrab <= 0 && e.faction === 'cannibal' && !e.carrying) {
+    // Deliberately NOT gated on cdAttack: a finisher prompt that silently eats
+    // the keypress because your last swing hasn't cooled down feels broken.
+    if (e.wantsExecute && !stunned && e.canExecute && !e.carrying) {
+      const victim = findExecuteTarget(e);
+      if (victim) {
+        performExecute(e, victim);
+        e.cdAttack = CONFIG[e.faction].attackCooldown;
+      }
+    }
+    e.wantsExecute = false;
+
+    if (e.wantsGrab && e.cdGrab <= 0 && !stunned && e.faction === 'cannibal' && !e.carrying) {
       performGrab(e);
       e.cdGrab = CONFIG.cannibal.grabCooldown;
     }
@@ -5954,6 +6109,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
 
   function computePrompt(p) {
     if (p.isDead) return 'Вы мертвы.';
+    if (p.beingExecuted) return 'Тебя добивают…';
     if (p.isGrabbed) return 'Вас тащат на имплант-стол — держитесь, пока отобьют...';
     if (p.faction === 'survivor') {
       for (const g of state.generators) {
@@ -5966,11 +6122,15 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       if (state.generatorsDone >= GENERATORS_REQUIRED) return 'Выход открыт — беги из квартала!';
       return '';
     }
-    if (p.faction === 'cannibal') return p.carrying ? 'Тащи жертву на имплант-стол' : 'ЛКМ — атака · ПКМ/G — схватить';
+    if (p.faction === 'cannibal') {
+      if (p.canExecute && !p.carrying && findExecuteTarget(p)) return '[F] ДОБИВАНИЕ';
+      return p.carrying ? 'Тащи жертву на имплант-стол' : 'ЛКМ — атака · ПКМ/G — схватить';
+    }
     if (p.faction === 'killer') {
+      if (p.canExecute && findExecuteTarget(p)) return '[F] ДОБИВАНИЕ';
       if (p.isBlocking) return 'Блок';
       const knife = p.knives > 0 ? ' · Q — нож (' + p.knives + ')' : ' · ножи кончились';
-      return 'ЛКМ — атака (в спину = добивание)' + knife + ' · ПКМ — блок';
+      return 'ЛКМ — атака (в спину = тихое убийство)' + knife + ' · ПКМ — блок';
     }
     return '';
   }
@@ -6059,6 +6219,28 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       for (const e of state.entities) applyEntity(e, dt);
       updateProjectiles(dt);
       rig.position.set(state.player.x, 0, state.player.z);
+
+      // Exec-cam: the victim watches their own finisher — the view is wrenched
+      // toward the executor, zooms in, the screen pulses red, then the kill.
+      if (state.execCam) {
+        const ec = state.execCam;
+        ec.t -= dt;
+        const wantYaw = yawToward(ec.executor.x - ec.victim.x, ec.executor.z - ec.victim.z);
+        rig.rotation.y += normalizeAngle(wantYaw - rig.rotation.y) * Math.min(1, dt * 9);
+        pitch += (0.1 - pitch) * Math.min(1, dt * 9);
+        camera.rotation.x = pitch;
+        camera.fov += (50 - camera.fov) * Math.min(1, dt * 6);
+        camera.updateProjectionMatrix();
+        damageFlash.classList.toggle('show', Math.floor(ec.t * 7) % 2 === 0);
+        if (ec.t <= 0) {
+          damageFlash.classList.remove('show');
+          ec.victim.beingExecuted = false;
+          damageEntity(ec.victim, 99999, ec.executor);
+          camera.fov = 75;
+          camera.updateProjectionMatrix();
+          state.execCam = null;
+        }
+      }
 
       const p = state.player;
       const moving = (p.moveX || p.moveZ) && !p.isGrabbed && !p.isDead;
