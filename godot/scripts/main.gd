@@ -1,14 +1,16 @@
 extends Node3D
-## Game orchestrator — a straight port of the tuned web prototype's loop:
-## menu → character select → match with three sides, melee + knives, stealth
-## noise, grabs to the implant table, executions with a victim exec-cam, and
-## the three-way win triangle. Everything (level, UI, characters) is built in
-## code so the whole game is verifiable from a headless run (WOLF_TEST below).
+## Tower assault orchestrator. Ruleset:
+##  - Civilians: reach a safe room and survive until the police timer runs out
+##    (or the mercs wipe every psycho).
+##  - Psychos: kill every civilian before the police arrive.
+##  - Mercs: kill every psycho, plant the bomb in the club, exfil via lobby.
+## Melee is Kingdom-Come-style: three strike directions picked by mouse sway,
+## wind-ups with readable telegraphs, directional blocks (matching side =
+## perfect block + riposte), stamina. Bots path across floors on the baked
+## navmesh. WOLF_TEST env drives headless verification.
 
 const KnifeScene := preload("res://scripts/knife.gd")
 
-## Baked, editor-editable scenes (tools/scene_baker.gd). Loaded lazily so the
-## baker itself can run before they exist.
 const CHAR_SCENE_PATHS := {
 	"survivor": "res://scenes/chars/survivor.tscn",
 	"cannibal": "res://scenes/chars/psycho.tscn",
@@ -22,23 +24,26 @@ var district: Node3D
 var menu_cam: Camera3D
 var player_cam: Camera3D = null
 var flashlight: SpotLight3D = null
+var viewmodel: Node3D = null
 
 var mode := "menu"
 var entities: Array = []
 var knives: Array = []
+var doors: Array = []
 var player: WolfChar = null
-var leader: WolfChar = null
 
-var generators: Array = []          # {pos, progress, done, ring_mat, box_mat}
-var altar := {}                     # {pos, captive, timer, light}
-var gate_pos := Vector3.ZERO
-var gate_half_w := 4.0
-var generators_done := 0
-var survivors_escaped := 0
+var safe_zones: Array = []      # [{pos, half}]
+var bomb_site := Vector3.ZERO
+var evac_pos := Vector3.ZERO
+var evac_half := Vector3.ONE
+var police_t := 0.0
+var bomb_progress := 0.0
+var bomb_planted := false
 var exec_cam := {}
 
 var _captured := false
 var _look_delta := Vector2.ZERO
+var _sway := 0.0                # smoothed horizontal mouse motion -> strike side
 var _keys_prev := {}
 var _mouse_prev := {}
 var _pitch := 0.0
@@ -52,65 +57,85 @@ var _test_shot_taken := false
 var _test_yaw_before := 0.0
 
 const RESULT_COPY := {
-	"survivors": ["Жертвы ушли", "Кто-то выбрался из квартала живым.", "survivor"],
-	"cannibals": ["Психи победили", "Из квартала не ушёл никто.", "cannibal"],
-	"killers": ["Альфа мёртв", "Наёмник вырезал вожака стаи.", "killer"],
+	"civs_dead": ["Психи победили", "В башне не осталось живых гражданских.", "cannibal"],
+	"police": ["Полиция прибыла", "Выжившие гражданские спасены.", "survivor"],
+	"psychos_dead": ["Психи уничтожены", "Наёмники зачистили башню — гражданские спасены.", "killer"],
+	"merc_done": ["Контракт закрыт", "Психи мертвы, бомба заложена, наёмники ушли до сирен.", "killer"],
 }
 
 
 func _ready() -> void:
 	randomize()
 	district = $District
-	gate_pos = ($District/GateMarker as Marker3D).global_position
-	gate_pos.y = 0.0
-	gate_half_w = WolfCfg.GATE_HALF_W
-	_collect_objectives()
+	_collect_layout()
 
 	menu_cam = $MenuCamera
-	menu_cam.look_at(Vector3(0, 1.5, 0), Vector3.UP)
+	menu_cam.position = Vector3(3, 5, -25)
+	menu_cam.look_at(Vector3(0, 6, 2), Vector3.UP)
 	menu_cam.current = true
 
 	ui = $UI
 	ui.faction_picked.connect(func(f: String) -> void: ui.open_charselect(f))
-	ui.character_picked.connect(_start_match)
+	ui.character_picked.connect(_on_character_picked)
+	ui.weapon_picked.connect(func(f: String, ci: int, wi: int) -> void: _start_match(f, ci, wi))
 	ui.restart_pressed.connect(_back_to_menu)
 
 	_test_mode = OS.get_environment("WOLF_TEST")
 	_test_shot = OS.get_environment("WOLF_SHOT")
 
-
-## Reads gameplay data straight out of the baked district scene: HackNode*
-## groups and the ImplantTable under Objectives, spawn Marker3Ds under Spawns.
-## Move them in the editor and the game follows.
-func _collect_objectives() -> void:
-	generators.clear()
-	var objectives := district.get_node("Objectives")
-	for child in objectives.get_children():
-		if (child.name as String).begins_with("HackNode"):
-			var ring := child.get_node("Ring") as MeshInstance3D
-			var box := child.get_node("Box") as MeshInstance3D
-			generators.append({
-				"pos": (child as Node3D).position,
-				"progress": 0.0, "done": false,
-				"ring_mat": ring.material_override, "box_mat": box.material_override,
-			})
-	var table := objectives.get_node("ImplantTable") as Node3D
-	altar = {"pos": table.position, "captive": null, "timer": 0.0, "light": table.get_node("Light")}
+	# The navmesh can't be parsed in the baker's script context, so it bakes
+	# here, in the background, once the tree is live. Until it lands the bots
+	# fall back to direct steering (see _nav_steer).
+	var nav := district.get_node_or_null("Nav") as NavigationRegion3D
+	if nav != null:
+		nav.bake_finished.connect(func() -> void:
+			print("NAV READY: %d polygons" % nav.navigation_mesh.get_polygon_count()))
+		nav.bake_navigation_mesh.call_deferred(true)
 
 
-func _spawn_positions(prefix: String) -> Array:
-	var out: Array = []
-	for child in district.get_node("Spawns").get_children():
-		if (child.name as String).begins_with(prefix):
-			out.append((child as Marker3D).global_position * Vector3(1, 0, 1))
-	return out
+func _on_character_picked(faction: String, char_index: int) -> void:
+	if faction == "survivor":
+		_start_match(faction, char_index, -1)  # civilians are unarmed
+	else:
+		ui.open_weaponselect(faction, char_index)
+
+
+func _collect_layout() -> void:
+	safe_zones.clear()
+	doors.clear()
+	var zones := district.get_node_or_null("SafeZones")
+	if zones != null:
+		for child in zones.get_children():
+			safe_zones.append({"pos": (child as Marker3D).global_position, "half": child.get_meta("half")})
+	var doors_group := district.get_node_or_null("Doors")
+	if doors_group != null:
+		for child in doors_group.get_children():
+			doors.append(child)
+	var site := district.get_node_or_null("BombSite")
+	if site != null:
+		bomb_site = (site as Marker3D).global_position
+	var evac := district.get_node_or_null("EvacMarker")
+	if evac != null:
+		evac_pos = (evac as Marker3D).global_position
+		evac_half = evac.get_meta("half")
+
+
+func _in_zone(pos: Vector3, center: Vector3, half: Vector3) -> bool:
+	return absf(pos.x - center.x) <= half.x and absf(pos.y - center.y) <= half.y + 1.0 and absf(pos.z - center.z) <= half.z
+
+
+func _in_safe_zone(pos: Vector3) -> bool:
+	for z in safe_zones:
+		if _in_zone(pos, z["pos"], z["half"]):
+			return true
+	return false
 
 
 # ---------------------------------------------------------------------------
 # match lifecycle
 # ---------------------------------------------------------------------------
 
-func _start_match(faction: String, arche_index: int) -> void:
+func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
 	for e in entities:
 		e.queue_free()
 	for k in knives:
@@ -118,50 +143,55 @@ func _start_match(faction: String, arche_index: int) -> void:
 	entities.clear()
 	knives.clear()
 	player = null
-	leader = null
-	survivors_escaped = 0
-	generators_done = 0
 	exec_cam = {}
-	for g in generators:
-		g["progress"] = 0.0
-		g["done"] = false
-		_reset_objective_visual(g)
-	altar["captive"] = null
-	altar["timer"] = 0.0
-
-	var survivor_spawns := _spawn_positions("Survivor")
-	var cannibal_spawns := _spawn_positions("Cannibal")
-	var killer_spawns := _spawn_positions("Killer")
+	bomb_progress = 0.0
+	bomb_planted = false
+	var override := OS.get_environment("WOLF_POLICE")
+	police_t = float(override) if override != "" else WolfCfg.POLICE_TIME
+	for d in doors:
+		if (d as WolfDoor).is_open and not (d as WolfDoor).is_broken:
+			(d as WolfDoor).toggle()  # matches start with doors closed
 
 	for i in 3:
 		var is_human := faction == "survivor" and i == 0
-		_spawn_char("survivor", survivor_spawns[i], is_human, false)
+		_spawn_char("survivor", _spawn_positions("Survivor")[i], is_human, false)
 
 	for i in 3:
 		var is_human := faction == "cannibal" and i == 0
 		var is_lead := i == 0
-		var c := _spawn_char("cannibal", cannibal_spawns[i], is_human, is_lead)
-		if is_lead:
-			leader = c
+		var c := _spawn_char("cannibal", _spawn_positions("Cannibal")[i], is_human, is_lead)
 		if not is_human:
-			c.can_execute = true  # bot psychos finish wounded prey — the victim watches via exec-cam
+			c.can_execute = true
+			c.set_weapon(WolfCfg.WEAPONS["cannibal"].pick_random())
 
 	var merc_count := 1 + WolfCfg.MERC_BOT_COUNT if faction == "killer" else WolfCfg.MERC_BOT_COUNT
+	var merc_spawns := _spawn_positions("Killer")
 	for i in merc_count:
 		var is_human := faction == "killer" and i == 0
-		var m := _spawn_char("killer", killer_spawns[i % killer_spawns.size()], is_human, false)
+		var m := _spawn_char("killer", merc_spawns[i % merc_spawns.size()], is_human, false)
 		if not is_human:
 			m.hp = WolfCfg.MERC_BOT_HP
 			m.max_hp = WolfCfg.MERC_BOT_HP
 			m.dmg_mul = WolfCfg.MERC_BOT_DMG_MUL
 			m.knives = WolfCfg.MERC_BOT_KNIVES
+			m.set_weapon(WolfCfg.WEAPONS["killer"].pick_random())
 
 	player.apply_archetype(WolfCfg.CHARACTERS[faction][arche_index])
+	if weapon_index >= 0:
+		player.set_weapon(WolfCfg.WEAPONS[faction][weapon_index])
 	_setup_player_camera()
 
 	mode = "playing"
 	ui.show_hud()
 	_capture_mouse(true)
+
+
+func _spawn_positions(prefix: String) -> Array:
+	var out: Array = []
+	for child in district.get_node("Spawns").get_children():
+		if (child.name as String).begins_with(prefix):
+			out.append((child as Marker3D).global_position + Vector3(0, 0.15, 0))
+	return out
 
 
 func _spawn_char(faction: String, pos: Vector3, is_human: bool, is_lead: bool) -> WolfChar:
@@ -172,7 +202,7 @@ func _spawn_char(faction: String, pos: Vector3, is_human: bool, is_lead: bool) -
 	add_child(c)
 	c.init_stats(is_human)
 	c.global_position = pos
-	c.rotation.y = atan2(pos.x, pos.z)  # face roughly toward the plaza centre
+	c.rotation.y = atan2(pos.x, pos.z)
 	entities.append(c)
 	if is_human:
 		player = c
@@ -188,6 +218,7 @@ func _setup_player_camera() -> void:
 	_pitch = 0.0
 	_eye_y = WolfCfg.EYE_STAND
 
+	flashlight = null
 	if player.faction == "survivor":
 		flashlight = SpotLight3D.new()
 		flashlight.light_color = Color(1.0, 0.95, 0.8)
@@ -195,8 +226,32 @@ func _setup_player_camera() -> void:
 		flashlight.spot_range = 22.0
 		flashlight.spot_angle = 24.0
 		player_cam.add_child(flashlight)
-	else:
-		flashlight = null
+
+	_build_viewmodel()
+
+
+## First-person weapon: a simple blade/maul silhouette that sways, raises on
+## wind-up toward the strike side, and swings on release.
+func _build_viewmodel() -> void:
+	viewmodel = null
+	if player.faction == "survivor":
+		return
+	viewmodel = Node3D.new()
+	var heavy: bool = player.weapon.get("dmg", 1.0) > 1.2
+	var blade := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.10, 0.10, 0.9) if heavy else Vector3(0.045, 0.02, 0.75)
+	blade.mesh = box
+	blade.position = Vector3(0, 0, -0.45)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.4, 0.42, 0.5) if heavy else Color(0.75, 0.8, 0.9)
+	mat.metallic = 0.9
+	mat.roughness = 0.25
+	blade.material_override = mat
+	viewmodel.add_child(blade)
+	viewmodel.position = Vector3(0.32, -0.28, -0.35)
+	viewmodel.rotation_degrees = Vector3(0, -6, 0)
+	player_cam.add_child(viewmodel)
 
 
 func _back_to_menu() -> void:
@@ -209,27 +264,32 @@ func _back_to_menu() -> void:
 func _end_game(result: String) -> void:
 	mode = "ended"
 	exec_cam = {}
+	ui.set_flash_alpha(0.0)
 	_capture_mouse(false)
 	var copy: Array = RESULT_COPY[result]
 	ui.show_end(copy[0], copy[1], WolfCfg.FACTION_COLOR[copy[2]])
 
 
+func _alive(faction: String) -> int:
+	var n := 0
+	for e in entities:
+		if e.faction == faction and not e.is_dead:
+			n += 1
+	return n
+
+
 func _check_win() -> void:
 	if mode != "playing":
 		return
-	if leader != null and leader.is_dead:
-		_end_game("killers")
+	if _alive("survivor") == 0:
+		_end_game("civs_dead")
 		return
-	if survivors_escaped >= 1:
-		_end_game("survivors")
-		return
-	var any_alive := false
-	for e in entities:
-		if e.faction == "survivor" and not e.is_dead and not e.escaped:
-			any_alive = true
-			break
-	if not any_alive:
-		_end_game("cannibals")
+	if _alive("cannibal") == 0:
+		# The merc player still has to finish the contract; everyone else ends here.
+		if player.faction != "killer":
+			_end_game("psychos_dead")
+		elif bomb_planted and _in_zone(player.global_position, evac_pos, evac_half) and not player.is_dead:
+			_end_game("merc_done")
 
 
 # ---------------------------------------------------------------------------
@@ -244,9 +304,6 @@ func _capture_mouse(on: bool) -> void:
 
 
 func _input(event: InputEvent) -> void:
-	# Mouse look reads raw events BEFORE the GUI: any Control that intercepts
-	# motion (the first build's centre crosshair did) would otherwise eat the
-	# camera — that was the shipped "нет оглядывания" bug.
 	if event is InputEventMouseMotion and _captured:
 		_look_delta += (event as InputEventMouseMotion).relative
 
@@ -277,7 +334,7 @@ func _mouse_pressed_once(btn: MouseButton) -> bool:
 
 
 func _store_prev_input() -> void:
-	for code in [KEY_E, KEY_F, KEY_Q, KEY_G, KEY_SPACE, KEY_C]:
+	for code in [KEY_E, KEY_F, KEY_Q, KEY_SPACE, KEY_C]:
 		_keys_prev[code] = Input.is_key_pressed(code)
 	for btn in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 		_mouse_prev[btn] = Input.is_mouse_button_pressed(btn)
@@ -295,9 +352,22 @@ func _update_player_input(delta: float) -> void:
 	p.rotation.y -= _look_delta.x * 0.0022
 	_pitch = clampf(_pitch - _look_delta.y * 0.0022, -1.35, 1.35)
 	player_cam.rotation.x = _pitch
-	_look_delta = Vector2.ZERO
 
-	if p.is_dead or p.escaped or p.is_grabbed:
+	# Strike side from recent mouse sway (KCD): swing the mouse left before
+	# clicking = strike from the left; still mouse = overhead.
+	_sway = lerpf(_sway, _look_delta.x, minf(1.0, delta * 14.0))
+	_look_delta = Vector2.ZERO
+	if not p.winding:
+		if _sway < -2.0:
+			p.attack_dir = WolfCfg.DIR_LEFT
+		elif _sway > 2.0:
+			p.attack_dir = WolfCfg.DIR_RIGHT
+		else:
+			p.attack_dir = WolfCfg.DIR_OVERHEAD
+	p.block_dir = p.attack_dir
+	ui.set_dir_indicator(p.attack_dir)
+
+	if p.is_dead:
 		p.move_input = Vector2.ZERO
 		return
 
@@ -327,89 +397,166 @@ func _update_player_input(delta: float) -> void:
 		if flashlight != null:
 			flashlight.light_energy = 4.0 if p.flashlight_on else 0.0
 
-	var attack := _mouse_pressed_once(MOUSE_BUTTON_LEFT) or _key_pressed_once(KEY_SPACE)
 	if p.faction != "survivor":
-		p.wants_attack = attack
-	if p.faction == "cannibal":
-		p.wants_grab = _mouse_pressed_once(MOUSE_BUTTON_RIGHT) or _key_pressed_once(KEY_G)
+		p.is_blocking = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not p.winding
+		if (_mouse_pressed_once(MOUSE_BUTTON_LEFT) or _key_pressed_once(KEY_SPACE)) and not p.winding:
+			_begin_windup(p, p.attack_dir)
 	if p.faction == "killer":
-		p.is_blocking = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
 		p.wants_throw = _key_pressed_once(KEY_Q)
 	if p.can_execute and p.faction != "survivor":
 		p.wants_execute = _key_pressed_once(KEY_F)
 
 
 # ---------------------------------------------------------------------------
-# shared helpers (ported)
+# directional melee (Kingdom-Come-style)
 # ---------------------------------------------------------------------------
 
-func _yaw_toward(dx: float, dz: float) -> float:
-	return atan2(-dx, -dz)
+func _weapon_cost(e: WolfChar) -> float:
+	return WolfCfg.STAMINA_ATTACK_COST * e.weapon.get("stamina", 1.0)
 
 
-func _fwd(c: WolfChar) -> Vector3:
-	return Vector3(-sin(c.rotation.y), 0, -cos(c.rotation.y))
+func _begin_windup(e: WolfChar, dir: int) -> void:
+	if e.cd_attack > 0.0 or e.winding:
+		return
+	if e.riposte_t <= 0.0 and e.stamina < _weapon_cost(e):
+		return  # too winded to swing
+	if e.riposte_t <= 0.0:
+		e.stamina -= _weapon_cost(e)
+		e.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
+	e.winding = true
+	e.windup_dir = dir
+	var base := WolfCfg.PLAYER_WINDUP if e.is_player else (WolfCfg.ALPHA_WINDUP if e.is_leader else WolfCfg.BOT_WINDUP)
+	e.windup_t = base / e.weapon.get("speed", 1.0)
+	if not e.is_player:
+		e.show_telegraph(dir)
+	# The intended victim may raise a guard against a readable wind-up.
+	var target := _acquire_melee_target(e)
+	if target != null and not target.is_player and target.faction != "survivor" and target.bot_block_t <= 0.0 and not target.winding:
+		var kind := "leader" if target.is_leader else target.faction
+		if randf() < WolfCfg.BOT_BLOCK_CHANCE.get(kind, 0.0):
+			target.bot_block_t = 0.7
+			target.block_dir = dir if randf() < WolfCfg.BOT_BLOCK_CORRECT.get(kind, 0.5) else randi_range(0, 2)
 
 
-func _dist2d(a: WolfChar, b: WolfChar) -> float:
-	return Vector2(a.global_position.x - b.global_position.x, a.global_position.z - b.global_position.z).length()
+func _cancel_windup(e: WolfChar) -> void:
+	e.winding = false
+	e.hide_telegraph()
 
 
-func _noise_radius(target: WolfChar, base: float) -> float:
-	var r := base
-	if target.crouching:
-		r *= WolfCfg.CROUCH_NOISE_MUL
-	if target.sprinting:
-		r += WolfCfg.SPRINT_NOISE_BONUS
-	if target.flashlight_on:
-		r += WolfCfg.FLASHLIGHT_NOISE_BONUS
-	return r
+func _melee_range(e: WolfChar) -> float:
+	var base: float = WolfCfg.CONFIG[e.faction].get("attack_range", 2.0)
+	return base + e.weapon.get("range", 0.0)
 
 
-func _nearest(filter: Callable, from_pos: Vector3) -> Array:
+func _acquire_melee_target(e: WolfChar) -> WolfChar:
 	var best: WolfChar = null
 	var best_d := INF
-	for e in entities:
-		if not filter.call(e):
+	for t: WolfChar in entities:
+		if t == e or t.is_dead or t.faction == e.faction or t.being_executed:
 			continue
-		var d: float = Vector2(e.global_position.x - from_pos.x, e.global_position.z - from_pos.z).length()
+		var dp := t.global_position - e.global_position
+		if absf(dp.y) > WolfCfg.SAME_FLOOR_DY:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d > _melee_range(e):
+			continue
+		if absf(wrapf(_yaw_toward(dp.x, dp.z) - e.rotation.y, -PI, PI)) > PI / 2.2:
+			continue
 		if d < best_d:
 			best_d = d
-			best = e
-	return [best, best_d]
+			best = t
+	return best
 
 
-func _nearest_living_survivor(from_pos: Vector3, exclude_grabbed: bool) -> Array:
-	return _nearest(func(e: WolfChar) -> bool:
-		return e.faction == "survivor" and not e.is_dead and not e.escaped and not e.being_executed \
-			and not (exclude_grabbed and e.is_grabbed), from_pos)
+func _resolve_strike(e: WolfChar) -> void:
+	_cancel_windup(e)
+	e.cd_attack = WolfCfg.CONFIG[e.faction]["attack_cd"] / e.weapon.get("speed", 1.0)
+	if not e.is_player:
+		e.recover_t = WolfCfg.BOT_ATTACK_RECOVER
+	if e.is_player:
+		_kick_viewmodel(e.windup_dir)
+
+	var target := _acquire_melee_target(e)
+	if target == null:
+		_try_hit_door(e)
+		return
+
+	var dmg: float = WolfCfg.CONFIG[e.faction]["attack_damage"] * e.dmg_mul * e.weapon.get("dmg", 1.0)
+	if e.riposte_t > 0.0:
+		dmg *= WolfCfg.RIPOSTE_DMG_MUL
+		e.riposte_t = 0.0
+
+	# Backstab (merc on psycho, from the rear cone) ignores any guard.
+	if e.faction == "killer" and target.faction == "cannibal":
+		var to_attacker := _yaw_toward(e.global_position.x - target.global_position.x, e.global_position.z - target.global_position.z)
+		if absf(wrapf(to_attacker - target.rotation.y, -PI, PI)) > PI - PI / 4.0:
+			_damage(target, dmg * 2.4 if target.is_leader else 99999.0, e)
+			return
+
+	# Directional guard: the defender must face the attacker and be blocking.
+	var defending := (target.is_player and target.is_blocking) or (not target.is_player and target.bot_block_t > 0.0)
+	if defending:
+		var facing := _yaw_toward(e.global_position.x - target.global_position.x, e.global_position.z - target.global_position.z)
+		defending = absf(wrapf(facing - target.rotation.y, -PI, PI)) < PI / 1.8
+	if defending:
+		if target.block_dir == e.windup_dir:
+			# Perfect block: no damage, the attacker reels, riposte window opens.
+			e.stagger_t = WolfCfg.PERFECT_BLOCK_STAGGER
+			_cancel_windup(e)
+			target.riposte_t = WolfCfg.RIPOSTE_WINDOW
+			if target.is_player:
+				ui.prompt_label.text = "РИПОСТ!"
+			return
+		dmg *= WolfCfg.WRONG_BLOCK_DMG_MUL
+		target.stamina -= WolfCfg.STAMINA_BLOCK_HIT_COST * target.stamina_block_mul
+		target.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
+		if target.stamina <= 0.0:
+			target.stamina = 0.0
+			target.stagger_t = 0.9  # guard broken
+
+	_damage(target, dmg, e)
 
 
-func _nearest_living_threat(from_pos: Vector3) -> Array:
-	return _nearest(func(e: WolfChar) -> bool:
-		return (e.faction == "cannibal" or e.faction == "killer") and not e.is_dead, from_pos)
+func _try_hit_door(e: WolfChar) -> void:
+	var fwd := _fwd(e)
+	for d in doors:
+		var door := d as WolfDoor
+		if door.is_broken or door.is_open:
+			continue
+		var dp := door.global_position - e.global_position
+		if absf(dp.y) > 3.0 or Vector2(dp.x, dp.z).length() > _melee_range(e) + 0.6:
+			continue
+		if Vector2(fwd.x, fwd.z).dot(Vector2(dp.x, dp.z).normalized()) < 0.4:
+			continue
+		door.damage(WolfCfg.CONFIG[e.faction]["attack_damage"] * e.weapon.get("dmg", 1.0))
+		return
 
 
-func _nearest_living_killer(from_pos: Vector3) -> Array:
-	return _nearest(func(e: WolfChar) -> bool:
-		return e.faction == "killer" and not e.is_dead, from_pos)
-
-
-func _nearest_living_cannibal(from_pos: Vector3) -> Array:
-	return _nearest(func(e: WolfChar) -> bool:
-		return e.faction == "cannibal" and not e.is_dead, from_pos)
+func _kick_viewmodel(dir: int) -> void:
+	if viewmodel == null:
+		return
+	var tween := create_tween()
+	var swing := Vector3(-40, 0, 0)
+	if dir == WolfCfg.DIR_LEFT:
+		swing = Vector3(-12, 34, 18)
+	elif dir == WolfCfg.DIR_RIGHT:
+		swing = Vector3(-12, -34, -18)
+	tween.tween_property(viewmodel, "rotation_degrees", swing, 0.07)
+	tween.tween_property(viewmodel, "rotation_degrees", Vector3(0, -6, 0), 0.22)
 
 
 # ---------------------------------------------------------------------------
-# combat (ported)
+# damage / executions
 # ---------------------------------------------------------------------------
 
 func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
 	target.hp -= dmg
 	target.hit_flash = 0.15
-	target.stagger_t = WolfCfg.STAGGER_TIME
+	target.stagger_t = maxf(target.stagger_t, WolfCfg.STAGGER_TIME)
+	if target.winding:
+		_cancel_windup(target)  # a clean hit interrupts a charging strike
 	if source != null:
-		var dir := (target.global_position - source.global_position)
+		var dir := target.global_position - source.global_position
 		dir.y = 0
 		if dir.length() > 0.01:
 			target.knockback = dir.normalized() * WolfCfg.STAGGER_KNOCKBACK
@@ -418,110 +565,27 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
 	if target.hp <= 0.0 and not target.is_dead:
 		target.is_dead = true
 		target.hp = 0.0
-		if target.is_grabbed and target.grabbed_by != null:
-			target.grabbed_by.carrying = null
-		if altar.get("captive") == target:
-			altar["captive"] = null
-			altar["timer"] = 0.0
+		target.hide_telegraph()
 		if target.visual != null:
 			target.visual.rotation.x = -PI / 2.0
 		_check_win()
-
-
-func _perform_attack(attacker: WolfChar) -> void:
-	var cfg: Dictionary = WolfCfg.CONFIG[attacker.faction]
-	var best: WolfChar = null
-	var best_d := INF
-	for t: WolfChar in entities:
-		if t == attacker or t.is_dead or t.escaped or t.faction == attacker.faction or t.being_executed:
-			continue
-		var dx: float = t.global_position.x - attacker.global_position.x
-		var dz: float = t.global_position.z - attacker.global_position.z
-		var d := Vector2(dx, dz).length()
-		if d > cfg["attack_range"]:
-			continue
-		var facing := _yaw_toward(dx, dz)
-		if absf(wrapf(facing - attacker.rotation.y, -PI, PI)) > PI / 2.2:
-			continue
-		if d < best_d:
-			best_d = d
-			best = t
-	if best == null:
-		return
-	var dmg: float = cfg["attack_damage"] * attacker.dmg_mul
-	if best.faction == "killer" and best.is_blocking:
-		var mul: float = best.block_damage_mul if best.block_damage_mul >= 0.0 else WolfCfg.CONFIG["killer"]["block_damage_mul"]
-		dmg *= mul
-	# Backstab: a merc striking a psycho from its rear cone — silent lethal on
-	# a normal psycho, a heavy bonus on the Alpha.
-	if attacker.faction == "killer" and best.faction == "cannibal":
-		var to_attacker := _yaw_toward(attacker.global_position.x - best.global_position.x, attacker.global_position.z - best.global_position.z)
-		if absf(wrapf(to_attacker - best.rotation.y, -PI, PI)) > PI - PI / 4.0:
-			dmg = dmg * 2.4 if best.is_leader else 99999.0
-	_damage(best, dmg, attacker)
-
-
-func _perform_grab(grabber: WolfChar) -> void:
-	var res := _nearest_living_survivor(grabber.global_position, true)
-	if res[0] == null or res[1] > WolfCfg.CONFIG["cannibal"]["grab_range"]:
-		return
-	var target: WolfChar = res[0]
-	target.is_grabbed = true
-	target.grabbed_by = grabber
-	grabber.carrying = target
-
-
-func _throw_knife(thrower: WolfChar) -> void:
-	var cfg: Dictionary = WolfCfg.CONFIG["killer"]
-	var k := Node3D.new()
-	k.set_script(KnifeScene)
-	add_child(k)
-	var from := thrower.global_position + _fwd(thrower) * 0.6 + Vector3(0, WolfCfg.KNIFE_EYE, 0)
-	k.setup(from, _fwd(thrower), cfg["throw_speed"], cfg["throw_damage"], cfg["throw_range"], thrower)
-	knives.append(k)
-
-
-func _update_knives(delta: float) -> void:
-	for i in range(knives.size() - 1, -1, -1):
-		var k: WolfKnife = knives[i]
-		var removed := false
-		var h := delta / 2.0
-		for _step in 2:
-			if removed:
-				break
-			k.advance(h)
-			for t in entities:
-				if t == k.owner_char or t.is_dead or t.escaped or t.faction == k.owner_faction or t.being_executed:
-					continue
-				if Vector2(t.global_position.x - k.position.x, t.global_position.z - k.position.z).length() <= WolfCfg.KNIFE_HIT_RADIUS:
-					var dmg := k.damage
-					if t.faction == "killer" and t.is_blocking:
-						dmg *= t.block_damage_mul if t.block_damage_mul >= 0.0 else WolfCfg.CONFIG["killer"]["block_damage_mul"]
-					_damage(t, dmg, k.owner_char)
-					removed = true
-					break
-			if not removed and (k.life <= 0.0 or WolfLevel.collides_at(k.position.x, k.position.z) \
-				or absf(k.position.x) > WolfCfg.BOUND_X or absf(k.position.z) > WolfCfg.BOUND_Z):
-				removed = true
-		if removed:
-			k.queue_free()
-			knives.remove_at(i)
 
 
 func _find_execute_target(e: WolfChar) -> WolfChar:
 	var best: WolfChar = null
 	var best_d := INF
 	for t: WolfChar in entities:
-		if t == e or t.is_dead or t.escaped or t.is_grabbed or t.being_executed or t.faction == e.faction:
+		if t == e or t.is_dead or t.being_executed or t.faction == e.faction:
 			continue
 		if t.hp > t.max_hp * WolfCfg.EXECUTE_THRESHOLD:
 			continue
-		var dx: float = t.global_position.x - e.global_position.x
-		var dz: float = t.global_position.z - e.global_position.z
-		var d := Vector2(dx, dz).length()
+		var dp := t.global_position - e.global_position
+		if absf(dp.y) > WolfCfg.SAME_FLOOR_DY:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
 		if d > WolfCfg.EXECUTE_RANGE:
 			continue
-		if e.is_player and absf(wrapf(_yaw_toward(dx, dz) - e.rotation.y, -PI, PI)) > PI / 2.5:
+		if e.is_player and absf(wrapf(_yaw_toward(dp.x, dp.z) - e.rotation.y, -PI, PI)) > PI / 2.5:
 			continue
 		if d < best_d:
 			best_d = d
@@ -540,214 +604,323 @@ func _perform_execute(executor: WolfChar, victim: WolfChar) -> void:
 
 
 # ---------------------------------------------------------------------------
-# bot ai (ported)
+# knives
 # ---------------------------------------------------------------------------
 
-func _steer_to(e: WolfChar, target: Vector3) -> float:
-	var dx := target.x - e.global_position.x
-	var dz := target.z - e.global_position.z
-	var d := Vector2(dx, dz).length()
-	if d < 0.3:
+func _throw_knife(thrower: WolfChar) -> void:
+	var cfg: Dictionary = WolfCfg.CONFIG["killer"]
+	var k := Node3D.new()
+	k.set_script(KnifeScene)
+	add_child(k)
+	var dir := _fwd(thrower)
+	if thrower.is_player:
+		dir = -player_cam.global_transform.basis.z  # aim with the camera, pitch included
+	var from := thrower.global_position + dir * 0.6 + Vector3(0, WolfCfg.KNIFE_EYE, 0)
+	k.setup(from, dir, cfg["throw_speed"], cfg["throw_damage"], cfg["throw_range"], thrower)
+	knives.append(k)
+
+
+func _update_knives(delta: float) -> void:
+	var space := get_world_3d().direct_space_state
+	for i in range(knives.size() - 1, -1, -1):
+		var k: WolfKnife = knives[i]
+		var removed := false
+		var h := delta / 2.0
+		for _step in 2:
+			if removed:
+				break
+			var prev := k.position
+			k.advance(h)
+			for t: WolfChar in entities:
+				if t == k.owner_char or t.is_dead or t.faction == k.owner_faction or t.being_executed:
+					continue
+				var dp := t.global_position + Vector3(0, 1.0, 0) - k.position
+				if absf(dp.y) < 1.4 and Vector2(dp.x, dp.z).length() <= WolfCfg.KNIFE_HIT_RADIUS:
+					_damage(t, k.damage, k.owner_char)
+					removed = true
+					break
+			if not removed:
+				var query := PhysicsRayQueryParameters3D.create(prev, k.position, 1 | 4)
+				var hit := space.intersect_ray(query)
+				if not hit.is_empty():
+					if hit["collider"] is WolfDoor:
+						(hit["collider"] as WolfDoor).damage(k.damage * 0.5)
+					removed = true
+				elif k.life <= 0.0:
+					removed = true
+		if removed:
+			k.queue_free()
+			knives.remove_at(i)
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+func _yaw_toward(dx: float, dz: float) -> float:
+	return atan2(-dx, -dz)
+
+
+func _fwd(c: WolfChar) -> Vector3:
+	return Vector3(-sin(c.rotation.y), 0, -cos(c.rotation.y))
+
+
+func _noise_radius(target: WolfChar, base: float) -> float:
+	var r := base
+	if target.crouching:
+		r *= WolfCfg.CROUCH_NOISE_MUL
+	if target.sprinting:
+		r += WolfCfg.SPRINT_NOISE_BONUS
+	if target.flashlight_on:
+		r += WolfCfg.FLASHLIGHT_NOISE_BONUS
+	if target.faction == "survivor" and _in_safe_zone(target.global_position):
+		r *= WolfCfg.SAFE_SENSE_MUL
+	return r
+
+
+func _nearest(filter: Callable, from_pos: Vector3) -> Array:
+	var best: WolfChar = null
+	var best_d := INF
+	for e: WolfChar in entities:
+		if not filter.call(e):
+			continue
+		var d: float = (e.global_position - from_pos).length()
+		if d < best_d:
+			best_d = d
+			best = e
+	return [best, best_d]
+
+
+func _nearest_living(faction: String, from_pos: Vector3) -> Array:
+	return _nearest(func(e: WolfChar) -> bool:
+		return e.faction == faction and not e.is_dead and not e.being_executed, from_pos)
+
+
+func _nearest_threat(from_pos: Vector3) -> Array:
+	return _nearest(func(e: WolfChar) -> bool:
+		return (e.faction == "cannibal" or e.faction == "killer") and not e.is_dead, from_pos)
+
+
+# ---------------------------------------------------------------------------
+# bot ai — navmesh pathing across floors
+# ---------------------------------------------------------------------------
+
+var _nav_paths := {}   # entity instance id -> {"points": PackedVector3Array, "i": int, "t": float, "goal": Vector3}
+
+
+func _nav_steer(e: WolfChar, target: Vector3, delta: float) -> float:
+	var id := e.get_instance_id()
+	var st: Dictionary = _nav_paths.get(id, {"points": PackedVector3Array(), "i": 0, "t": 0.0, "goal": Vector3.INF})
+	st["t"] -= delta
+	if st["t"] <= 0.0 or (st["goal"] as Vector3).distance_to(target) > 1.5:
+		var map := get_world_3d().navigation_map
+		st["points"] = NavigationServer3D.map_get_path(map, e.global_position, target, true)
+		st["i"] = 1
+		st["t"] = 0.35
+		st["goal"] = target
+	_nav_paths[id] = st
+
+	var points: PackedVector3Array = st["points"]
+	var next := target
+	if points.size() > 1:
+		var idx: int = mini(st["i"], points.size() - 1)
+		while idx < points.size() - 1 and Vector2(points[idx].x - e.global_position.x, points[idx].z - e.global_position.z).length() < 0.6:
+			idx += 1
+		st["i"] = idx
+		next = points[idx]
+	var dx := next.x - e.global_position.x
+	var dz := next.z - e.global_position.z
+	if Vector2(dx, dz).length() < 0.25:
 		e.move_input = Vector2.ZERO
-		return d
-	e.rotation.y = _yaw_toward(dx, dz)
-	e.move_input = Vector2(0, 1)
-	return d
+	else:
+		e.rotation.y = _yaw_toward(dx, dz)
+		e.move_input = Vector2(0, 1)
+	return (target - e.global_position).length()
 
 
-func _wander(e: WolfChar, delta: float) -> void:
-	e.wander_timer -= delta
-	if e.wander_timer <= 0.0:
-		var a := randf() * TAU
-		e.wander_dir = Vector3(sin(a), 0, cos(a))
-		e.wander_timer = 2.0 + randf() * 3.0
-	e.rotation.y = _yaw_toward(e.wander_dir.x, e.wander_dir.z)
-	e.move_input = Vector2(0, 1)
+func _bot_open_or_break_door(e: WolfChar) -> void:
+	# A closed door dead ahead: civilians and mercs open it, psychos smash it.
+	var fwd := _fwd(e)
+	for d in doors:
+		var door := d as WolfDoor
+		if door.is_open or door.is_broken:
+			continue
+		var dp := door.global_position + Vector3(0.6, 1.0, 0) - e.global_position
+		if absf(dp.y) > 2.2 or Vector2(dp.x, dp.z).length() > 1.7:
+			continue
+		if Vector2(fwd.x, fwd.z).dot(Vector2(dp.x, dp.z).normalized()) < 0.2:
+			continue
+		if e.faction == "cannibal":
+			if e.cd_attack <= 0.0:
+				door.damage(WolfCfg.CONFIG["cannibal"]["attack_damage"] * e.weapon.get("dmg", 1.0))
+				e.cd_attack = WolfCfg.CONFIG["cannibal"]["attack_cd"]
+		else:
+			door.toggle()
+		return
 
 
 func _update_bot(e: WolfChar, delta: float) -> void:
-	if e.is_grabbed:
+	if e.winding:
+		e.move_input = Vector2.ZERO
 		return
 	match e.faction:
 		"survivor":
-			_bot_survivor(e, delta)
+			_bot_civilian(e, delta)
 		"cannibal":
-			_bot_cannibal(e, delta)
+			_bot_psycho(e, delta)
 		"killer":
-			_bot_killer(e, delta)
+			_bot_merc(e, delta)
+	_bot_open_or_break_door(e)
 
 
-func _bot_survivor(e: WolfChar, delta: float) -> void:
+func _bot_civilian(e: WolfChar, delta: float) -> void:
 	e.interact_held = false
-	e.interact_pressed = false
 	e.sprinting = false
+	var threat := _nearest_threat(e.global_position)
+	var in_zone := _in_safe_zone(e.global_position)
 
-	var threat := _nearest_living_threat(e.global_position)
-	if threat[0] != null and threat[1] < WolfCfg.FLEE_RADIUS:
-		var away := e.global_position - (threat[0] as WolfChar).global_position
-		e.rotation.y = _yaw_toward(away.x, away.z)
-		e.move_input = Vector2(0, 1)
-		e.sprinting = true
-		return
-
-	var target := gate_pos
-	var target_is_gen := false
-	if generators_done < WolfCfg.GENERATORS_REQUIRED:
-		var best_d := INF
-		for g in generators:
-			if g["done"]:
-				continue
-			var d: float = Vector2(g["pos"].x - e.global_position.x, g["pos"].z - e.global_position.z).length()
-			if d < best_d:
-				best_d = d
-				target = g["pos"]
-				target_is_gen = true
-	var dist := _steer_to(e, target)
-	if target_is_gen and dist <= WolfCfg.INTERACT_RANGE:
+	if in_zone and (threat[0] == null or threat[1] > 5.0):
 		e.move_input = Vector2.ZERO
-		e.interact_held = true
+		e.crouching = true
+		return
+	e.crouching = false
+
+	# Head for the nearest safe room; sprint when hunted.
+	var best_zone := Vector3.ZERO
+	var best_d := INF
+	for z in safe_zones:
+		var d: float = (z["pos"] as Vector3).distance_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best_zone = z["pos"]
+	e.sprinting = threat[0] != null and threat[1] < WolfCfg.FLEE_RADIUS
+	_nav_steer(e, best_zone, delta)
 
 
-func _bot_cannibal(e: WolfChar, delta: float) -> void:
-	e.wants_attack = false
-	e.wants_grab = false
+func _bot_psycho(e: WolfChar, delta: float) -> void:
 	e.wants_execute = false
 	e.sprinting = false
-
 	var cfg: Dictionary = WolfCfg.CONFIG["cannibal"]
 
-	if e.carrying != null:
-		_steer_to(e, altar["pos"])
-		e.sprinting = true
-		return
-
 	var prey: WolfChar = null
-	var prey_dist := INF
-	var sv := _nearest_living_survivor(e.global_position, true)
-	if sv[0] != null and sv[1] <= _noise_radius(sv[0], cfg["sense_radius"]) and sv[1] < prey_dist:
-		prey = sv[0]
-		prey_dist = sv[1]
-	var km := _nearest_living_killer(e.global_position)
-	if km[0] != null and km[1] <= _noise_radius(km[0], cfg["killer_aggro"]) and km[1] < prey_dist:
-		prey = km[0]
-		prey_dist = km[1]
+	var prey_d := INF
+	var civ := _nearest_living("survivor", e.global_position)
+	if civ[0] != null and civ[1] <= _noise_radius(civ[0], cfg["sense_radius"]) and civ[1] < prey_d:
+		prey = civ[0]
+		prey_d = civ[1]
+	var merc := _nearest_living("killer", e.global_position)
+	if merc[0] != null and merc[1] <= _noise_radius(merc[0], cfg["killer_aggro"]) and merc[1] < prey_d:
+		prey = merc[0]
+		prey_d = merc[1]
 
 	if prey != null:
-		_steer_to(e, prey.global_position)
 		e.sprinting = true
-		if prey_dist <= WolfCfg.EXECUTE_RANGE and prey.hp <= prey.max_hp * WolfCfg.EXECUTE_THRESHOLD and not prey.being_executed:
-			e.wants_execute = true
-			return
-		if prey.faction == "survivor" and prey_dist <= cfg["grab_range"]:
-			e.wants_grab = true
-		if prey_dist <= cfg["attack_range"]:
-			e.wants_attack = true
+		_nav_steer(e, prey.global_position, delta)
+		var dp := prey.global_position - e.global_position
+		if absf(dp.y) <= WolfCfg.SAME_FLOOR_DY:
+			var flat := Vector2(dp.x, dp.z).length()
+			if flat <= WolfCfg.EXECUTE_RANGE and prey.hp <= prey.max_hp * WolfCfg.EXECUTE_THRESHOLD and not prey.being_executed and e.can_execute:
+				e.wants_execute = true
+				return
+			if flat <= _melee_range(e) and e.cd_attack <= 0.0:
+				e.rotation.y = _yaw_toward(dp.x, dp.z)
+				_begin_windup(e, randi_range(0, 2))
 		return
 
-	_wander(e, delta)
+	# No prey sensed: sweep toward a random safe room — that's where food hides.
+	if not safe_zones.is_empty():
+		var idx := (Time.get_ticks_msec() / 9000 + e.get_instance_id()) % safe_zones.size()
+		_nav_steer(e, safe_zones[idx]["pos"], delta)
 
 
-func _bot_killer(e: WolfChar, delta: float) -> void:
-	e.wants_attack = false
-	e.wants_throw = false
+func _bot_merc(e: WolfChar, delta: float) -> void:
 	e.wants_execute = false
 	e.sprinting = false
 
-	var target: WolfChar = null
-	var dist := INF
-	if leader != null and not leader.is_dead:
-		var d := _dist2d(e, leader)
-		if d <= WolfCfg.MERC_BOT_SENSE * 1.4:
-			target = leader
-			dist = d
-	if target == null:
-		var c := _nearest_living_cannibal(e.global_position)
-		if c[0] != null and c[1] <= WolfCfg.MERC_BOT_SENSE:
-			target = c[0]
-			dist = c[1]
-
-	if target != null:
-		_steer_to(e, target.global_position)
-		e.sprinting = dist > 6.0
-		if dist <= WolfCfg.CONFIG["killer"]["attack_range"]:
-			e.wants_attack = true
-		elif e.knives > 0 and e.cd_throw <= 0.0 and dist >= WolfCfg.MERC_BOT_THROW_MIN and dist <= WolfCfg.MERC_BOT_THROW_MAX:
-			e.wants_throw = true
+	var psycho := _nearest_living("cannibal", e.global_position)
+	if psycho[0] != null and psycho[1] <= WolfCfg.MERC_BOT_SENSE:
+		var target: WolfChar = psycho[0]
+		e.sprinting = psycho[1] > 6.0
+		_nav_steer(e, target.global_position, delta)
+		var dp := target.global_position - e.global_position
+		if absf(dp.y) <= WolfCfg.SAME_FLOOR_DY:
+			var flat := Vector2(dp.x, dp.z).length()
+			if flat <= _melee_range(e) and e.cd_attack <= 0.0:
+				e.rotation.y = _yaw_toward(dp.x, dp.z)
+				_begin_windup(e, randi_range(0, 2))
+			elif e.knives > 0 and e.cd_throw <= 0.0 and flat >= WolfCfg.MERC_BOT_THROW_MIN and flat <= WolfCfg.MERC_BOT_THROW_MAX:
+				e.rotation.y = _yaw_toward(dp.x, dp.z)
+				e.wants_throw = true
 		return
 
-	var d_altar: float = Vector2(altar["pos"].x - e.global_position.x, altar["pos"].z - e.global_position.z).length()
-	if d_altar > 7.0:
-		_steer_to(e, altar["pos"])
-		return
-	_wander(e, delta)
+	# Sweep upward toward the club — that's where the trouble lives.
+	_nav_steer(e, bomb_site, delta)
 
 
 # ---------------------------------------------------------------------------
-# entity application (ported)
+# entity application
 # ---------------------------------------------------------------------------
 
 func _apply_entity(e: WolfChar, delta: float) -> void:
-	if e.is_dead or e.escaped:
+	if e.is_dead:
 		return
 
 	e.cd_attack = maxf(0.0, e.cd_attack - delta)
-	e.cd_grab = maxf(0.0, e.cd_grab - delta)
 	e.cd_throw = maxf(0.0, e.cd_throw - delta)
 	e.stagger_t = maxf(0.0, e.stagger_t - delta)
 	e.recover_t = maxf(0.0, e.recover_t - delta)
+	e.riposte_t = maxf(0.0, e.riposte_t - delta)
+	e.bot_block_t = maxf(0.0, e.bot_block_t - delta)
 	e.flash_materials(delta)
+
+	# Stamina regen after a short breather.
+	e.stamina_delay = maxf(0.0, e.stamina_delay - delta)
+	if e.stamina_delay <= 0.0:
+		e.stamina = minf(WolfCfg.STAMINA_MAX, e.stamina + WolfCfg.STAMINA_REGEN * delta)
 
 	if e.being_executed:
 		e.move_input = Vector2.ZERO
 		return
 
+	# Wind-up ticks down and lands the strike.
+	if e.winding:
+		e.windup_t -= delta
+		if e.windup_t <= 0.0:
+			_resolve_strike(e)
+
 	var stunned := not e.is_player and (e.stagger_t > 0.0 or e.recover_t > 0.0)
 
-	if e.is_grabbed:
-		if e.grabbed_by != null:
-			e.global_position = e.grabbed_by.global_position - _fwd(e.grabbed_by) * 0.7
-	else:
-		var cfg: Dictionary = WolfCfg.CONFIG[e.faction]
-		var speed: float = cfg["speed"] * e.speed_mul
-		if e.faction == "killer" and e.is_blocking:
-			speed *= cfg["block_speed_mul"]
-		elif e.sprinting:
-			speed *= cfg["sprint_mul"]
-		elif e.crouching:
-			speed *= WolfCfg.CROUCH_SPEED_MUL
+	var cfg: Dictionary = WolfCfg.CONFIG[e.faction]
+	var speed: float = cfg["speed"] * e.speed_mul
+	if e.faction != "survivor" and (e.is_blocking or e.bot_block_t > 0.0):
+		speed *= WolfCfg.CONFIG["killer"]["block_speed_mul"]
+	elif e.sprinting:
+		speed *= cfg["sprint_mul"]
+	elif e.crouching:
+		speed *= WolfCfg.CROUCH_SPEED_MUL
+	if e.winding:
+		speed *= 0.35
 
-		var wish := Vector3.ZERO
-		if e.move_input.length() > 0.001 and not stunned:
-			var local := Vector3(e.move_input.x, 0, -e.move_input.y).normalized()
-			wish = (e.basis * local) * speed
-		if e.stagger_t > 0.0:
-			wish += e.knockback
+	var wish := Vector3.ZERO
+	if e.move_input.length() > 0.001 and not stunned:
+		var local := Vector3(e.move_input.x, 0, -e.move_input.y).normalized()
+		wish = (e.basis * local) * speed
+	if e.stagger_t > 0.0:
+		wish += e.knockback
 
-		e.velocity.x = wish.x
-		e.velocity.z = wish.z
-		e.velocity.y = maxf(e.velocity.y - 20.0 * delta, -30.0)
-		e.move_and_slide()
-		e.global_position.x = clampf(e.global_position.x, -WolfCfg.BOUND_X + 0.4, WolfCfg.BOUND_X - 0.4)
-		e.global_position.z = clampf(e.global_position.z, -WolfCfg.BOUND_Z + 0.4, WolfCfg.BOUND_Z - 0.4)
+	e.velocity.x = wish.x
+	e.velocity.z = wish.z
+	e.velocity.y = maxf(e.velocity.y - 20.0 * delta, -30.0)
+	e.move_and_slide()
+	e.global_position.x = clampf(e.global_position.x, -WolfCfg.BOUND_X, WolfCfg.BOUND_X)
+	e.global_position.z = clampf(e.global_position.z, -WolfCfg.BOUND_Z, WolfCfg.BOUND_Z)
 
-	if e.wants_attack and e.cd_attack <= 0.0 and not stunned and e.faction != "survivor":
-		_perform_attack(e)
-		e.cd_attack = WolfCfg.CONFIG[e.faction]["attack_cd"]
-		if not e.is_player:
-			e.recover_t = WolfCfg.BOT_ATTACK_RECOVER
-	e.wants_attack = false
-
-	if e.wants_execute and not stunned and e.can_execute and e.carrying == null:
+	if e.wants_execute and not stunned and e.can_execute:
 		var victim := _find_execute_target(e)
 		if victim != null:
 			_perform_execute(e, victim)
-			e.cd_attack = WolfCfg.CONFIG[e.faction]["attack_cd"]
+			e.cd_attack = cfg["attack_cd"]
 	e.wants_execute = false
-
-	if e.wants_grab and e.cd_grab <= 0.0 and not stunned and e.faction == "cannibal" and e.carrying == null:
-		_perform_grab(e)
-		e.cd_grab = WolfCfg.CONFIG["cannibal"]["grab_cd"]
-	e.wants_grab = false
 
 	if e.wants_throw and e.cd_throw <= 0.0 and e.faction == "killer" and e.knives > 0:
 		_throw_knife(e)
@@ -756,76 +929,36 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.wants_throw = false
 
 	_apply_interact(e, delta)
-	_check_escape(e)
-	_check_altar_handoff(e)
 	e.update_animation()
 
 
 func _apply_interact(e: WolfChar, delta: float) -> void:
-	if e.faction != "survivor":
+	if not e.is_player:
 		return
-	if e.interact_held:
-		for g in generators:
-			if g["done"]:
+	# Doors: toggle with E (psycho player breaks them with strikes instead).
+	if e.interact_pressed and e.faction != "cannibal":
+		var fwd := _fwd(e)
+		for d in doors:
+			var door := d as WolfDoor
+			if door.is_broken:
 				continue
-			if Vector2(g["pos"].x - e.global_position.x, g["pos"].z - e.global_position.z).length() <= WolfCfg.INTERACT_RANGE:
-				g["progress"] += delta
-				if g["progress"] >= WolfCfg.GENERATOR_HOLD:
-					g["done"] = true
-					generators_done += 1
-					_sync_objective_visual(g)
-				break
-	if e.interact_pressed and altar.get("captive") != null and altar["captive"] != e:
-		if Vector2(altar["pos"].x - e.global_position.x, altar["pos"].z - e.global_position.z).length() <= WolfCfg.INTERACT_RANGE + 2.6:
-			var captive: WolfChar = altar["captive"]
-			captive.is_grabbed = false
-			captive.grabbed_by = null
-			altar["captive"] = null
-			altar["timer"] = 0.0
+			var dp := door.global_position + Vector3(0.6, 1.0, 0) - e.global_position
+			if absf(dp.y) > 2.2 or Vector2(dp.x, dp.z).length() > 2.0:
+				continue
+			if Vector2(fwd.x, fwd.z).dot(Vector2(dp.x, dp.z).normalized()) < 0.1:
+				continue
+			door.toggle()
+			break
 
-
-func _check_escape(e: WolfChar) -> void:
-	if e.faction != "survivor" or e.is_dead or e.escaped or e.is_grabbed:
-		return
-	if generators_done < WolfCfg.GENERATORS_REQUIRED:
-		return
-	if absf(e.global_position.x - gate_pos.x) <= gate_half_w and absf(e.global_position.z - gate_pos.z) <= 2.5:
-		e.escaped = true
-		e.visible = false
-		e.global_position.y = -100.0
-		survivors_escaped += 1
-		_check_win()
-
-
-func _check_altar_handoff(e: WolfChar) -> void:
-	if e.faction != "cannibal" or e.carrying == null:
-		return
-	if Vector2(altar["pos"].x - e.global_position.x, altar["pos"].z - e.global_position.z).length() <= 2.6 + 0.6:
-		var captive: WolfChar = e.carrying
-		e.carrying = null
-		captive.global_position = altar["pos"] + Vector3(0, 0.9, 0)
-		captive.grabbed_by = null
-		altar["captive"] = captive
-		altar["timer"] = 0.0
-
-
-# ---------------------------------------------------------------------------
-# objectives visuals (meshes live in the baked district scene)
-# ---------------------------------------------------------------------------
-
-func _reset_objective_visual(g: Dictionary) -> void:
-	var cyan := Color(0.0, 0.9, 1.0)
-	(g["ring_mat"] as StandardMaterial3D).albedo_color = cyan
-	(g["ring_mat"] as StandardMaterial3D).emission = cyan
-	(g["box_mat"] as StandardMaterial3D).emission_enabled = false
-
-
-func _sync_objective_visual(g: Dictionary) -> void:
-	var done_color := Color(0.27, 0.84, 0.5)
-	(g["ring_mat"] as StandardMaterial3D).albedo_color = done_color
-	(g["ring_mat"] as StandardMaterial3D).emission = done_color
-	(g["box_mat"] as StandardMaterial3D).emission_enabled = true
-	(g["box_mat"] as StandardMaterial3D).emission = Color(0.05, 0.3, 0.15)
+	# Bomb: the merc player holds E at the site (psychos wiped or not — your call).
+	if e.faction == "killer" and not bomb_planted:
+		var dp := bomb_site - e.global_position
+		if absf(dp.y) < 2.5 and Vector2(dp.x, dp.z).length() <= 2.4 and e.interact_held:
+			bomb_progress += delta
+			if bomb_progress >= WolfCfg.BOMB_PLANT_TIME:
+				bomb_planted = true
+		else:
+			bomb_progress = maxf(0.0, bomb_progress - delta * 2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -837,29 +970,28 @@ func _prompt_for(p: WolfChar) -> String:
 		return "Вы мертвы."
 	if p.being_executed:
 		return "Тебя добивают…"
-	if p.is_grabbed:
-		return "Вас тащат на имплант-стол — держитесь, пока отобьют..."
+	if p.riposte_t > 0.0:
+		return "РИПОСТ — бей!"
 	if p.faction == "survivor":
-		for g in generators:
-			if not g["done"] and Vector2(g["pos"].x - p.global_position.x, g["pos"].z - p.global_position.z).length() <= WolfCfg.INTERACT_RANGE:
-				return "[E] Взлом узла (%d%%)" % int(g["progress"] / WolfCfg.GENERATOR_HOLD * 100.0)
-		if altar.get("captive") != null and altar["captive"] != p \
-			and Vector2(altar["pos"].x - p.global_position.x, altar["pos"].z - p.global_position.z).length() <= WolfCfg.INTERACT_RANGE + 2.6:
-			return "[E] Отбить жертву"
-		if generators_done >= WolfCfg.GENERATORS_REQUIRED:
-			return "Выход открыт — беги из квартала!"
-		return ""
+		if _in_safe_zone(p.global_position):
+			return "Вы в укрытии — ждите полицию"
+		return "Найди безопасную комнату (зелёная вывеска, 3-й этаж)"
 	if p.faction == "cannibal":
-		if p.can_execute and p.carrying == null and _find_execute_target(p) != null:
+		if p.can_execute and _find_execute_target(p) != null:
 			return "[F] ДОБИВАНИЕ"
-		return "Тащи жертву на имплант-стол" if p.carrying != null else "ЛКМ — атака · ПКМ/G — схватить"
+		return "Гражданских осталось: %d" % _alive("survivor")
 	if p.faction == "killer":
 		if p.can_execute and _find_execute_target(p) != null:
 			return "[F] ДОБИВАНИЕ"
-		if p.is_blocking:
-			return "Блок"
-		var knife_part := " · Q — нож (%d)" % p.knives if p.knives > 0 else " · ножи кончились"
-		return "ЛКМ — атака (в спину = тихое убийство)" + knife_part + " · ПКМ — блок"
+		if bomb_progress > 0.0 and not bomb_planted:
+			return "Установка бомбы… %d%%" % int(bomb_progress / WolfCfg.BOMB_PLANT_TIME * 100.0)
+		if _alive("cannibal") > 0:
+			return "Психов осталось: %d · бомба ждёт в «Облаках»" % _alive("cannibal")
+		if not bomb_planted:
+			return "Психи мертвы — заложи бомбу в клубе [E]"
+		if not _in_zone(p.global_position, evac_pos, evac_half):
+			return "Бомба заложена — уходи через лобби!"
+		return ""
 	return ""
 
 
@@ -868,10 +1000,16 @@ func _update_hud() -> void:
 	if p == null:
 		return
 	ui.hp_fill.size.x = 180.0 * clampf(p.hp / p.max_hp, 0.0, 1.0)
-	ui.nodes_label.text = "УЗЛЫ %d/%d" % [generators_done, WolfCfg.GENERATORS_REQUIRED]
+	ui.stamina_fill.size.x = 180.0 * clampf(p.stamina / WolfCfg.STAMINA_MAX, 0.0, 1.0)
+	var mins := int(police_t) / 60
+	var secs := int(police_t) % 60
+	ui.timer_label.text = "Полиция: %02d:%02d" % [mins, secs]
+	ui.nodes_label.text = "Граждане: %d · Психи: %d" % [_alive("survivor"), _alive("cannibal")]
 	var stance: Array = []
 	if p.char_name != "":
 		stance.append(p.char_name)
+	if p.faction != "survivor":
+		stance.append(p.weapon.get("name", ""))
 	if p.faction == "killer":
 		stance.append("Ножи %d" % p.knives)
 	if p.crouching:
@@ -892,14 +1030,13 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_update_player_input(delta)
-	for e in entities:
-		if not e.is_player:
+	for e: WolfChar in entities:
+		if not e.is_player and not e.is_dead:
 			_update_bot(e, delta)
-	for e in entities:
+	for e: WolfChar in entities:
 		_apply_entity(e, delta)
 	_update_knives(delta)
 
-	# Exec-cam: the victim watches their own finisher.
 	if not exec_cam.is_empty():
 		exec_cam["t"] -= delta
 		var executor: WolfChar = exec_cam["executor"]
@@ -917,13 +1054,12 @@ func _physics_process(delta: float) -> void:
 			player_cam.fov = 75.0
 			exec_cam = {}
 
-	if altar.get("captive") != null:
-		altar["timer"] += delta
-		(altar["light"] as OmniLight3D).light_energy = 2.5
-		if altar["timer"] >= WolfCfg.SACRIFICE_TIME:
-			_damage(altar["captive"], 99999.0, null)
-	else:
-		(altar["light"] as OmniLight3D).light_energy = 1.4
+	police_t -= delta
+	if police_t <= 0.0 and mode == "playing":
+		_end_game("police")
+	# Conditions like "merc stands in the evac zone" change without anyone
+	# dying, so the win check runs every tick, not only on kill events.
+	_check_win()
 
 	_update_hud()
 	_store_prev_input()
@@ -935,7 +1071,7 @@ func _process(delta: float) -> void:
 
 
 # ---------------------------------------------------------------------------
-# headless verification harness — driven by WOLF_TEST / WOLF_SHOT env vars.
+# headless verification harness — WOLF_TEST / WOLF_SHOT / WOLF_POLICE env vars
 # ---------------------------------------------------------------------------
 
 func _run_test(delta: float) -> void:
@@ -945,26 +1081,9 @@ func _run_test(delta: float) -> void:
 			if _test_t > 1.0 and not _test_shot_taken:
 				_test_shot_taken = true
 				_finish_test("menu ok")
-		"merc", "psycho", "victim":
-			if _test_t > 0.5 and mode == "menu":
-				var faction := {"merc": "killer", "psycho": "cannibal", "victim": "survivor"}[_test_mode] as String
-				_start_match(faction, 0)
-			elif mode == "playing" and _test_t > 1.5 and not _test_staged:
-				_test_staged = true
-				var others: Array = entities.filter(func(e: WolfChar) -> bool: return e != player and not e.is_dead)
-				for i in mini(2, others.size()):
-					var o: WolfChar = others[i]
-					o.global_position = player.global_position + _fwd(player) * (3.0 + i) + Vector3(i * 1.5 - 0.7, 0, 0)
-			elif _test_staged and _test_t > 2.2 and not _test_shot_taken:
-				_test_shot_taken = true
-				_finish_test("%s ok: entities=%d hp=%.0f knives=%d" % [_test_mode, entities.size(), player.hp, player.knives])
 		"look":
-			# Regression test for the shipped "no mouse look" bug: inject a
-			# synthetic mouse motion through the FULL input pipeline (GUI
-			# included, so a motion-eating Control would fail this) and check
-			# the player actually turned.
 			if _test_t > 0.5 and mode == "menu":
-				_start_match("killer", 0)
+				_start_match("killer", 0, 0)
 			elif mode == "playing" and _test_t > 1.2 and not _test_staged:
 				_test_staged = true
 				_test_yaw_before = player.rotation.y
@@ -976,9 +1095,34 @@ func _run_test(delta: float) -> void:
 				var moved := absf(wrapf(player.rotation.y - _test_yaw_before, -PI, PI))
 				print("TEST RESULT: look moved=%.3f rad %s" % [moved, "OK" if moved > 0.3 else "FAIL"])
 				get_tree().quit(0 if moved > 0.3 else 1)
+		"merc", "club", "rooms":
+			if _test_t > 0.5 and mode == "menu":
+				var faction := "cannibal" if _test_mode == "club" else "killer"
+				_start_match(faction, 0, 0)
+			elif mode == "playing" and _test_t > 1.6 and not _test_staged:
+				_test_staged = true
+				if _test_mode == "rooms":
+					player.global_position = Vector3(-2, 2 * WolfCfg.FLOOR_H + 0.2, 0)
+			elif _test_staged and _test_t > 2.4 and not _test_shot_taken:
+				_test_shot_taken = true
+				_finish_test("%s ok: entities=%d floor_y=%.1f" % [_test_mode, entities.size(), player.global_position.y])
+		"duel":
+			_test_duel(delta)
+		"civwin":
+			if _test_t > 0.5 and mode == "menu":
+				_start_match("survivor", 0, -1)
+			elif mode == "ended" and not _test_shot_taken:
+				_test_shot_taken = true
+				print("TEST RESULT: civwin ok ended=police")
+				get_tree().quit(0)
+			elif _test_t > 30.0:
+				print("TEST RESULT: civwin FAIL timeout")
+				get_tree().quit(1)
+		"bomb":
+			_test_bomb(delta)
 		"exec":
 			if _test_t > 0.5 and mode == "menu":
-				_start_match("survivor", 0)
+				_start_match("survivor", 0, -1)
 			elif mode == "playing" and _test_t > 1.2 and not _test_staged:
 				_test_staged = true
 				player.hp = player.max_hp * 0.18
@@ -988,12 +1132,62 @@ func _run_test(delta: float) -> void:
 				_test_shot_taken = true
 				await get_tree().create_timer(0.5).timeout
 				await _save_shot()
-				# let the cam finish and the kill land
 				await get_tree().create_timer(2.0).timeout
 				print("TEST RESULT: exec ok: player_dead=%s" % str(player.is_dead))
 				get_tree().quit(0)
 		_:
 			pass
+
+
+var _duel_bot: WolfChar = null
+
+
+func _test_duel(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
+		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
+		_duel_bot.rotation.y = _yaw_toward(-_fwd(player).x, -_fwd(player).z)
+	elif _test_staged and _duel_bot != null and _duel_bot.winding and not _test_shot_taken:
+		_test_shot_taken = true
+		# Raise a matching guard: real RMB press (polled input would stomp a
+		# hand-set flag) + steer the bot's strike to the player's guard side.
+		_duel_bot.windup_dir = player.attack_dir
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_RIGHT
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		await _save_shot()
+		await get_tree().create_timer(1.0).timeout
+		var ok := player.hp >= player.max_hp - 0.1 and _duel_bot.stagger_t > 0.0
+		print("TEST RESULT: duel perfect_block=%s hp=%.0f/%.0f bot_staggered=%s" % [str(ok), player.hp, player.max_hp, str(_duel_bot.stagger_t > 0.0)])
+		get_tree().quit(0 if ok else 1)
+
+
+func _test_bomb(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		for e: WolfChar in entities:
+			if e.faction == "cannibal":
+				_damage(e, 99999.0, player)
+		player.global_position = bomb_site + Vector3(0, 0.2, -1.5)
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.pressed = true
+		Input.parse_input_event(ev)
+	elif _test_staged and bomb_planted and not _test_shot_taken:
+		_test_shot_taken = true
+		player.global_position = evac_pos + Vector3(0, 0.2, 0)
+		await get_tree().create_timer(0.5).timeout
+		print("TEST RESULT: bomb ok mode=%s" % mode)
+		get_tree().quit(0 if mode == "ended" else 1)
+	elif _test_t > 25.0:
+		print("TEST RESULT: bomb FAIL planted=%s mode=%s progress=%.1f" % [str(bomb_planted), mode, bomb_progress])
+		get_tree().quit(1)
 
 
 func _finish_test(msg: String) -> void:

@@ -19,9 +19,17 @@ var end_sub: Label
 
 var _cs_title: Label
 var _cs_box: HBoxContainer
+var weaponselect: Control
+var _ws_title: Label
+var _ws_box: HBoxContainer
+
+var stamina_fill: ColorRect
+var timer_label: Label
+var dir_chips: Array = []   # [left, right, overhead] ColorRects around the crosshair
 
 signal faction_picked(faction: String)
 signal character_picked(faction: String, index: int)
+signal weapon_picked(faction: String, char_index: int, weapon_index: int)
 signal restart_pressed
 
 
@@ -33,6 +41,7 @@ func build() -> void:
 	_build_vignette()
 	_build_menu()
 	_build_charselect()
+	_build_weaponselect()
 	_build_hud()
 	_build_end()
 	show_menu()
@@ -108,8 +117,8 @@ func _build_menu() -> void:
 	menu.add_child(box)
 
 	_label(box, "WOLF", 64)
-	_label(box, "// НОЧНОЙ КВАРТАЛ", 20, Color(1.0, 0.18, 0.58))
-	_label(box, "Импланты свели психов с ума. Выбери сторону.", 20, Color(0.55, 0.62, 0.78))
+	_label(box, "// МЕГАБАШНЯ · КЛУБ «ОБЛАКА»", 20, Color(1.0, 0.18, 0.58))
+	_label(box, "Во время рейва в «Облаках» психи сорвались. Башня заперта. Выбери сторону.", 20, Color(0.55, 0.62, 0.78))
 
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -117,15 +126,15 @@ func _build_menu() -> void:
 	box.add_child(row)
 
 	var cards := [
-		["survivor", "ЖЕРТВА", "Outlast · без оружия", "Взломай 3 узла и уйди из квартала."],
-		["cannibal", "КИБЕР-ПСИХ", "реверсивный хоррор", "Ты — Альфа. Тащи жертв на имплант-стол."],
-		["killer", "НАЁМНИК", "Ready or Not · стелс", "Проберись через психов и вырежи Альфу."],
+		["survivor", "ГРАЖДАНСКИЙ", "хоррор · без оружия", "Найди безопасную комнату в номерах и дождись полиции."],
+		["cannibal", "КИБЕР-ПСИХ", "реверсивный хоррор", "Перебей всех гражданских, пока не приехала полиция."],
+		["killer", "НАЁМНИК", "зачистка · стелс", "Вырежи психов, заложи бомбу в клубе и уйди через лобби."],
 	]
 	for c in cards:
 		var b := _card_button(row, c[1], c[2], c[3], WolfCfg.FACTION_COLOR[c[0]])
 		b.pressed.connect(_on_faction.bind(c[0]))
 
-	_label(box, "Мышь — осмотр · WASD — движение · Shift — бег · C — присед · ЛКМ — атака/захват\nПКМ — блок/захват · Q — нож · F — добивание (Мясник, Клинок) / фонарь · E — взаимодействие · ESC — курсор", 14, Color(0.45, 0.52, 0.66))
+	_label(box, "Мышь — осмотр (движение мыши перед ударом = сторона удара) · WASD — движение · Shift — бег · C — присед\nЛКМ — удар · ПКМ — блок (та же сторона = идеальный блок и рипост) · Q — нож · F — добивание / фонарь · E — двери и бомба · ESC — курсор", 14, Color(0.45, 0.52, 0.66))
 
 
 func _build_charselect() -> void:
@@ -172,6 +181,46 @@ func open_charselect(faction: String) -> void:
 		b.pressed.connect(_on_character.bind(faction, i))
 
 
+func _build_weaponselect() -> void:
+	weaponselect = Control.new()
+	_full_rect(weaponselect)
+	add_child(weaponselect)
+	weaponselect.visible = false
+
+	var dim := ColorRect.new()
+	_full_rect(dim)
+	dim.color = Color(0.01, 0.012, 0.03, 0.72)
+	weaponselect.add_child(dim)
+
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 18)
+	weaponselect.add_child(box)
+
+	_ws_title = _label(box, "Выбор оружия", 40)
+	_ws_box = HBoxContainer.new()
+	_ws_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_ws_box.add_theme_constant_override("separation", 16)
+	box.add_child(_ws_box)
+	_label(box, "Бой направленный: движение мыши перед ударом задаёт сторону (влево/вправо/замах сверху).\nБлок держится ПКМ и гасит удар полностью только с той же стороны — угадал сторону: враг открыт для рипоста.", 14, Color(0.45, 0.52, 0.66))
+
+
+func open_weaponselect(faction: String, char_index: int) -> void:
+	charselect.visible = false
+	weaponselect.visible = true
+	_ws_title.text = "Оружие — " + WolfCfg.FACTION_NAME[faction]
+	_ws_title.add_theme_color_override("font_color", WolfCfg.FACTION_COLOR[faction])
+	for child in _ws_box.get_children():
+		child.queue_free()
+	var weapons: Array = WolfCfg.WEAPONS[faction]
+	for i in weapons.size():
+		var w: Dictionary = weapons[i]
+		var stats := "урон ×%.2f · скорость ×%.2f" % [w["dmg"], w["speed"]]
+		var b := _card_button(_ws_box, w["name"], stats, w["desc"], WolfCfg.FACTION_COLOR[faction])
+		b.pressed.connect(func() -> void: weapon_picked.emit(faction, char_index, i))
+
+
 func _build_hud() -> void:
 	hud = Control.new()
 	_full_rect(hud)
@@ -199,11 +248,46 @@ func _build_hud() -> void:
 	hp_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(hp_fill)
 
+	var st_back := ColorRect.new()
+	st_back.position = Vector2(20, 48)
+	st_back.size = Vector2(180, 7)
+	st_back.color = Color(0, 0, 0, 0.6)
+	st_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(st_back)
+
+	stamina_fill = ColorRect.new()
+	stamina_fill.position = Vector2(20, 48)
+	stamina_fill.size = Vector2(180, 7)
+	stamina_fill.color = Color(0.35, 0.85, 0.4)
+	stamina_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(stamina_fill)
+
 	stance_label = Label.new()
-	stance_label.position = Vector2(20, 50)
+	stance_label.position = Vector2(20, 58)
 	stance_label.add_theme_font_size_override("font_size", 16)
 	stance_label.add_theme_color_override("font_color", Color(0.0, 0.9, 1.0))
 	hud.add_child(stance_label)
+
+	timer_label = Label.new()
+	timer_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	timer_label.position = Vector2(-160, 12)
+	timer_label.size = Vector2(320, 40)
+	timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	timer_label.add_theme_font_size_override("font_size", 24)
+	timer_label.add_theme_color_override("font_color", Color(0.55, 0.7, 1.0))
+	hud.add_child(timer_label)
+
+	# Attack-direction chips around the crosshair: the lit one is the side
+	# your NEXT strike (and held block) uses.
+	for spec: Array in [[Vector2(-26, -3), Vector2(10, 6)], [Vector2(16, -3), Vector2(10, 6)], [Vector2(-5, -26), Vector2(10, 6)]]:
+		var chip := ColorRect.new()
+		chip.set_anchors_preset(Control.PRESET_CENTER)
+		chip.position = spec[0]
+		chip.size = spec[1]
+		chip.color = Color(1, 1, 1, 0.15)
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud.add_child(chip)
+		dir_chips.append(chip)
 
 	nodes_label = Label.new()
 	nodes_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -271,6 +355,7 @@ func _build_end() -> void:
 func show_menu() -> void:
 	menu.visible = true
 	charselect.visible = false
+	weaponselect.visible = false
 	hud.visible = false
 	end_screen.visible = false
 
@@ -278,8 +363,14 @@ func show_menu() -> void:
 func show_hud() -> void:
 	menu.visible = false
 	charselect.visible = false
+	weaponselect.visible = false
 	hud.visible = true
 	end_screen.visible = false
+
+
+func set_dir_indicator(dir: int) -> void:
+	for i in dir_chips.size():
+		(dir_chips[i] as ColorRect).color = Color(0.0, 0.9, 1.0, 0.9) if i == dir else Color(1, 1, 1, 0.15)
 
 
 func show_end(title: String, sub: String, color: Color) -> void:

@@ -1,12 +1,16 @@
 class_name WolfCfg
-## Balance + roster constants, ported 1:1 from the tuned web prototype
-## (web-prototype/index.template.html) so both versions play the same.
+## Balance + roster constants for the tower assault ruleset:
+## civilians hide and wait for police, psychos hunt civilians, mercs wipe the
+## psychos, plant the bomb in the club and exfil through the lobby.
 
-const BOUND_X := 28.0
-const BOUND_Z := 18.0
 const EYE_STAND := 1.62
 const EYE_CROUCH := 1.02
 const ENTITY_RADIUS := 0.4
+
+## Tower interior bounds (outer walls).
+const BOUND_X := 17.4
+const BOUND_Z := 13.4
+const FLOOR_H := 4.0
 
 const FACTION_COLOR := {
 	"survivor": Color(0.27, 0.84, 0.77),
@@ -14,26 +18,71 @@ const FACTION_COLOR := {
 	"leader": Color(0.75, 0.30, 1.0),
 	"killer": Color(0.50, 0.88, 0.51),
 }
-const FACTION_NAME := {"survivor": "Жертва", "cannibal": "Кибер-псих", "killer": "Наёмник"}
+const FACTION_NAME := {"survivor": "Гражданский", "cannibal": "Кибер-псих", "killer": "Наёмник"}
 
 const CONFIG := {
 	"survivor": {"speed": 3.3, "sprint_mul": 1.7, "hp": 110.0},
 	"cannibal": {"speed": 3.7, "sprint_mul": 1.45, "hp": 140.0,
 		"attack_range": 2.2, "attack_damage": 34.0, "attack_cd": 0.8,
-		"grab_range": 2.0, "grab_cd": 3.5, "sense_radius": 15.0, "killer_aggro": 5.5},
+		"sense_radius": 14.0, "killer_aggro": 6.0},
 	"killer": {"speed": 3.5, "sprint_mul": 1.55, "hp": 220.0,
 		"attack_range": 2.5, "attack_damage": 45.0, "attack_cd": 0.7,
-		"block_speed_mul": 0.4, "block_damage_mul": 0.25,
+		"block_speed_mul": 0.55,
 		"knives": 3, "throw_damage": 140.0, "throw_speed": 26.0, "throw_range": 24.0, "throw_cd": 0.55},
 }
 
 const ALPHA_HP := 400.0
-const GATE_HALF_W := 4.0
-const GENERATORS_REQUIRED := 3
-const GENERATOR_HOLD := 6.0
-const SACRIFICE_TIME := 9.0
+
+# --- Kingdom-Come-style melee -------------------------------------------
+# Three strike directions; a block only fully stops a strike from the SAME
+# direction. Perfect block = no damage + the attacker staggers into a riposte
+# window. Everything runs on stamina.
+const DIR_LEFT := 0
+const DIR_RIGHT := 1
+const DIR_OVERHEAD := 2
+
+const PLAYER_WINDUP := 0.28       # seconds, scaled by weapon speed
+const BOT_WINDUP := 0.5
+const ALPHA_WINDUP := 0.4
+const WRONG_BLOCK_DMG_MUL := 0.5  # blocking the wrong direction still helps
+const PERFECT_BLOCK_STAGGER := 0.9
+const RIPOSTE_WINDOW := 1.2
+const RIPOSTE_DMG_MUL := 1.5
+
+const STAMINA_MAX := 100.0
+const STAMINA_ATTACK_COST := 22.0
+const STAMINA_BLOCK_HIT_COST := 15.0
+const STAMINA_REGEN := 24.0
+const STAMINA_REGEN_DELAY := 0.8
+
+## Chance a bot raises a block against a visible windup / picks the right side.
+const BOT_BLOCK_CHANCE := {"cannibal": 0.25, "leader": 0.5, "killer": 0.35}
+const BOT_BLOCK_CORRECT := {"cannibal": 0.5, "leader": 0.75, "killer": 0.55}
+
+# --- Weapons -------------------------------------------------------------
+# Picked in the lobby (combat factions), random for bots. Multipliers apply
+# to the faction's base damage / attack cooldown / range.
+const WEAPONS := {
+	"killer": [
+		{"id": "machete", "name": "Мачете", "desc": "Баланс урона и скорости.", "dmg": 1.0, "speed": 1.0, "range": 0.0},
+		{"id": "katana", "name": "Моно-катана", "desc": "Быстрая, режет чаще, бьёт слабее.", "dmg": 0.85, "speed": 1.35, "range": 0.2},
+		{"id": "sledge", "name": "Кувалда", "desc": "Медленно. Больно. Дорого по стамине.", "dmg": 1.6, "speed": 0.62, "range": 0.1, "stamina": 1.35},
+	],
+	"cannibal": [
+		{"id": "claws", "name": "Клешни-имплант", "desc": "Очень быстрые, короткие, слабые.", "dmg": 0.85, "speed": 1.4, "range": -0.2},
+		{"id": "rebar", "name": "Труба с арматурой", "desc": "Медленная, длинная, ломает блоки.", "dmg": 1.35, "speed": 0.7, "range": 0.3, "stamina": 1.25},
+		{"id": "cleaver", "name": "Тесак риппера", "desc": "Ровный середняк для грязной работы.", "dmg": 1.0, "speed": 1.0, "range": 0.0},
+	],
+}
+
+# --- Objectives ----------------------------------------------------------
+const POLICE_TIME := 180.0        # seconds until police arrive (civilians' win clock)
+const BOMB_PLANT_TIME := 5.0      # seconds the merc holds E at the bomb site
 const INTERACT_RANGE := 2.6
-const FLEE_RADIUS := 11.0
+const FLEE_RADIUS := 10.0
+const SAFE_SENSE_MUL := 0.3       # how well psychos sense a civilian inside a safe room
+
+const DOOR_HP := 120.0
 
 const CROUCH_SPEED_MUL := 0.5
 const CROUCH_NOISE_MUL := 0.4
@@ -52,12 +101,16 @@ const MERC_BOT_COUNT := 2
 const MERC_BOT_HP := 150.0
 const MERC_BOT_DMG_MUL := 0.75
 const MERC_BOT_KNIVES := 1
-const MERC_BOT_SENSE := 14.0
+const MERC_BOT_SENSE := 13.0
 const MERC_BOT_THROW_MIN := 5.0
 const MERC_BOT_THROW_MAX := 12.0
 
 const KNIFE_HIT_RADIUS := 0.75
 const KNIFE_EYE := 1.25
+
+## Vertical tolerance: melee/sense interactions require being on ~the same
+## floor, not just close in XZ (the tower is stacked).
+const SAME_FLOOR_DY := 2.2
 
 ## Two playable archetypes per side, applied to the human player at spawn.
 const CHARACTERS := {
@@ -71,6 +124,6 @@ const CHARACTERS := {
 	],
 	"killer": [
 		{"id": "blade", "name": "Клинок", "tag": "стелс · добивание", "desc": "Скорость, лишние ножи и добивание раненых [F].", "speed_mul": 1.1, "hp_mul": 0.85, "knives_add": 2, "can_execute": true},
-		{"id": "armor", "name": "Броня", "tag": "танк", "desc": "Медленный таран, держит удар и держит блок.", "speed_mul": 0.9, "hp_mul": 1.25, "block_damage_mul": 0.15},
+		{"id": "armor", "name": "Броня", "tag": "танк", "desc": "Медленный таран, держит удар и держит блок.", "speed_mul": 0.9, "hp_mul": 1.25, "stamina_block_mul": 0.6},
 	],
 }

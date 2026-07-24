@@ -13,6 +13,31 @@ func _init() -> void:
 	district.name = "District"
 	WolfLevel.build_environment(district)
 	WolfLevel.build_district(district)
+
+	# Navmesh over the tower so bots can path between floors via the ramp.
+	# Doors live on collision layer 3 and are excluded — they're dynamic
+	# obstacles the bots open or break at runtime.
+	var nav := NavigationRegion3D.new()
+	nav.name = "Nav"
+	var mesh := NavigationMesh.new()
+	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	mesh.geometry_collision_mask = 1
+	mesh.agent_radius = 0.45
+	mesh.agent_height = 1.8
+	mesh.agent_max_slope = 35.0
+	mesh.agent_max_climb = 0.4
+	nav.navigation_mesh = mesh
+	district.add_child(nav)
+	# The default source mode parses the region's CHILDREN — so the walkable
+	# geometry has to live under Nav (doors stay outside on layer 3).
+	var geometry := district.get_node("Geometry")
+	district.remove_child(geometry)
+	nav.add_child(geometry)
+
+	# NOTE: geometry parsing yields nothing in this script-mode context, so the
+	# actual bake happens at runtime (main.gd bakes on match start in the
+	# background; bots steer directly until it lands).
+
 	_save(district, "res://scenes/district.tscn")
 
 	# --- characters (one editable scene per faction role) ---

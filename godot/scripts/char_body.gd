@@ -34,9 +34,22 @@ var interact_held := false
 var interact_pressed := false
 
 var cd_attack := 0.0
-var cd_grab := 0.0
 var cd_throw := 0.0
 var knives := 0
+
+# --- Kingdom-Come-style melee state ---
+var weapon := {"id": "fists", "name": "Кулаки", "dmg": 1.0, "speed": 1.0, "range": 0.0}
+var stamina := WolfCfg.STAMINA_MAX
+var stamina_delay := 0.0
+var stamina_block_mul := 1.0
+var attack_dir := WolfCfg.DIR_OVERHEAD   # player: continuously updated from mouse sway
+var block_dir := WolfCfg.DIR_OVERHEAD
+var winding := false                      # true during the wind-up before a strike lands
+var windup_t := 0.0
+var windup_dir := WolfCfg.DIR_OVERHEAD
+var riposte_t := 0.0                      # after a perfect block: boosted counter window
+var bot_block_t := 0.0                    # bots hold a raised guard briefly
+var _telegraph: MeshInstance3D = null
 
 var speed_mul := 1.0
 var dmg_mul := 1.0
@@ -90,6 +103,62 @@ func init_stats(p_is_player: bool) -> void:
 	elif visual != null:
 		_anim = _find_anim(visual)
 		_collect_and_tint(visual)
+
+	_telegraph = get_node_or_null("Telegraph")
+
+
+func set_weapon(w: Dictionary) -> void:
+	weapon = w
+	if is_player or visual == null:
+		return
+	# Bots show their weapon: a simple blade/club by the right hand.
+	var old := visual.get_node_or_null("WeaponMesh")
+	if old != null:
+		old.queue_free()
+	var mi := MeshInstance3D.new()
+	mi.name = "WeaponMesh"
+	var box := BoxMesh.new()
+	var heavy: bool = w.get("dmg", 1.0) > 1.2
+	box.size = Vector3(0.09, 0.9, 0.09) if heavy else Vector3(0.05, 0.75, 0.02)
+	mi.mesh = box
+	mi.position = Vector3(0.34, 0.85, -0.1)
+	mi.rotation_degrees = Vector3(24, 0, -12)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.35, 0.38, 0.45) if heavy else Color(0.7, 0.75, 0.85)
+	mat.metallic = 0.85
+	mat.roughness = 0.3
+	mi.material_override = mat
+	visual.add_child(mi)
+
+
+## Wind-up telegraph, readable by the defender: cyan = удар слева (block LEFT),
+## magenta = справа (block RIGHT), yellow = сверху (block OVERHEAD).
+func show_telegraph(dir: int) -> void:
+	if _telegraph == null:
+		return
+	_telegraph.visible = true
+	match dir:
+		WolfCfg.DIR_LEFT:
+			_telegraph.position = Vector3(0.5, 1.95, 0)
+			_set_telegraph_color(Color(0.0, 0.9, 1.0))
+		WolfCfg.DIR_RIGHT:
+			_telegraph.position = Vector3(-0.5, 1.95, 0)
+			_set_telegraph_color(Color(1.0, 0.18, 0.58))
+		_:
+			_telegraph.position = Vector3(0, 2.3, 0)
+			_set_telegraph_color(Color(0.96, 0.88, 0.3))
+
+
+func hide_telegraph() -> void:
+	if _telegraph != null:
+		_telegraph.visible = false
+
+
+func _set_telegraph_color(c: Color) -> void:
+	var mat := _telegraph.material_override as StandardMaterial3D
+	if mat != null:
+		mat.albedo_color = c
+		mat.emission = c
 
 
 func apply_archetype(arche: Dictionary) -> void:
@@ -190,6 +259,22 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 	var vis := Node3D.new()
 	vis.name = "Visual"
 	root.add_child(vis)
+
+	# Wind-up telegraph marker (hidden until a strike is charging).
+	var tele := MeshInstance3D.new()
+	tele.name = "Telegraph"
+	var tbox := BoxMesh.new()
+	tbox.size = Vector3(0.16, 0.16, 0.16)
+	tele.mesh = tbox
+	tele.position = Vector3(0, 2.3, 0)
+	var tmat := StandardMaterial3D.new()
+	tmat.albedo_color = Color(1, 1, 0)
+	tmat.emission_enabled = true
+	tmat.emission = Color(1, 1, 0)
+	tmat.emission_energy_multiplier = 4.0
+	tele.material_override = tmat
+	tele.visible = false
+	root.add_child(tele)
 
 	if ResourceLoader.exists("res://assets/characters/soldier.glb"):
 		var soldier: Node3D = (load("res://assets/characters/soldier.glb") as PackedScene).instantiate()
