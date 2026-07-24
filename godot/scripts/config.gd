@@ -8,9 +8,10 @@ const EYE_CROUCH := 1.02
 const ENTITY_RADIUS := 0.4
 
 ## Tower interior bounds (outer walls).
-const BOUND_X := 17.4
-const BOUND_Z := 13.4
-const FLOOR_H := 4.0
+const BOUND_X := 21.4
+const BOUND_Z := 15.4
+const FLOOR_H := 5.0
+const ELEVATOR_SPEED := 3.2
 
 const FACTION_COLOR := {
 	"survivor": Color(0.27, 0.84, 0.77),
@@ -33,31 +34,29 @@ const CONFIG := {
 
 const ALPHA_HP := 400.0
 
-# --- Kingdom-Come-style melee -------------------------------------------
-# Three strike directions; a block only fully stops a strike from the SAME
-# direction. Perfect block = no damage + the attacker staggers into a riposte
-# window. Everything runs on stamina.
-const DIR_LEFT := 0
-const DIR_RIGHT := 1
-const DIR_OVERHEAD := 2
+# --- Melee: strike / block / charged strike ------------------------------
+# Tap LMB = quick strike. Hold LMB = charge (released strike hits harder and
+# crushes a raised guard). RMB = block, cutting melee damage to a fraction.
+const CHARGE_MIN := 0.35          # held longer than this = charged strike
+const CHARGE_MAX := 1.0           # damage bonus caps here
+const CHARGE_DMG_MAX_MUL := 1.9
+const BLOCK_DMG_MUL := 0.3        # blocked light strike
+const CRUSH_DMG_MUL := 0.6        # blocked CHARGED strike still bites...
+const CRUSH_STAGGER := 0.7        # ...and staggers the defender
 
-const PLAYER_WINDUP := 0.28       # seconds, scaled by weapon speed
-const BOT_WINDUP := 0.5
-const ALPHA_WINDUP := 0.4
-const WRONG_BLOCK_DMG_MUL := 0.5  # blocking the wrong direction still helps
-const PERFECT_BLOCK_STAGGER := 0.9
-const RIPOSTE_WINDOW := 1.2
-const RIPOSTE_DMG_MUL := 1.5
+const BOT_WINDUP := 0.45          # readable wind-up before a bot's light strike
+const BOT_CHARGED_WINDUP := 0.9   # charged bot strike: longer, red telegraph
+const BOT_CHARGED_CHANCE := 0.25
 
 const STAMINA_MAX := 100.0
-const STAMINA_ATTACK_COST := 22.0
-const STAMINA_BLOCK_HIT_COST := 15.0
+const STAMINA_ATTACK_COST := 14.0
+const STAMINA_CHARGE_EXTRA := 16.0
+const STAMINA_BLOCK_HIT_COST := 12.0
 const STAMINA_REGEN := 24.0
 const STAMINA_REGEN_DELAY := 0.8
 
-## Chance a bot raises a block against a visible windup / picks the right side.
-const BOT_BLOCK_CHANCE := {"cannibal": 0.25, "leader": 0.5, "killer": 0.35}
-const BOT_BLOCK_CORRECT := {"cannibal": 0.5, "leader": 0.75, "killer": 0.55}
+## Chance a bot raises a block when an enemy starts a strike in range.
+const BOT_BLOCK_CHANCE := {"cannibal": 0.3, "leader": 0.55, "killer": 0.4}
 
 # --- Weapons -------------------------------------------------------------
 # Picked in the lobby (combat factions), random for bots. Multipliers apply

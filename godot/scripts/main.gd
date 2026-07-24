@@ -4,10 +4,10 @@ extends Node3D
 ##    (or the mercs wipe every psycho).
 ##  - Psychos: kill every civilian before the police arrive.
 ##  - Mercs: kill every psycho, plant the bomb in the club, exfil via lobby.
-## Melee is Kingdom-Come-style: three strike directions picked by mouse sway,
-## wind-ups with readable telegraphs, directional blocks (matching side =
-## perfect block + riposte), stamina. Bots path across floors on the baked
-## navmesh. WOLF_TEST env drives headless verification.
+## Melee: tap LMB = strike, hold LMB = charged strike (crushes a raised
+## guard), RMB = block. Bots telegraph wind-ups (yellow = light, red =
+## charged) and path across floors on the runtime-baked navmesh; the player
+## also rides the atrium elevator. WOLF_TEST env drives headless verification.
 
 const KnifeScene := preload("res://scripts/knife.gd")
 
@@ -33,6 +33,7 @@ var doors: Array = []
 var player: WolfChar = null
 
 var safe_zones: Array = []      # [{pos, half}]
+var patrol_points: Array = []
 var bomb_site := Vector3.ZERO
 var evac_pos := Vector3.ZERO
 var evac_half := Vector3.ONE
@@ -41,9 +42,9 @@ var bomb_progress := 0.0
 var bomb_planted := false
 var exec_cam := {}
 
+var elevator: WolfElevator = null
 var _captured := false
 var _look_delta := Vector2.ZERO
-var _sway := 0.0                # smoothed horizontal mouse motion -> strike side
 var _keys_prev := {}
 var _mouse_prev := {}
 var _pitch := 0.0
@@ -111,6 +112,11 @@ func _collect_layout() -> void:
 	if doors_group != null:
 		for child in doors_group.get_children():
 			doors.append(child)
+	patrol_points.clear()
+	var patrol := district.get_node_or_null("PatrolPoints")
+	if patrol != null:
+		for child in patrol.get_children():
+			patrol_points.append((child as Marker3D).global_position)
 	var site := district.get_node_or_null("BombSite")
 	if site != null:
 		bomb_site = (site as Marker3D).global_position
@@ -118,6 +124,7 @@ func _collect_layout() -> void:
 	if evac != null:
 		evac_pos = (evac as Marker3D).global_position
 		evac_half = evac.get_meta("half")
+	elevator = district.get_node_or_null("Elevator") as WolfElevator
 
 
 func _in_zone(pos: Vector3, center: Vector3, half: Vector3) -> bool:
@@ -352,20 +359,7 @@ func _update_player_input(delta: float) -> void:
 	p.rotation.y -= _look_delta.x * 0.0022
 	_pitch = clampf(_pitch - _look_delta.y * 0.0022, -1.35, 1.35)
 	player_cam.rotation.x = _pitch
-
-	# Strike side from recent mouse sway (KCD): swing the mouse left before
-	# clicking = strike from the left; still mouse = overhead.
-	_sway = lerpf(_sway, _look_delta.x, minf(1.0, delta * 14.0))
 	_look_delta = Vector2.ZERO
-	if not p.winding:
-		if _sway < -2.0:
-			p.attack_dir = WolfCfg.DIR_LEFT
-		elif _sway > 2.0:
-			p.attack_dir = WolfCfg.DIR_RIGHT
-		else:
-			p.attack_dir = WolfCfg.DIR_OVERHEAD
-	p.block_dir = p.attack_dir
-	ui.set_dir_indicator(p.attack_dir)
 
 	if p.is_dead:
 		p.move_input = Vector2.ZERO
@@ -398,50 +392,30 @@ func _update_player_input(delta: float) -> void:
 			flashlight.light_energy = 4.0 if p.flashlight_on else 0.0
 
 	if p.faction != "survivor":
-		p.is_blocking = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not p.winding
-		if (_mouse_pressed_once(MOUSE_BUTTON_LEFT) or _key_pressed_once(KEY_SPACE)) and not p.winding:
-			_begin_windup(p, p.attack_dir)
+		p.is_blocking = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not p.charging
+		# Charge-and-release melee: tap = quick strike, hold = charged strike.
+		var lmb := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or _key(KEY_SPACE)
+		if lmb and not p.charging and p.cd_attack <= 0.0 and p.stamina >= WolfCfg.STAMINA_ATTACK_COST:
+			p.charging = true
+			p.charge_t = 0.0
+		elif p.charging:
+			p.charge_t += delta
+			if not lmb:
+				p.charging = false
+				_player_strike(p)
 	if p.faction == "killer":
 		p.wants_throw = _key_pressed_once(KEY_Q)
 	if p.can_execute and p.faction != "survivor":
 		p.wants_execute = _key_pressed_once(KEY_F)
 
+	# Viewmodel rises while a strike charges.
+	if viewmodel != null and p.charging:
+		viewmodel.rotation_degrees.x = 28.0 * clampf(p.charge_t / WolfCfg.CHARGE_MAX, 0.0, 1.0)
+
 
 # ---------------------------------------------------------------------------
-# directional melee (Kingdom-Come-style)
+# melee: strike / block / charged strike
 # ---------------------------------------------------------------------------
-
-func _weapon_cost(e: WolfChar) -> float:
-	return WolfCfg.STAMINA_ATTACK_COST * e.weapon.get("stamina", 1.0)
-
-
-func _begin_windup(e: WolfChar, dir: int) -> void:
-	if e.cd_attack > 0.0 or e.winding:
-		return
-	if e.riposte_t <= 0.0 and e.stamina < _weapon_cost(e):
-		return  # too winded to swing
-	if e.riposte_t <= 0.0:
-		e.stamina -= _weapon_cost(e)
-		e.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
-	e.winding = true
-	e.windup_dir = dir
-	var base := WolfCfg.PLAYER_WINDUP if e.is_player else (WolfCfg.ALPHA_WINDUP if e.is_leader else WolfCfg.BOT_WINDUP)
-	e.windup_t = base / e.weapon.get("speed", 1.0)
-	if not e.is_player:
-		e.show_telegraph(dir)
-	# The intended victim may raise a guard against a readable wind-up.
-	var target := _acquire_melee_target(e)
-	if target != null and not target.is_player and target.faction != "survivor" and target.bot_block_t <= 0.0 and not target.winding:
-		var kind := "leader" if target.is_leader else target.faction
-		if randf() < WolfCfg.BOT_BLOCK_CHANCE.get(kind, 0.0):
-			target.bot_block_t = 0.7
-			target.block_dir = dir if randf() < WolfCfg.BOT_BLOCK_CORRECT.get(kind, 0.5) else randi_range(0, 2)
-
-
-func _cancel_windup(e: WolfChar) -> void:
-	e.winding = false
-	e.hide_telegraph()
-
 
 func _melee_range(e: WolfChar) -> float:
 	var base: float = WolfCfg.CONFIG[e.faction].get("attack_range", 2.0)
@@ -468,23 +442,56 @@ func _acquire_melee_target(e: WolfChar) -> WolfChar:
 	return best
 
 
-func _resolve_strike(e: WolfChar) -> void:
+## Player strike, resolved the moment LMB is released. Held past CHARGE_MIN
+## it becomes a charged strike: more damage and it crushes a raised guard.
+func _player_strike(p: WolfChar) -> void:
+	var charge_frac := clampf((p.charge_t - WolfCfg.CHARGE_MIN) / (WolfCfg.CHARGE_MAX - WolfCfg.CHARGE_MIN), 0.0, 1.0)
+	var charged := p.charge_t >= WolfCfg.CHARGE_MIN
+	p.stamina -= WolfCfg.STAMINA_ATTACK_COST + WolfCfg.STAMINA_CHARGE_EXTRA * charge_frac
+	p.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
+	p.cd_attack = WolfCfg.CONFIG[p.faction]["attack_cd"] / p.weapon.get("speed", 1.0)
+	_kick_viewmodel(charged)
+	var dmg_mul := 1.0 + charge_frac * (WolfCfg.CHARGE_DMG_MAX_MUL - 1.0)
+	_deliver_strike(p, dmg_mul, charged)
+
+
+func _bot_begin_windup(e: WolfChar, charged: bool) -> void:
+	if e.cd_attack > 0.0 or e.winding or e.stamina < WolfCfg.STAMINA_ATTACK_COST:
+		return
+	e.stamina -= WolfCfg.STAMINA_ATTACK_COST * (1.6 if charged else 1.0)
+	e.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
+	e.winding = true
+	e.windup_charged = charged
+	e.windup_t = (WolfCfg.BOT_CHARGED_WINDUP if charged else WolfCfg.BOT_WINDUP) / e.weapon.get("speed", 1.0)
+	e.show_telegraph(charged)
+	# The intended victim may raise a guard against the readable wind-up.
+	var target := _acquire_melee_target(e)
+	if target != null and not target.is_player and target.faction != "survivor" and target.bot_block_t <= 0.0 and not target.winding:
+		var kind := "leader" if target.is_leader else target.faction
+		if randf() < WolfCfg.BOT_BLOCK_CHANCE.get(kind, 0.0):
+			target.bot_block_t = 0.8
+
+
+func _cancel_windup(e: WolfChar) -> void:
+	e.winding = false
+	e.hide_telegraph()
+
+
+func _resolve_bot_strike(e: WolfChar) -> void:
+	var charged := e.windup_charged
 	_cancel_windup(e)
 	e.cd_attack = WolfCfg.CONFIG[e.faction]["attack_cd"] / e.weapon.get("speed", 1.0)
-	if not e.is_player:
-		e.recover_t = WolfCfg.BOT_ATTACK_RECOVER
-	if e.is_player:
-		_kick_viewmodel(e.windup_dir)
+	e.recover_t = WolfCfg.BOT_ATTACK_RECOVER
+	_deliver_strike(e, 1.5 if charged else 1.0, charged)
 
+
+func _deliver_strike(e: WolfChar, dmg_mul: float, charged: bool) -> void:
 	var target := _acquire_melee_target(e)
 	if target == null:
 		_try_hit_door(e)
 		return
 
-	var dmg: float = WolfCfg.CONFIG[e.faction]["attack_damage"] * e.dmg_mul * e.weapon.get("dmg", 1.0)
-	if e.riposte_t > 0.0:
-		dmg *= WolfCfg.RIPOSTE_DMG_MUL
-		e.riposte_t = 0.0
+	var dmg: float = WolfCfg.CONFIG[e.faction]["attack_damage"] * e.dmg_mul * e.weapon.get("dmg", 1.0) * dmg_mul
 
 	# Backstab (merc on psycho, from the rear cone) ignores any guard.
 	if e.faction == "killer" and target.faction == "cannibal":
@@ -493,26 +500,23 @@ func _resolve_strike(e: WolfChar) -> void:
 			_damage(target, dmg * 2.4 if target.is_leader else 99999.0, e)
 			return
 
-	# Directional guard: the defender must face the attacker and be blocking.
+	# Block: the defender must face the attacker with a raised guard. A light
+	# strike is mostly absorbed; a charged strike crushes through and staggers.
 	var defending := (target.is_player and target.is_blocking) or (not target.is_player and target.bot_block_t > 0.0)
 	if defending:
 		var facing := _yaw_toward(e.global_position.x - target.global_position.x, e.global_position.z - target.global_position.z)
 		defending = absf(wrapf(facing - target.rotation.y, -PI, PI)) < PI / 1.8
 	if defending:
-		if target.block_dir == e.windup_dir:
-			# Perfect block: no damage, the attacker reels, riposte window opens.
-			e.stagger_t = WolfCfg.PERFECT_BLOCK_STAGGER
-			_cancel_windup(e)
-			target.riposte_t = WolfCfg.RIPOSTE_WINDOW
-			if target.is_player:
-				ui.prompt_label.text = "РИПОСТ!"
-			return
-		dmg *= WolfCfg.WRONG_BLOCK_DMG_MUL
 		target.stamina -= WolfCfg.STAMINA_BLOCK_HIT_COST * target.stamina_block_mul
 		target.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
+		if charged:
+			dmg *= WolfCfg.CRUSH_DMG_MUL
+			target.stagger_t = maxf(target.stagger_t, WolfCfg.CRUSH_STAGGER)
+		else:
+			dmg *= WolfCfg.BLOCK_DMG_MUL
 		if target.stamina <= 0.0:
 			target.stamina = 0.0
-			target.stagger_t = 0.9  # guard broken
+			target.stagger_t = maxf(target.stagger_t, 0.9)
 
 	_damage(target, dmg, e)
 
@@ -532,16 +536,12 @@ func _try_hit_door(e: WolfChar) -> void:
 		return
 
 
-func _kick_viewmodel(dir: int) -> void:
+func _kick_viewmodel(charged: bool) -> void:
 	if viewmodel == null:
 		return
 	var tween := create_tween()
-	var swing := Vector3(-40, 0, 0)
-	if dir == WolfCfg.DIR_LEFT:
-		swing = Vector3(-12, 34, 18)
-	elif dir == WolfCfg.DIR_RIGHT:
-		swing = Vector3(-12, -34, -18)
-	tween.tween_property(viewmodel, "rotation_degrees", swing, 0.07)
+	var swing := Vector3(-55, 8, 0) if charged else Vector3(-35, 0, 0)
+	tween.tween_property(viewmodel, "rotation_degrees", swing, 0.06)
 	tween.tween_property(viewmodel, "rotation_degrees", Vector3(0, -6, 0), 0.22)
 
 
@@ -824,13 +824,15 @@ func _bot_psycho(e: WolfChar, delta: float) -> void:
 				return
 			if flat <= _melee_range(e) and e.cd_attack <= 0.0:
 				e.rotation.y = _yaw_toward(dp.x, dp.z)
-				_begin_windup(e, randi_range(0, 2))
+				_bot_begin_windup(e, randf() < WolfCfg.BOT_CHARGED_CHANCE)
 		return
 
-	# No prey sensed: sweep toward a random safe room — that's where food hides.
-	if not safe_zones.is_empty():
-		var idx := (Time.get_ticks_msec() / 9000 + e.get_instance_id()) % safe_zones.size()
-		_nav_steer(e, safe_zones[idx]["pos"], delta)
+	# No prey sensed: roam the whole tower on patrol points (lobby, shops,
+	# hotel, club) — this is what makes the factions actually cross paths.
+	if not patrol_points.is_empty():
+		var idx := (Time.get_ticks_msec() / 8000 + e.get_instance_id()) % patrol_points.size()
+		_nav_steer(e, patrol_points[idx], delta)
+		e.sprinting = false
 
 
 func _bot_merc(e: WolfChar, delta: float) -> void:
@@ -847,7 +849,7 @@ func _bot_merc(e: WolfChar, delta: float) -> void:
 			var flat := Vector2(dp.x, dp.z).length()
 			if flat <= _melee_range(e) and e.cd_attack <= 0.0:
 				e.rotation.y = _yaw_toward(dp.x, dp.z)
-				_begin_windup(e, randi_range(0, 2))
+				_bot_begin_windup(e, randf() < WolfCfg.BOT_CHARGED_CHANCE)
 			elif e.knives > 0 and e.cd_throw <= 0.0 and flat >= WolfCfg.MERC_BOT_THROW_MIN and flat <= WolfCfg.MERC_BOT_THROW_MAX:
 				e.rotation.y = _yaw_toward(dp.x, dp.z)
 				e.wants_throw = true
@@ -869,7 +871,6 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.cd_throw = maxf(0.0, e.cd_throw - delta)
 	e.stagger_t = maxf(0.0, e.stagger_t - delta)
 	e.recover_t = maxf(0.0, e.recover_t - delta)
-	e.riposte_t = maxf(0.0, e.riposte_t - delta)
 	e.bot_block_t = maxf(0.0, e.bot_block_t - delta)
 	e.flash_materials(delta)
 
@@ -882,11 +883,11 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 		e.move_input = Vector2.ZERO
 		return
 
-	# Wind-up ticks down and lands the strike.
+	# Bot wind-up ticks down and lands the strike.
 	if e.winding:
 		e.windup_t -= delta
 		if e.windup_t <= 0.0:
-			_resolve_strike(e)
+			_resolve_bot_strike(e)
 
 	var stunned := not e.is_player and (e.stagger_t > 0.0 or e.recover_t > 0.0)
 
@@ -935,6 +936,12 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 func _apply_interact(e: WolfChar, delta: float) -> void:
 	if not e.is_player:
 		return
+	# Elevator first: standing in the cab, E sends it to the next floor.
+	if elevator != null and elevator.is_riding(e):
+		if e.interact_pressed and not elevator.moving:
+			elevator.request_next()
+		return
+
 	# Doors: toggle with E (psycho player breaks them with strikes instead).
 	if e.interact_pressed and e.faction != "cannibal":
 		var fwd := _fwd(e)
@@ -970,8 +977,12 @@ func _prompt_for(p: WolfChar) -> String:
 		return "Вы мертвы."
 	if p.being_executed:
 		return "Тебя добивают…"
-	if p.riposte_t > 0.0:
-		return "РИПОСТ — бей!"
+	if elevator != null and elevator.is_riding(p):
+		if elevator.moving:
+			return "Лифт едет…"
+		return "[E] Лифт — на этаж %d" % (((elevator.current_floor + 1) % 4) + 1)
+	if p.charging:
+		return "ЗАРЯД удара… отпусти ЛКМ" if p.charge_t >= WolfCfg.CHARGE_MIN else "Удар…"
 	if p.faction == "survivor":
 		if _in_safe_zone(p.global_position):
 			return "Вы в укрытии — ждите полицию"
@@ -1102,12 +1113,18 @@ func _run_test(delta: float) -> void:
 			elif mode == "playing" and _test_t > 1.6 and not _test_staged:
 				_test_staged = true
 				if _test_mode == "rooms":
-					player.global_position = Vector3(-2, 2 * WolfCfg.FLOOR_H + 0.2, 0)
+					player.global_position = Vector3(-10, 2 * WolfCfg.FLOOR_H + 0.2, 6)
 			elif _test_staged and _test_t > 2.4 and not _test_shot_taken:
 				_test_shot_taken = true
 				_finish_test("%s ok: entities=%d floor_y=%.1f" % [_test_mode, entities.size(), player.global_position.y])
 		"duel":
 			_test_duel(delta)
+		"charged":
+			_test_charged(delta)
+		"meet":
+			_test_meet(delta)
+		"lift":
+			_test_lift(delta)
 		"civwin":
 			if _test_t > 0.5 and mode == "menu":
 				_start_match("survivor", 0, -1)
@@ -1142,28 +1159,104 @@ func _run_test(delta: float) -> void:
 var _duel_bot: WolfChar = null
 
 
+## Block check: a bot's light strike against a raised guard must land only a
+## fraction of its damage (not zero, not full).
 func _test_duel(_delta: float) -> void:
 	if _test_t > 0.5 and mode == "menu":
 		_start_match("killer", 0, 0)
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
+		# Isolated corner: away from the merc allies who otherwise "help".
+		player.global_position = Vector3(-18, 0.2, 12)
 		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
 		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
-		_duel_bot.rotation.y = _yaw_toward(-_fwd(player).x, -_fwd(player).z)
-	elif _test_staged and _duel_bot != null and _duel_bot.winding and not _test_shot_taken:
-		_test_shot_taken = true
-		# Raise a matching guard: real RMB press (polled input would stomp a
-		# hand-set flag) + steer the bot's strike to the player's guard side.
-		_duel_bot.windup_dir = player.attack_dir
 		var ev := InputEventMouseButton.new()
 		ev.button_index = MOUSE_BUTTON_RIGHT
 		ev.pressed = true
 		Input.parse_input_event(ev)
+	elif _test_staged and _duel_bot != null and _duel_bot.winding and not _test_shot_taken:
+		_test_shot_taken = true
+		_duel_bot.windup_charged = false  # this test measures the LIGHT strike
 		await _save_shot()
-		await get_tree().create_timer(1.0).timeout
-		var ok := player.hp >= player.max_hp - 0.1 and _duel_bot.stagger_t > 0.0
-		print("TEST RESULT: duel perfect_block=%s hp=%.0f/%.0f bot_staggered=%s" % [str(ok), player.hp, player.max_hp, str(_duel_bot.stagger_t > 0.0)])
+		await get_tree().create_timer(1.2).timeout
+		var loss := player.max_hp - player.hp
+		var ok := loss > 0.5 and loss < 20.0
+		print("TEST RESULT: duel block loss=%.1f (ожидание: малый, не ноль) %s" % [loss, "OK" if ok else "FAIL"])
 		get_tree().quit(0 if ok else 1)
+
+
+## Charged strike crushes a raised guard: real damage + stagger through block.
+func _test_charged(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
+		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
+		_duel_bot.bot_block_t = 30.0
+		_duel_bot.rotation.y = _yaw_toward(player.global_position.x - _duel_bot.global_position.x, player.global_position.z - _duel_bot.global_position.z)
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = true
+		Input.parse_input_event(ev)
+	elif _test_staged and _test_t > 2.6 and not _test_shot_taken:
+		_test_shot_taken = true
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = false
+		Input.parse_input_event(ev)
+		await get_tree().create_timer(0.5).timeout
+		var loss := _duel_bot.max_hp - _duel_bot.hp
+		var ok := loss > 25.0 and _duel_bot.stagger_t >= 0.0 and not _duel_bot.is_dead
+		print("TEST RESULT: charged crush loss=%.1f staggered=%s %s" % [loss, str(_duel_bot.stagger_t > 0.0), "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+
+
+## THE regression the last build shipped with: factions must actually reach
+## each other across floors. A psycho from the club (L3) must descend and
+## touch a civilian (L1/L2) within the time limit.
+func _test_meet(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("survivor", 0, -1)
+	elif mode == "playing" and _test_t > 2.0:
+		var psycho_low := false
+		var civ_hit := false
+		for e: WolfChar in entities:
+			if e.faction == "cannibal" and e.global_position.y < 11.0:
+				psycho_low = true
+			if e.faction == "survivor" and (e.hp < e.max_hp or e.is_dead):
+				civ_hit = true
+		if (psycho_low and civ_hit) or mode == "ended":
+			print("TEST RESULT: meet OK psycho_descended=%s civ_contacted=%s" % [str(psycho_low), str(civ_hit)])
+			get_tree().quit(0)
+		elif _test_t > 100.0:
+			print("TEST RESULT: meet FAIL psycho_descended=%s civ_contacted=%s" % [str(psycho_low), str(civ_hit)])
+			get_tree().quit(1)
+
+
+## The elevator must carry the standing player to the next floor on E.
+func _test_lift(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = elevator.global_position + Vector3(0, 0.6, 0)
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.pressed = true
+		Input.parse_input_event(ev)
+	elif _test_staged and not _test_shot_taken and player.global_position.y > 4.5:
+		_test_shot_taken = true
+		print("TEST RESULT: lift OK floor_y=%.1f elevator_floor=%d" % [player.global_position.y, elevator.current_floor])
+		get_tree().quit(0)
+	elif _test_staged and _test_t > 20.0:
+		print("TEST RESULT: lift FAIL y=%.1f elev_null=%s riding=%s moving=%s cur=%d" % [
+			player.global_position.y, str(elevator == null),
+			str(elevator != null and elevator.is_riding(player)),
+			str(elevator != null and elevator.moving),
+			elevator.current_floor if elevator != null else -1])
+		get_tree().quit(1)
 
 
 func _test_bomb(_delta: float) -> void:
@@ -1202,4 +1295,12 @@ func _save_shot() -> void:
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(_test_shot)
-	print("SHOT SAVED: " + _test_shot)
+	# Average luminance guard — the "тут всё темно" regression detector.
+	var sum := 0.0
+	var n := 0
+	for py in range(0, img.get_height(), 16):
+		for px in range(0, img.get_width(), 16):
+			var c := img.get_pixel(px, py)
+			sum += c.r * 0.3 + c.g * 0.59 + c.b * 0.11
+			n += 1
+	print("SHOT SAVED: %s BRIGHTNESS: %.3f" % [_test_shot, sum / n])

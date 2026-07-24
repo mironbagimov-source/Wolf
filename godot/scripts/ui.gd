@@ -203,7 +203,7 @@ func _build_weaponselect() -> void:
 	_ws_box.alignment = BoxContainer.ALIGNMENT_CENTER
 	_ws_box.add_theme_constant_override("separation", 16)
 	box.add_child(_ws_box)
-	_label(box, "Бой направленный: движение мыши перед ударом задаёт сторону (влево/вправо/замах сверху).\nБлок держится ПКМ и гасит удар полностью только с той же стороны — угадал сторону: враг открыт для рипоста.", 14, Color(0.45, 0.52, 0.66))
+	_label(box, "ЛКМ (тап) — быстрый удар. ЛКМ (зажать и отпустить) — ЗАРЯЖЕННЫЙ удар: больше урона, пробивает блок.\nПКМ — блок (режет урон почти в ноль). Метка над врагом: жёлтая — обычный замах, КРАСНАЯ — заряженный, блок не спасёт.", 14, Color(0.45, 0.52, 0.66))
 
 
 func open_weaponselect(faction: String, char_index: int) -> void:
@@ -277,17 +277,6 @@ func _build_hud() -> void:
 	timer_label.add_theme_color_override("font_color", Color(0.55, 0.7, 1.0))
 	hud.add_child(timer_label)
 
-	# Attack-direction chips around the crosshair: the lit one is the side
-	# your NEXT strike (and held block) uses.
-	for spec: Array in [[Vector2(-26, -3), Vector2(10, 6)], [Vector2(16, -3), Vector2(10, 6)], [Vector2(-5, -26), Vector2(10, 6)]]:
-		var chip := ColorRect.new()
-		chip.set_anchors_preset(Control.PRESET_CENTER)
-		chip.position = spec[0]
-		chip.size = spec[1]
-		chip.color = Color(1, 1, 1, 0.15)
-		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		hud.add_child(chip)
-		dir_chips.append(chip)
 
 	nodes_label = Label.new()
 	nodes_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -368,9 +357,6 @@ func show_hud() -> void:
 	end_screen.visible = false
 
 
-func set_dir_indicator(dir: int) -> void:
-	for i in dir_chips.size():
-		(dir_chips[i] as ColorRect).color = Color(0.0, 0.9, 1.0, 0.9) if i == dir else Color(1, 1, 1, 0.15)
 
 
 func show_end(title: String, sub: String, color: Color) -> void:

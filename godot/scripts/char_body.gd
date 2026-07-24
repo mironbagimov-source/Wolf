@@ -37,17 +37,16 @@ var cd_attack := 0.0
 var cd_throw := 0.0
 var knives := 0
 
-# --- Kingdom-Come-style melee state ---
+# --- Melee state: strike / block / charged strike ---
 var weapon := {"id": "fists", "name": "Кулаки", "dmg": 1.0, "speed": 1.0, "range": 0.0}
 var stamina := WolfCfg.STAMINA_MAX
 var stamina_delay := 0.0
 var stamina_block_mul := 1.0
-var attack_dir := WolfCfg.DIR_OVERHEAD   # player: continuously updated from mouse sway
-var block_dir := WolfCfg.DIR_OVERHEAD
-var winding := false                      # true during the wind-up before a strike lands
+var charging := false                     # player: LMB held, damage grows
+var charge_t := 0.0
+var winding := false                      # bots: wind-up before the strike lands
 var windup_t := 0.0
-var windup_dir := WolfCfg.DIR_OVERHEAD
-var riposte_t := 0.0                      # after a perfect block: boosted counter window
+var windup_charged := false
 var bot_block_t := 0.0                    # bots hold a raised guard briefly
 var _telegraph: MeshInstance3D = null
 
@@ -75,6 +74,11 @@ var _tint_meshes: Array = []
 ## Called by main.gd right after instancing the faction scene.
 func init_stats(p_is_player: bool) -> void:
 	is_player = p_is_player
+	# Layers: 1 = static world (navmesh source), 2 = characters, 3 = dynamic
+	# (doors, elevator). Characters must collide with ALL of these — the
+	# default mask of 1 let riders fall straight through the elevator.
+	collision_layer = 2
+	collision_mask = 1 | 2 | 4
 	var cfg: Dictionary = WolfCfg.CONFIG[faction]
 	hp = cfg["hp"]
 	max_hp = hp
@@ -131,22 +135,14 @@ func set_weapon(w: Dictionary) -> void:
 	visual.add_child(mi)
 
 
-## Wind-up telegraph, readable by the defender: cyan = удар слева (block LEFT),
-## magenta = справа (block RIGHT), yellow = сверху (block OVERHEAD).
-func show_telegraph(dir: int) -> void:
+## Wind-up telegraph, readable by the defender: yellow = обычный удар (block
+## it), red = заряженный (the block will be crushed — back off or interrupt).
+func show_telegraph(charged: bool) -> void:
 	if _telegraph == null:
 		return
 	_telegraph.visible = true
-	match dir:
-		WolfCfg.DIR_LEFT:
-			_telegraph.position = Vector3(0.5, 1.95, 0)
-			_set_telegraph_color(Color(0.0, 0.9, 1.0))
-		WolfCfg.DIR_RIGHT:
-			_telegraph.position = Vector3(-0.5, 1.95, 0)
-			_set_telegraph_color(Color(1.0, 0.18, 0.58))
-		_:
-			_telegraph.position = Vector3(0, 2.3, 0)
-			_set_telegraph_color(Color(0.96, 0.88, 0.3))
+	_telegraph.position = Vector3(0, 2.3, 0)
+	_set_telegraph_color(Color(1.0, 0.13, 0.13) if charged else Color(0.96, 0.88, 0.3))
 
 
 func hide_telegraph() -> void:

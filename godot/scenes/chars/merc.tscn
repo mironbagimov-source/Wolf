@@ -1,74 +1,74 @@
 [gd_scene load_steps=12 format=3]
 
-[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_ovlfy"]
-[ext_resource type="PackedScene" path="res://assets/characters/soldier.glb" id="2_lajnd"]
+[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_t8bs2"]
+[ext_resource type="PackedScene" path="res://assets/characters/soldier.glb" id="2_d30s1"]
 
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_nseab"]
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_7md2i"]
 radius = 0.4
 height = 1.8
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_b3k7b"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_5nekb"]
 albedo_color = Color(0, 0.9, 1, 1)
 emission_enabled = true
 emission = Color(0, 0.9, 1, 1)
 emission_energy_multiplier = 4.0
 
-[sub_resource type="BoxMesh" id="BoxMesh_qoal0"]
+[sub_resource type="BoxMesh" id="BoxMesh_oxw2e"]
 size = Vector3(0.2, 0.045, 0.05)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_c77el"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_h5ui3"]
 albedo_color = Color(0.1, 0.12, 0.16, 1)
 
-[sub_resource type="BoxMesh" id="BoxMesh_ctmu7"]
+[sub_resource type="BoxMesh" id="BoxMesh_14ioe"]
 size = Vector3(0.14, 0.08, 0.18)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_0qfe6"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dnr7l"]
 albedo_color = Color(0.1, 0.12, 0.16, 1)
 
-[sub_resource type="BoxMesh" id="BoxMesh_dl14w"]
+[sub_resource type="BoxMesh" id="BoxMesh_upr10"]
 size = Vector3(0.14, 0.08, 0.18)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_w6ax2"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wl8bw"]
 albedo_color = Color(1, 1, 0, 1)
 emission_enabled = true
 emission = Color(1, 1, 0, 1)
 emission_energy_multiplier = 4.0
 
-[sub_resource type="BoxMesh" id="BoxMesh_o6mnn"]
+[sub_resource type="BoxMesh" id="BoxMesh_ssduw"]
 size = Vector3(0.16, 0.16, 0.16)
 
 [node name="Merc" type="CharacterBody3D"]
-script = ExtResource("1_ovlfy")
+script = ExtResource("1_t8bs2")
 faction = "killer"
 is_leader = false
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_nseab")
+shape = SubResource("CapsuleShape3D_7md2i")
 
 [node name="Visual" type="Node3D" parent="."]
 
-[node name="Soldier" type="Node3D" parent="Visual" instance=ExtResource("2_lajnd")]
+[node name="Soldier" type="Node3D" parent="Visual" instance=ExtResource("2_d30s1")]
 
 [node name="CyberGear" type="Node3D" parent="Visual"]
 
 [node name="Visor" type="MeshInstance3D" parent="Visual/CyberGear"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.66, -0.115)
-material_override = SubResource("StandardMaterial3D_b3k7b")
-mesh = SubResource("BoxMesh_qoal0")
+material_override = SubResource("StandardMaterial3D_5nekb")
+mesh = SubResource("BoxMesh_oxw2e")
 
 [node name="PadL" type="MeshInstance3D" parent="Visual/CyberGear"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.26, 1.48, 0)
-material_override = SubResource("StandardMaterial3D_c77el")
-mesh = SubResource("BoxMesh_ctmu7")
+material_override = SubResource("StandardMaterial3D_h5ui3")
+mesh = SubResource("BoxMesh_14ioe")
 
 [node name="PadR" type="MeshInstance3D" parent="Visual/CyberGear"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.26, 1.48, 0)
-material_override = SubResource("StandardMaterial3D_0qfe6")
-mesh = SubResource("BoxMesh_dl14w")
+material_override = SubResource("StandardMaterial3D_dnr7l")
+mesh = SubResource("BoxMesh_upr10")
 
 [node name="Telegraph" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3, 0)
 visible = false
-material_override = SubResource("StandardMaterial3D_w6ax2")
-mesh = SubResource("BoxMesh_o6mnn")
+material_override = SubResource("StandardMaterial3D_wl8bw")
+mesh = SubResource("BoxMesh_ssduw")

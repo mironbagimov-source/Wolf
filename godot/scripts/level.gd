@@ -1,30 +1,33 @@
 class_name WolfLevel
-## Builds the megabuilding tower in code, baked to scenes/district.tscn by
-## tools/scene_baker.gd. Four floors, connected by a switchback ramp along
-## the west wall (a parking-garage style shaft the navmesh can walk):
-##   L0 (y 0)  — лобби: вход/эвакуация, стойка ресепшена
-##   L1 (y 4)  — магазинчики: торговые стойки с неоном
-##   L2 (y 8)  — номера: коридор + комнаты, две безопасные (двери)
-##   L3 (y 12) — клуб «ОБЛАКА»: танцпол, бар, бомб-сайт
-## Gameplay data rides on Marker3D nodes + node metadata (safe zones, bomb
-## site, evac). Doors are separate WolfDoor bodies on collision layer 3 so
-## the nav bake ignores them.
-
-const FogFlicker := preload("res://scripts/flicker.gd")
+## Megabuilding tower, v2 — bigger, bright, connected. 44x32m footprint,
+## four 5m floors around a FULL-HEIGHT ATRIUM (you can see other floors —
+## and the other factions — across it), a working glass ELEVATOR on the
+## atrium's east side, and two proper switchback stairwells (W/S and E/N
+## corners) that the navmesh walks, so bots genuinely travel between floors.
+##   L0 — лобби: вход/эвакуация, ресепшен
+##   L1 — магазинчики вокруг атриума
+##   L2 — номера: коридор + комнаты вдоль стен, две безопасные (двери)
+##   L3 — клуб «ОБЛАКА»: танцпол, бар, бомб-сайт
+## Interiors are LIT (bright ambient + ceiling light grids) and surfaces use
+## embedded procedural textures with world-triplanar mapping — no darkness.
 
 const NEON_CYAN := Color(0.0, 0.9, 1.0)
 const NEON_MAGENTA := Color(1.0, 0.18, 0.58)
 const NEON_YELLOW := Color(0.96, 0.88, 0.3)
 const NEON_RED := Color(1.0, 0.13, 0.13)
 
-const X0 := -18.0
-const X1 := 18.0
-const Z0 := -14.0
-const Z1 := 14.0
-const H := WolfCfg.FLOOR_H     # 4.0 per floor
+const X0 := -22.0
+const X1 := 22.0
+const Z0 := -16.0
+const Z1 := 16.0
+const H := WolfCfg.FLOOR_H       # 5.0
 const WALL := 0.4
-const RAMP_X0 := -17.6         # west ramp shaft strip
-const RAMP_X1 := -14.6
+
+# Holes in every upper slab.
+const ATRIUM := [-6.0, 6.0, -4.0, 4.0]        # x0,x1,z0,z1
+const ELEV := [8.0, 11.0, -1.5, 1.5]
+const STAIR_W := [-22.0, -15.0, -15.0, -9.0]  # west stairwell footprint
+const STAIR_E := [15.0, 22.0, 9.0, 15.0]      # east stairwell footprint
 
 
 static func build_environment(root: Node3D) -> void:
@@ -32,37 +35,28 @@ static func build_environment(root: Node3D) -> void:
 	env.resource_name = "TowerEnvironment"
 
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.016, 0.02, 0.05)
-	sky_mat.sky_horizon_color = Color(0.10, 0.06, 0.19)
-	sky_mat.ground_bottom_color = Color(0.01, 0.01, 0.02)
-	sky_mat.ground_horizon_color = Color(0.08, 0.05, 0.15)
+	sky_mat.sky_top_color = Color(0.05, 0.06, 0.12)
+	sky_mat.sky_horizon_color = Color(0.16, 0.10, 0.24)
+	sky_mat.ground_bottom_color = Color(0.02, 0.02, 0.04)
+	sky_mat.ground_horizon_color = Color(0.12, 0.08, 0.2)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 
+	# Bright, neutral interior baseline — "тут не нужна темнота".
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.08, 0.09, 0.15)
-	env.ambient_light_energy = 1.1
+	env.ambient_light_color = Color(0.52, 0.52, 0.56)
+	env.ambient_light_energy = 1.0
 
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.glow_enabled = true
-	env.glow_intensity = 0.9
-	env.glow_bloom = 0.15
-	env.glow_hdr_threshold = 1.0
+	env.glow_intensity = 0.5
+	env.glow_bloom = 0.08
+	env.glow_hdr_threshold = 1.1
 
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.05, 0.04, 0.09)
-	env.fog_density = 0.006
-	env.fog_sky_affect = 0.5
-
-	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = 0.02
-	env.volumetric_fog_albedo = Color(0.55, 0.48, 0.72)
 	env.ssao_enabled = true
-	env.ssao_intensity = 2.0
-	env.ssr_enabled = true
-	env.ssr_max_steps = 32
+	env.ssao_intensity = 1.5
 
 	var we := WorldEnvironment.new()
 	we.name = "WorldEnvironment"
@@ -71,34 +65,32 @@ static func build_environment(root: Node3D) -> void:
 
 	var moon := DirectionalLight3D.new()
 	moon.name = "Moon"
-	moon.rotation_degrees = Vector3(-48, -35, 0)
-	moon.light_color = Color(0.62, 0.71, 0.88)
+	moon.rotation_degrees = Vector3(-50, -30, 0)
+	moon.light_color = Color(0.7, 0.75, 0.9)
 	moon.light_energy = 0.2
-	moon.shadow_enabled = true
 	root.add_child(moon)
 
 
 static func build_district(root: Node3D) -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 1337
-
 	var geometry := _group(root, "Geometry")
 	_shell(geometry)
-	_ramp_shaft(geometry)
+	_slabs_and_railings(geometry)
+	_stairwell(geometry, STAIR_W, false)
+	_stairwell(geometry, STAIR_E, true)
+	_elevator_shaft(geometry)
 	_floor_lobby(geometry)
 	_floor_shops(geometry)
 	_floor_rooms(root, geometry)
 	_floor_club(root, geometry)
-	_interior_lights(geometry)
-	_skyline(_group(root, "Skyline"), rng)
+	_lights(geometry)
 
-	# Spawns: mercs breach the lobby, civilians are shopping/living mid-tower,
-	# psychos pour out of the club.
+	root.add_child(WolfElevator.build())
+
 	var spawns := _group(root, "Spawns")
 	var spawn_sets := {
-		"Killer": [Vector3(-2, 0, -11), Vector3(0, 0, -11), Vector3(2, 0, -11)],
-		"Survivor": [Vector3(8, H, 6), Vector3(-6, H, -6), Vector3(6, 2 * H, 5)],
-		"Cannibal": [Vector3(-4, 3 * H, 4), Vector3(6, 3 * H, -4), Vector3(0, 3 * H, 8)],
+		"Killer": [Vector3(-2, 0, -13), Vector3(0, 0, -13), Vector3(2, 0, -13)],
+		"Survivor": [Vector3(-10, H, 10), Vector3(10, H, -10), Vector3(-8, 2 * H, 6)],
+		"Cannibal": [Vector3(-12, 3 * H, 0), Vector3(4, 3 * H, 10), Vector3(-4, 3 * H, -10)],
 	}
 	for prefix: String in spawn_sets:
 		var list: Array = spawn_sets[prefix]
@@ -108,11 +100,20 @@ static func build_district(root: Node3D) -> void:
 			m.position = list[i]
 			spawns.add_child(m)
 
-	# Evac: the lobby entrance. Marker meta carries the zone half-extents.
+	# Idle-роуминг ботов по всей башне — гарантирует, что стороны пересекаются.
+	var patrol := _group(root, "PatrolPoints")
+	var pts := [Vector3(0, 0, -8), Vector3(-10, H, 10), Vector3(10, H, -10),
+		Vector3(-8, 2 * H, 6), Vector3(8, 2 * H, -6), Vector3(-12, 3 * H, 0), Vector3(4, 3 * H, 12)]
+	for i in pts.size():
+		var m := Marker3D.new()
+		m.name = "P%d" % i
+		m.position = pts[i]
+		patrol.add_child(m)
+
 	var evac := Marker3D.new()
 	evac.name = "EvacMarker"
-	evac.position = Vector3(0, 0, -12.5)
-	evac.set_meta("half", Vector3(3.5, 2.0, 1.6))
+	evac.position = Vector3(0, 0, -14.4)
+	evac.set_meta("half", Vector3(4.0, 2.0, 1.8))
 	root.add_child(evac)
 
 
@@ -121,203 +122,215 @@ static func build_district(root: Node3D) -> void:
 # ---------------------------------------------------------------------------
 
 static func _shell(parent: Node3D) -> void:
-	# Ground slab + outer walls, four floors tall.
-	_solid(parent, Vector3((X0 + X1) / 2, -0.2, (Z0 + Z1) / 2), Vector3(X1 - X0 + 2, 0.4, Z1 - Z0 + 2), _concrete())
 	var total_h := H * 4.0
-	_solid(parent, Vector3((X0 + X1) / 2, total_h / 2, Z0 - WALL / 2), Vector3(X1 - X0 + 2, total_h, WALL), _concrete(), "WallS")
-	_solid(parent, Vector3((X0 + X1) / 2, total_h / 2, Z1 + WALL / 2), Vector3(X1 - X0 + 2, total_h, WALL), _concrete(), "WallN")
-	_solid(parent, Vector3(X0 - WALL / 2, total_h / 2, 0), Vector3(WALL, total_h, Z1 - Z0 + 2), _concrete(), "WallW")
-	_solid(parent, Vector3(X1 + WALL / 2, total_h / 2, 0), Vector3(WALL, total_h, Z1 - Z0 + 2), _concrete(), "WallE")
-	# Lobby entrance cut: door frame glow instead of a wall segment.
-	_emissive(parent, Vector3(-4.2, 1.6, Z0 - WALL / 2), Vector3(0.3, 3.2, 0.5), NEON_CYAN, 2.5)
-	_emissive(parent, Vector3(4.2, 1.6, Z0 - WALL / 2), Vector3(0.3, 3.2, 0.5), NEON_CYAN, 2.5)
-	# Roof.
-	_solid(parent, Vector3((X0 + X1) / 2, total_h + 0.2, (Z0 + Z1) / 2), Vector3(X1 - X0 + 2, 0.4, Z1 - Z0 + 2), _concrete(), "Roof")
+	_solid(parent, Vector3(0, -0.2, 0), Vector3(X1 - X0 + 2, 0.4, Z1 - Z0 + 2), _mat_floor_tile(), "GroundSlab")
+	# South wall with the lobby entrance cut (x -4..4).
+	_solid(parent, Vector3(-13.2, total_h / 2, Z0 - WALL / 2), Vector3(17.6, total_h, WALL), _mat_plaster(), "WallS_W")
+	_solid(parent, Vector3(13.2, total_h / 2, Z0 - WALL / 2), Vector3(17.6, total_h, WALL), _mat_plaster(), "WallS_E")
+	_solid(parent, Vector3(0, (total_h + 3.2) / 2 + 1.6, Z0 - WALL / 2), Vector3(8.0, total_h - 3.2, WALL), _mat_plaster(), "WallS_Lintel")
+	_emissive(parent, Vector3(-4.2, 1.6, Z0 - WALL / 2), Vector3(0.3, 3.2, 0.5), NEON_CYAN, 1.6)
+	_emissive(parent, Vector3(4.2, 1.6, Z0 - WALL / 2), Vector3(0.3, 3.2, 0.5), NEON_CYAN, 1.6)
+	_solid(parent, Vector3(0, total_h / 2, Z1 + WALL / 2), Vector3(X1 - X0 + 2, total_h, WALL), _mat_plaster(), "WallN")
+	_solid(parent, Vector3(X0 - WALL / 2, total_h / 2, 0), Vector3(WALL, total_h, Z1 - Z0 + 2), _mat_plaster(), "WallW")
+	_solid(parent, Vector3(X1 + WALL / 2, total_h / 2, 0), Vector3(WALL, total_h, Z1 - Z0 + 2), _mat_plaster(), "WallE")
+	_solid(parent, Vector3(0, total_h + 0.2, 0), Vector3(X1 - X0 + 2, 0.4, Z1 - Z0 + 2), _mat_plaster(), "Roof")
 
 
-## One continuous switchback ramp in the west strip connects all floors.
-static func _ramp_shaft(parent: Node3D) -> void:
-	var rx := (RAMP_X0 + RAMP_X1) / 2.0
-	var rw := RAMP_X1 - RAMP_X0
-	# Ramp segments: L0->L1 rises south->north, L1->L2 north->south, L2->L3 south->north.
-	var segs := [
-		[0.0, -12.0, -2.0],   # base_y, z_start, z_end (rise along +Z)
-		[H, 2.0, 12.0, true], # rise along -Z (flipped)
-		[2 * H, -12.0, -2.0],
-	]
-	var slope_len := 10.0
-	var slope_h := H
-	for i in segs.size():
-		var base_y: float = segs[i][0]
-		var zs: float = segs[i][1]
-		var ze: float = segs[i][2]
-		var flipped: bool = segs[i].size() > 3
-		var ramp := _solid(parent, Vector3(rx, base_y + slope_h / 2 - 0.1, (zs + ze) / 2), Vector3(rw, 0.3, sqrt(slope_len * slope_len + slope_h * slope_h)), _concrete(), "Ramp%d" % i)
-		var ang := atan2(slope_h, slope_len)
-		ramp.rotation.x = -ang if not flipped else ang
-	# Landings at each floor inside the shaft (flat pads at the seam z-ranges).
-	for f in 4:
-		var y: float = H * f
-		_solid(parent, Vector3(rx, y - 0.1, -13.0 if f % 2 == 0 else 13.0), Vector3(rw, 0.2, 2.0), _concrete(), "Landing%d" % f)
-		_solid(parent, Vector3(rx, y - 0.1, 13.0 if f % 2 == 0 else -13.0), Vector3(rw, 0.2, 2.0), _concrete(), "LandingB%d" % f)
-	# Guard rail between shaft and floors, with gaps at both z ends.
+## Upper slabs assembled from rectangles around the atrium, elevator and
+## stairwell holes; floor materials differ per level (tile/tile/carpet/club).
+static func _slabs_and_railings(parent: Node3D) -> void:
+	var floor_mats := [null, _mat_floor_tile(), _mat_carpet(), _mat_club_floor()]
 	for f in [1, 2, 3]:
 		var y: float = H * f
-		_solid(parent, Vector3(RAMP_X1 + 0.1, y + 0.6, 0), Vector3(0.2, 1.2, 20.0), _metal(), "Rail%d" % f)
+		var mat: StandardMaterial3D = floor_mats[f]
+		var rects := [
+			[X0, X1, Z0, -15.0],
+			[-15.0, X1, -15.0, -9.0],
+			[X0, X1, -9.0, -4.0],
+			[X0, ATRIUM[0], -4.0, 4.0],
+			[ATRIUM[1], ELEV[0], -4.0, 4.0],
+			[ELEV[0], ELEV[1], -4.0, ELEV[2]],
+			[ELEV[0], ELEV[1], ELEV[3], 4.0],
+			[ELEV[1], X1, -4.0, 4.0],
+			[X0, X1, 4.0, 9.0],
+			[X0, 15.0, 9.0, 15.0],
+			[X0, X1, 15.0, Z1],
+		]
+		for i in rects.size():
+			var r: Array = rects[i]
+			var w: float = r[1] - r[0]
+			var d: float = r[3] - r[2]
+			if w <= 0.05 or d <= 0.05:
+				continue
+			_solid(parent, Vector3((r[0] + r[1]) / 2, y - 0.15, (r[2] + r[3]) / 2), Vector3(w, 0.3, d), mat, "Slab%d_%d" % [f, i])
+
+		# Atrium railings — see across, don't fall in.
+		_solid(parent, Vector3(0, y + 0.55, ATRIUM[2] - 0.15), Vector3(12.6, 1.1, 0.15), _mat_metal(), "RailA")
+		_solid(parent, Vector3(0, y + 0.55, ATRIUM[3] + 0.15), Vector3(12.6, 1.1, 0.15), _mat_metal(), "RailB")
+		_solid(parent, Vector3(ATRIUM[0] - 0.15, y + 0.55, 0), Vector3(0.15, 1.1, 8.0), _mat_metal(), "RailC")
+		_solid(parent, Vector3(ATRIUM[1] + 0.15, y + 0.55, 0), Vector3(0.15, 1.1, 8.6), _mat_metal(), "RailD")
 
 
-static func _slab(parent: Node3D, y: float, floor_name: String) -> void:
-	# Floor slab covering everything EXCEPT the west ramp strip.
-	_solid(parent, Vector3((RAMP_X1 + X1) / 2, y - 0.15, (Z0 + Z1) / 2), Vector3(X1 - RAMP_X1, 0.3, Z1 - Z0), _concrete(), floor_name)
+## Switchback stairwell: two 2.5m flights along X with a wide landing. The
+## top of flight B lands EXACTLY at the next slab edge — verified by the
+## cross-floor "factions meet" test.
+static func _stairwell(parent: Node3D, fp: Array, mirrored: bool) -> void:
+	var x_in: float = fp[1] if not mirrored else fp[0]    # entrance edge (on the slab side)
+	var x_far: float = fp[0] + 1.5 if not mirrored else fp[1] - 1.5
+	var z_a: float = (fp[2] + fp[2] + 2.8) / 2.0          # flight A strip centre
+	var z_b: float = (fp[3] - 2.8 + fp[3]) / 2.0          # flight B strip centre
+	if mirrored:
+		var tmp := z_a
+		z_a = z_b
+		z_b = tmp
+	var run := absf(x_far - x_in)
+
+	for f in [0, 1, 2]:
+		var y: float = H * f
+		_ramp(parent, x_in, x_far, z_a, y, y + 2.5, "StairA%d" % f)
+		_ramp(parent, x_far, x_in, z_b, y + 2.5, y + 5.0, "StairB%d" % f)
+		var land_x: float = x_far + (-1.0 if not mirrored else 1.0)
+		_solid(parent, Vector3(land_x, y + 2.35, (fp[2] + fp[3]) / 2), Vector3(2.0, 0.3, fp[3] - fp[2]), _mat_floor_tile(), "StairLand%d" % f)
+	# Enclosing wall on the inner side (full height), entrance stays open.
+	var wall_z: float = fp[3] if not mirrored else fp[2]
+	_solid(parent, Vector3((fp[0] + fp[1]) / 2, H * 2.0, wall_z + (0.2 if not mirrored else -0.2)), Vector3(fp[1] - fp[0], H * 4.0, 0.4), _mat_plaster(), "StairWall")
+
+
+static func _ramp(parent: Node3D, x_from: float, x_to: float, z_c: float, y_from: float, y_to: float, p_name: String) -> void:
+	var run := x_to - x_from
+	var rise := y_to - y_from
+	var length := sqrt(run * run + rise * rise)
+	var body := _solid(parent, Vector3((x_from + x_to) / 2, (y_from + y_to) / 2 - 0.12, z_c), Vector3(length, 0.25, 2.8), _mat_floor_tile(), p_name)
+	body.rotation.z = atan2(rise, run) * (1.0 if run > 0 else -1.0) * signf(run)
+
+
+static func _elevator_shaft(parent: Node3D) -> void:
+	var cx := (ELEV[0] + ELEV[1]) / 2.0
+	var total_h := H * 4.0
+	# Glass walls on N/E/W; the south side opens onto each floor's walkway.
+	var glass := _mat_glass()
+	_solid(parent, Vector3(cx, total_h / 2, ELEV[3] + 0.1), Vector3(3.2, total_h, 0.2), glass, "ShaftN")
+	_solid(parent, Vector3(ELEV[0] - 0.1, total_h / 2, 0), Vector3(0.2, total_h, 3.2), glass, "ShaftW")
+	_solid(parent, Vector3(ELEV[1] + 0.1, total_h / 2, 0), Vector3(0.2, total_h, 3.2), glass, "ShaftE")
+	# South side: panels between door openings (door height 2.8 per floor).
+	for f in [0, 1, 2, 3]:
+		var y_top: float = H * f + 2.8
+		var seg_h: float = H - 2.8
+		_solid(parent, Vector3(cx, y_top + seg_h / 2, ELEV[2] - 0.1), Vector3(3.2, seg_h, 0.2), glass, "ShaftS%d" % f)
+	_emissive(parent, Vector3(cx, total_h - 0.3, ELEV[2] - 0.25), Vector3(2.6, 0.3, 0.1), NEON_CYAN, 2.0, "LiftSign")
 
 
 static func _floor_lobby(parent: Node3D) -> void:
-	# Reception desk + pillars.
-	_solid(parent, Vector3(6, 0.55, -6), Vector3(5, 1.1, 1.2), _metal(), "Reception")
-	_emissive(parent, Vector3(6, 1.15, -6), Vector3(5.1, 0.08, 1.3), NEON_CYAN, 2.0)
-	for x in [-8.0, 0.0, 8.0]:
-		_solid(parent, Vector3(x, H / 2, 4), Vector3(0.8, H, 0.8), _concrete(), "Pillar")
-	_emissive(parent, Vector3(0, 3.4, -11.5), Vector3(6.0, 0.5, 0.15), NEON_MAGENTA, 3.0, "SignMega")
+	_solid(parent, Vector3(0, 0.55, -8), Vector3(6, 1.1, 1.4), _mat_metal(), "Reception")
+	_emissive(parent, Vector3(0, 1.2, -8), Vector3(6.1, 0.1, 1.5), NEON_CYAN, 1.4)
+	for x in [-14.0, 14.0]:
+		_solid(parent, Vector3(x, H / 2, -8), Vector3(0.9, H, 0.9), _mat_plaster(), "Pillar")
+	for pos: Array in [[-16.0, 6.0], [16.0, 6.0], [-16.0, -2.0], [16.0, -2.0]]:
+		_solid(parent, Vector3(pos[0], 0.35, pos[1]), Vector3(2.4, 0.7, 1.0), _mat_carpet(), "Bench")
+	_emissive(parent, Vector3(0, 4.2, -13.5), Vector3(7.0, 0.6, 0.15), NEON_MAGENTA, 2.2, "SignMega")
 
 
 static func _floor_shops(parent: Node3D) -> void:
-	_slab(parent, H, "SlabShops")
 	var y: float = H
-	# Small trade stalls along both long walls, neon-topped.
 	var stalls := [
-		[-8.0, 10.5, NEON_CYAN], [0.0, 10.5, NEON_YELLOW], [8.0, 10.5, NEON_MAGENTA],
-		[-8.0, -10.5, NEON_MAGENTA], [0.0, -10.5, NEON_CYAN], [8.0, -10.5, NEON_YELLOW],
+		[-14.0, 13.0, NEON_CYAN], [-4.0, 13.0, NEON_YELLOW], [8.0, 13.0, NEON_MAGENTA],
+		[-14.0, -13.0, NEON_MAGENTA], [-4.0, -13.0, NEON_CYAN], [12.0, -13.0, NEON_YELLOW],
 	]
 	for s in stalls:
 		var sx: float = s[0]
 		var sz: float = s[1]
-		_solid(parent, Vector3(sx, y + 0.5, sz), Vector3(4.0, 1.0, 1.4), _metal(), "Stall")
-		_emissive(parent, Vector3(sx, y + 2.6, sz + (1.0 if sz < 0 else -1.0)), Vector3(3.6, 0.4, 0.12), s[2], 2.6)
-	# Central kiosk block.
-	_solid(parent, Vector3(0, y + 1.1, 0), Vector3(5, 2.2, 3), _concrete(), "Kiosk")
-	_emissive(parent, Vector3(0, y + 2.4, -1.6), Vector3(4.6, 0.3, 0.1), NEON_CYAN, 2.4)
+		_solid(parent, Vector3(sx, y + 0.55, sz), Vector3(4.5, 1.1, 1.6), _mat_metal(), "Stall")
+		_solid(parent, Vector3(sx, y + 2.9, sz + (0.9 if sz < 0 else -0.9)), Vector3(4.7, 0.5, 0.12), _mat_metal(), "StallSignBack")
+		_emissive(parent, Vector3(sx, y + 2.9, sz + (1.0 if sz < 0 else -1.0)), Vector3(4.2, 0.4, 0.1), s[2], 2.2)
+	_solid(parent, Vector3(-14, y + 1.2, 0), Vector3(4, 2.4, 3), _mat_plaster(), "Kiosk")
+	_emissive(parent, Vector3(-14, y + 2.7, 1.7), Vector3(3.6, 0.35, 0.1), NEON_CYAN, 2.0)
 
 
 static func _floor_rooms(root: Node3D, parent: Node3D) -> void:
-	_slab(parent, 2 * H, "SlabRooms")
 	var y: float = 2.0 * H
-	# Central corridor (z -1.5..1.5); rooms north and south of it.
-	# Room dividers every 7.5m; front walls with door gaps.
 	var safe_zones := _group(root, "SafeZones")
 	var doors := _group(root, "Doors")
-	for side: int in [-1, 1]:
-		var wall_z: float = 1.5 * side
-		var back_z := (Z1 if side > 0 else Z0)
-		for i in 4:
-			var rx0 := -13.0 + i * 7.5
-			var rx1 := rx0 + 7.5
-			# divider walls between rooms
-			_solid(parent, Vector3(rx0, y + H / 2, (wall_z + back_z) / 2), Vector3(0.25, H, absf(back_z - wall_z)), _concrete(), "RoomDiv")
-			# front wall pieces leaving a 1.2m doorway near the room's west edge
-			var door_x := rx0 + 1.2
-			_solid(parent, Vector3((rx0 + door_x) / 2 - 0.35, y + H / 2, wall_z), Vector3(maxf(door_x - rx0 - 0.7, 0.1), H, 0.25), _concrete(), "RoomWallA")
-			_solid(parent, Vector3((door_x + 1.2 + rx1) / 2, y + H / 2, wall_z), Vector3(rx1 - door_x - 1.2, H, 0.25), _concrete(), "RoomWallB")
-			# lintel above the doorway
-			_solid(parent, Vector3(door_x + 0.6, y + H - 0.5, wall_z), Vector3(1.4, 1.0, 0.25), _concrete(), "Lintel")
-			# bed
-			_solid(parent, Vector3(rx0 + 4.5, y + 0.3, (back_z + wall_z) / 2), Vector3(2.0, 0.6, 1.4), _cloth(), "Bed")
-	_solid(parent, Vector3(-13.25, y + H / 2, 0), Vector3(0.25, H, 3.0), _concrete(), "CorridorEndW")
 
-	# Two SAFE rooms (N room#2, S room#3): a door + green sign + zone marker.
-	var safe_defs := [
-		[-5.5 + 1.2, 1.5, 1, "SafeRoomN"],   # door_x, wall_z, side, name
-		[2.0 + 1.2, -1.5, -1, "SafeRoomS"],
+	# Rooms along the N wall (x -21..14) and S wall (x -14..21), 5 each side.
+	var configs := [
+		{"front_z": 11.0, "back_z": 15.6, "x0": -21.0, "count": 5, "safe_idx": 2, "side": 1},
+		{"front_z": -11.0, "back_z": -15.6, "x0": -14.0, "count": 5, "safe_idx": 2, "side": -1},
 	]
-	for sd in safe_defs:
-		var door_x: float = sd[0]
-		var wall_z: float = sd[1]
-		var side: int = sd[2]
-		var door := WolfDoor.build(1.2, 2.2)
-		door.name = sd[3] + "Door"
-		door.position = Vector3(door_x - 0.6, y, wall_z)
-		doors.add_child(door)
-		_emissive(parent, Vector3(door_x, y + 2.8, wall_z + 0.3 * side), Vector3(1.6, 0.3, 0.1), Color(0.2, 1.0, 0.4), 3.0)
-		var zone := Marker3D.new()
-		zone.name = sd[3]
-		zone.position = Vector3(door_x + 2.4, y + 1.0, (wall_z + (Z1 - 0.5 if side > 0 else Z0 + 0.5)) / 2.0)
-		zone.set_meta("half", Vector3(3.4, 1.8, 5.2))
-		safe_zones.add_child(zone)
+	for cfg in configs:
+		var fz: float = cfg["front_z"]
+		var bz: float = cfg["back_z"]
+		var side: int = cfg["side"]
+		for i in range(cfg["count"]):
+			var rx0: float = cfg["x0"] + i * 7.0
+			var rx1: float = rx0 + 7.0
+			_solid(parent, Vector3(rx0, y + H / 2, (fz + bz) / 2), Vector3(0.25, H, absf(bz - fz)), _mat_plaster(), "RoomDiv")
+			var door_x: float = rx0 + 1.4
+			_solid(parent, Vector3((door_x + 1.2 + rx1) / 2, y + H / 2, fz), Vector3(rx1 - door_x - 1.2, H, 0.25), _mat_plaster(), "RoomFront")
+			_solid(parent, Vector3(door_x + 0.6, y + H - 1.1, fz), Vector3(1.4, 2.2, 0.25), _mat_plaster(), "Lintel")
+			_solid(parent, Vector3(rx0 + 4.6, y + 0.3, (fz + bz) / 2), Vector3(2.0, 0.6, 1.5), _mat_carpet(), "Bed")
+
+			if i == int(cfg["safe_idx"]):
+				var door := WolfDoor.build(1.2, 2.2)
+				door.name = "SafeDoor%d" % side
+				door.position = Vector3(door_x - 0.6, y, fz)
+				doors.add_child(door)
+				_emissive(parent, Vector3(door_x, y + 3.1, fz - 0.3 * side), Vector3(1.8, 0.35, 0.1), Color(0.2, 1.0, 0.4), 2.5)
+				var zone := Marker3D.new()
+				zone.name = "SafeRoom%d" % side
+				zone.position = Vector3((rx0 + rx1) / 2.0, y + 1.0, (fz + bz) / 2.0)
+				zone.set_meta("half", Vector3(3.4, 1.8, absf(bz - fz) / 2.0))
+				safe_zones.add_child(zone)
+		# Closing divider at the row's far end.
+		var far_x: float = cfg["x0"] + cfg["count"] * 7.0
+		_solid(parent, Vector3(far_x, y + H / 2, (fz + bz) / 2), Vector3(0.25, H, absf(bz - fz)), _mat_plaster(), "RoomDivEnd")
 
 
 static func _floor_club(root: Node3D, parent: Node3D) -> void:
-	_slab(parent, 3 * H, "SlabClub")
 	var y: float = 3.0 * H
-	# ОБЛАКА sign over the dancefloor.
-	_emissive(parent, Vector3(0, y + 3.4, 11.5), Vector3(9.0, 0.8, 0.15), NEON_MAGENTA, 4.0, "SignOblaka")
-	# Dancefloor: grid of glowing tiles.
+	_emissive(parent, Vector3(-12, y + 4.0, 8.0), Vector3(9.0, 0.9, 0.15), NEON_MAGENTA, 3.0, "SignOblaka")
+	# Dancefloor west of the atrium.
 	var tile_colors := [NEON_CYAN, NEON_MAGENTA, NEON_YELLOW, Color(0.5, 0.3, 1.0)]
 	for ix in 4:
-		for iz in 4:
+		for iz in 3:
 			var c: Color = tile_colors[(ix + iz) % tile_colors.size()]
-			_emissive(parent, Vector3(-4.5 + ix * 3.0, y + 0.02, -1.5 + iz * 3.0), Vector3(2.6, 0.06, 2.6), c, 1.6)
-	# Bar along the north wall + shelves glow.
-	_solid(parent, Vector3(10, y + 0.55, 11), Vector3(9, 1.1, 1.4), _metal(), "Bar")
-	_emissive(parent, Vector3(10, y + 2.4, 13.2), Vector3(8.5, 1.4, 0.15), NEON_CYAN, 1.8, "BarShelves")
-	# Private booths south side.
-	for bx in [-10.0, -4.0, 2.0]:
-		_solid(parent, Vector3(bx, y + 0.45, -11.5), Vector3(3.0, 0.9, 2.4), _cloth(), "Booth")
-		_emissive(parent, Vector3(bx, y + 2.2, -13.0), Vector3(2.6, 0.25, 0.1), NEON_MAGENTA, 1.8)
-	# DJ stage west of the dancefloor.
-	_solid(parent, Vector3(-12, y + 0.4, 0), Vector3(3.0, 0.8, 6.0), _metal(), "Stage")
+			_emissive(parent, Vector3(-17.0 + ix * 2.8, y + 0.03, -3.0 + iz * 2.8), Vector3(2.4, 0.06, 2.4), c, 1.2)
+	_solid(parent, Vector3(-20.5, y + 0.4, 0), Vector3(2.4, 0.8, 6.0), _mat_metal(), "Stage")
+	# Bar along the north side.
+	_solid(parent, Vector3(2, y + 0.55, 13), Vector3(10, 1.1, 1.5), _mat_metal(), "Bar")
+	_emissive(parent, Vector3(2, y + 2.6, 15.2), Vector3(9.5, 1.2, 0.15), NEON_CYAN, 1.4, "BarShelves")
+	# Booths south.
+	for bx in [-16.0, -9.0, -2.0]:
+		_solid(parent, Vector3(bx, y + 0.45, -13.5), Vector3(3.2, 0.9, 2.6), _mat_carpet(), "Booth")
+		_emissive(parent, Vector3(bx, y + 2.4, -15.2), Vector3(2.8, 0.3, 0.1), NEON_MAGENTA, 1.6)
 
-	# Bomb site: the tower's structural node behind the bar.
-	var device := _emissive(parent, Vector3(14.5, y + 0.6, 11), Vector3(1.2, 1.2, 1.2), NEON_RED, 2.2, "BombDevice")
+	var device := _emissive(parent, Vector3(17, y + 0.6, 3), Vector3(1.2, 1.2, 1.2), NEON_RED, 1.8, "BombDevice")
 	device.set_meta("keep", true)
 	var site := Marker3D.new()
 	site.name = "BombSite"
-	site.position = Vector3(14.5, y, 11)
+	site.position = Vector3(17, y, 3)
 	root.add_child(site)
 
 
-static func _interior_lights(parent: Node3D) -> void:
-	# Ceiling strips + omni per zone. Colors shift by floor to code-read the level.
-	var floor_tint := [NEON_CYAN, NEON_YELLOW, Color(0.4, 1.0, 0.6), NEON_MAGENTA]
+static func _lights(parent: Node3D) -> void:
+	# Warm white ceiling grid on every floor — the tower reads BRIGHT.
 	for f in 4:
-		var y := H * f + H - 0.4
-		for pos: Array in [[-8.0, -7.0], [8.0, -7.0], [-8.0, 7.0], [8.0, 7.0]]:
-			var tint: Color = floor_tint[f]
-			_emissive(parent, Vector3(pos[0], y, pos[1]), Vector3(3.0, 0.08, 0.3), tint, 2.0)
+		var y: float = H * f + H - 0.5
+		for pos: Array in [[-14.0, -8.0], [0.0, -8.0], [14.0, -8.0], [-14.0, 8.0], [0.0, 8.0], [14.0, 8.0]]:
+			_emissive(parent, Vector3(pos[0], y + 0.3, pos[1]), Vector3(2.6, 0.08, 0.6), Color(1.0, 0.97, 0.9), 1.6)
 			var l := OmniLight3D.new()
-			l.position = Vector3(pos[0], y - 0.4, pos[1])
-			l.light_color = tint
-			l.light_energy = 1.1
-			l.omni_range = 9.0
+			l.position = Vector3(pos[0], y, pos[1])
+			l.light_color = Color(1.0, 0.96, 0.88)
+			l.light_energy = 2.2
+			l.omni_range = 13.0
 			parent.add_child(l)
-
-
-static func _skyline(parent: Node3D, rng: RandomNumberGenerator) -> void:
-	# City silhouettes outside the tower, seen from the entrance.
-	for i in 24:
-		var x := rng.randf_range(-70.0, 70.0)
-		var z := -25.0 - rng.randf() * 45.0
-		var h := rng.randf_range(14.0, 44.0)
-		var w := rng.randf_range(3.0, 7.0)
-		var mi := MeshInstance3D.new()
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3(w, h, w)
-		mi.mesh = mesh
-		mi.position = Vector3(x, h / 2.0, z)
-		mi.material_override = _concrete()
-		parent.add_child(mi)
-		if rng.randf() < 0.5:
-			var neon: Color = [NEON_CYAN, NEON_MAGENTA, Color(1.0, 0.75, 0.45)][rng.randi_range(0, 2)]
-			var strip := MeshInstance3D.new()
-			var smesh := BoxMesh.new()
-			smesh.size = Vector3(0.15, h * 0.7, 0.15)
-			strip.mesh = smesh
-			strip.position = mi.position + Vector3(w * 0.45, h * 0.05, w * 0.45)
-			var mat := StandardMaterial3D.new()
-			mat.albedo_color = neon
-			mat.emission_enabled = true
-			mat.emission = neon
-			mat.emission_energy_multiplier = 2.2
-			strip.material_override = mat
-			parent.add_child(strip)
+	# Atrium accent shafts.
+	for f in [1, 2, 3]:
+		var l := OmniLight3D.new()
+		l.position = Vector3(0, H * f + 2.0, 0)
+		l.light_color = Color(0.6, 0.85, 1.0)
+		l.light_energy = 1.4
+		l.omni_range = 11.0
+		parent.add_child(l)
 
 
 # ---------------------------------------------------------------------------
@@ -368,31 +381,87 @@ static func _emissive(parent: Node3D, pos: Vector3, size: Vector3, color: Color,
 	return mi
 
 
-static func _concrete() -> StandardMaterial3D:
+# --- Embedded procedural textures (serialized into the scene — no imports,
+# no downloads; asset CDNs are blocked from this environment). World-space
+# triplanar mapping keeps them seamless on every box.
+
+static var _tex_cache := {}
+
+
+static func _texture(key: String, size: int, shade: Callable) -> ImageTexture:
+	if _tex_cache.has(key):
+		return _tex_cache[key]
+	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
+	for py in size:
+		for px in size:
+			img.set_pixel(px, py, shade.call(float(px) / size, float(py) / size))
+	var tex := ImageTexture.create_from_image(img)
+	_tex_cache[key] = tex
+	return tex
+
+
+static func _noise2(u: float, v: float, scale: float, seed_v: float) -> float:
+	return 0.5 + 0.25 * sin(u * scale * TAU + seed_v * 12.9898) * cos(v * scale * TAU + seed_v * 78.233) \
+		+ 0.25 * sin((u + v) * scale * 0.7 * TAU + seed_v * 39.4)
+
+
+static func _std(albedo_tex: ImageTexture, tint: Color, rough: float, metal := 0.0, tri_scale := 0.35) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.10, 0.11, 0.14)
-	mat.roughness = 0.85
-	var noise := FastNoiseLite.new()
-	noise.frequency = 0.05
-	var tex := NoiseTexture2D.new()
-	tex.noise = noise
-	tex.as_normal_map = true
-	tex.bump_strength = 1.2
-	mat.normal_enabled = true
-	mat.normal_texture = tex
+	mat.albedo_texture = albedo_tex
+	mat.albedo_color = tint
+	mat.roughness = rough
+	mat.metallic = metal
+	mat.uv1_triplanar = true
+	mat.uv1_world_triplanar = true
+	mat.uv1_scale = Vector3(tri_scale, tri_scale, tri_scale)
 	return mat
 
 
-static func _metal() -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.16, 0.17, 0.2)
-	mat.metallic = 0.8
-	mat.roughness = 0.4
-	return mat
+static func _mat_plaster() -> StandardMaterial3D:
+	var tex := _texture("plaster", 128, func(u: float, v: float) -> Color:
+		var n := _noise2(u, v, 9.0, 3.7) * 0.12
+		var g := 0.58 + n
+		return Color(g, g * 0.985, g * 0.955))
+	return _std(tex, Color.WHITE, 0.85)
 
 
-static func _cloth() -> StandardMaterial3D:
+static func _mat_floor_tile() -> StandardMaterial3D:
+	var tex := _texture("tile", 128, func(u: float, v: float) -> Color:
+		var gx := absf(fmod(u * 4.0, 1.0) - 0.5)
+		var gz := absf(fmod(v * 4.0, 1.0) - 0.5)
+		var grout := 0.30 if (gx > 0.46 or gz > 0.46) else 0.0
+		var g := 0.5 + _noise2(u, v, 13.0, 8.1) * 0.08 - grout
+		return Color(g, g, g * 1.02))
+	return _std(tex, Color.WHITE, 0.4, 0.05, 0.5)
+
+
+static func _mat_carpet() -> StandardMaterial3D:
+	var tex := _texture("carpet", 128, func(u: float, v: float) -> Color:
+		var n := _noise2(u, v, 17.0, 5.2) * 0.1
+		return Color(0.42 + n, 0.13 + n * 0.5, 0.14 + n * 0.5))
+	return _std(tex, Color.WHITE, 0.95)
+
+
+static func _mat_club_floor() -> StandardMaterial3D:
+	var tex := _texture("club", 128, func(u: float, v: float) -> Color:
+		var n := _noise2(u, v, 21.0, 9.9)
+		var sparkle := 0.25 if n > 0.93 else 0.0
+		var g := 0.16 + n * 0.05 + sparkle
+		return Color(g, g, g * 1.15))
+	return _std(tex, Color.WHITE, 0.3, 0.2)
+
+
+static func _mat_metal() -> StandardMaterial3D:
+	var tex := _texture("metal", 128, func(u: float, v: float) -> Color:
+		var g := 0.5 + _noise2(u * 4.0, v, 7.0, 2.2) * 0.08
+		return Color(g * 0.95, g, g * 1.06))
+	return _std(tex, Color.WHITE, 0.35, 0.8, 0.7)
+
+
+static func _mat_glass() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.16, 0.12, 0.2)
-	mat.roughness = 0.95
+	mat.albedo_color = Color(0.65, 0.8, 0.9, 0.25)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.roughness = 0.05
+	mat.metallic = 0.2
 	return mat
