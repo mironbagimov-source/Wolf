@@ -28,6 +28,7 @@ const CONFIG := {
 }
 
 const ALPHA_HP := 400.0
+const GATE_HALF_W := 4.0
 const GENERATORS_REQUIRED := 3
 const GENERATOR_HOLD := 6.0
 const SACRIFICE_TIME := 9.0

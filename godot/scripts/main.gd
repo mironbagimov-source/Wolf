@@ -6,9 +6,19 @@ extends Node3D
 ## code so the whole game is verifiable from a headless run (WOLF_TEST below).
 
 const KnifeScene := preload("res://scripts/knife.gd")
-const CharScript := preload("res://scripts/char_body.gd")
+
+## Baked, editor-editable scenes (tools/scene_baker.gd). Loaded lazily so the
+## baker itself can run before they exist.
+const CHAR_SCENE_PATHS := {
+	"survivor": "res://scenes/chars/survivor.tscn",
+	"cannibal": "res://scenes/chars/psycho.tscn",
+	"leader": "res://scenes/chars/alpha.tscn",
+	"killer": "res://scenes/chars/merc.tscn",
+}
+var _char_scenes := {}
 
 var ui: WolfUI
+var district: Node3D
 var menu_cam: Camera3D
 var player_cam: Camera3D = null
 var flashlight: SpotLight3D = null
@@ -50,27 +60,50 @@ const RESULT_COPY := {
 
 func _ready() -> void:
 	randomize()
-	WolfLevel.build_environment(self)
-	var layout := WolfLevel.build_district(self)
-	gate_pos = layout["gate"]
-	gate_half_w = layout["gate_half_w"]
-	_build_objectives(layout)
+	district = $District
+	gate_pos = ($District/GateMarker as Marker3D).global_position
+	gate_pos.y = 0.0
+	gate_half_w = WolfCfg.GATE_HALF_W
+	_collect_objectives()
 
-	menu_cam = Camera3D.new()
-	menu_cam.position = Vector3(14, 9, 26)
-	add_child(menu_cam)
+	menu_cam = $MenuCamera
 	menu_cam.look_at(Vector3(0, 1.5, 0), Vector3.UP)
 	menu_cam.current = true
 
-	ui = WolfUI.new()
-	add_child(ui)
-	ui.build()
+	ui = $UI
 	ui.faction_picked.connect(func(f: String) -> void: ui.open_charselect(f))
 	ui.character_picked.connect(_start_match)
 	ui.restart_pressed.connect(_back_to_menu)
 
 	_test_mode = OS.get_environment("WOLF_TEST")
 	_test_shot = OS.get_environment("WOLF_SHOT")
+
+
+## Reads gameplay data straight out of the baked district scene: HackNode*
+## groups and the ImplantTable under Objectives, spawn Marker3Ds under Spawns.
+## Move them in the editor and the game follows.
+func _collect_objectives() -> void:
+	generators.clear()
+	var objectives := district.get_node("Objectives")
+	for child in objectives.get_children():
+		if (child.name as String).begins_with("HackNode"):
+			var ring := child.get_node("Ring") as MeshInstance3D
+			var box := child.get_node("Box") as MeshInstance3D
+			generators.append({
+				"pos": (child as Node3D).position,
+				"progress": 0.0, "done": false,
+				"ring_mat": ring.material_override, "box_mat": box.material_override,
+			})
+	var table := objectives.get_node("ImplantTable") as Node3D
+	altar = {"pos": table.position, "captive": null, "timer": 0.0, "light": table.get_node("Light")}
+
+
+func _spawn_positions(prefix: String) -> Array:
+	var out: Array = []
+	for child in district.get_node("Spawns").get_children():
+		if (child.name as String).begins_with(prefix):
+			out.append((child as Marker3D).global_position * Vector3(1, 0, 1))
+	return out
 
 
 # ---------------------------------------------------------------------------
@@ -92,12 +125,13 @@ func _start_match(faction: String, arche_index: int) -> void:
 	for g in generators:
 		g["progress"] = 0.0
 		g["done"] = false
+		_reset_objective_visual(g)
 	altar["captive"] = null
 	altar["timer"] = 0.0
 
-	var survivor_spawns := [Vector3(-24, 0, -10), Vector3(-24, 0, 0), Vector3(-24, 0, 10)]
-	var cannibal_spawns := [Vector3(24, 0, -10), Vector3(24, 0, 0), Vector3(24, 0, 10)]
-	var killer_spawns := [Vector3(0, 0, -16), Vector3(-2.5, 0, -16), Vector3(2.5, 0, -16)]
+	var survivor_spawns := _spawn_positions("Survivor")
+	var cannibal_spawns := _spawn_positions("Cannibal")
+	var killer_spawns := _spawn_positions("Killer")
 
 	for i in 3:
 		var is_human := faction == "survivor" and i == 0
@@ -131,10 +165,12 @@ func _start_match(faction: String, arche_index: int) -> void:
 
 
 func _spawn_char(faction: String, pos: Vector3, is_human: bool, is_lead: bool) -> WolfChar:
-	var c := CharacterBody3D.new()
-	c.set_script(CharScript)
+	var key := "leader" if is_lead else faction
+	if not _char_scenes.has(key):
+		_char_scenes[key] = load(CHAR_SCENE_PATHS[key])
+	var c: WolfChar = (_char_scenes[key] as PackedScene).instantiate()
 	add_child(c)
-	c.setup(faction, is_human, is_lead)
+	c.init_stats(is_human)
 	c.global_position = pos
 	c.rotation.y = atan2(pos.x, pos.z)  # face roughly toward the plaza centre
 	entities.append(c)
@@ -774,66 +810,14 @@ func _check_altar_handoff(e: WolfChar) -> void:
 
 
 # ---------------------------------------------------------------------------
-# objectives visuals
+# objectives visuals (meshes live in the baked district scene)
 # ---------------------------------------------------------------------------
 
-func _build_objectives(layout: Dictionary) -> void:
-	for pos in layout["generators"]:
-		var box := MeshInstance3D.new()
-		var mesh := BoxMesh.new()
-		mesh.size = Vector3(1.1, 1.2, 0.8)
-		box.mesh = mesh
-		box.position = pos + Vector3(0, 0.6, 0)
-		var box_mat := StandardMaterial3D.new()
-		box_mat.albedo_color = Color(0.1, 0.14, 0.2)
-		box_mat.metallic = 0.6
-		box_mat.roughness = 0.4
-		box.material_override = box_mat
-		add_child(box)
-
-		var ring := MeshInstance3D.new()
-		var torus := TorusMesh.new()
-		torus.inner_radius = 0.85
-		torus.outer_radius = 0.95
-		ring.mesh = torus
-		ring.position = pos + Vector3(0, 0.05, 0)
-		var ring_mat := StandardMaterial3D.new()
-		ring_mat.albedo_color = Color(0.0, 0.9, 1.0)
-		ring_mat.emission_enabled = true
-		ring_mat.emission = Color(0.0, 0.9, 1.0)
-		ring_mat.emission_energy_multiplier = 2.5
-		ring.material_override = ring_mat
-		add_child(ring)
-
-		var light := OmniLight3D.new()
-		light.position = pos + Vector3(0, 1.4, 0)
-		light.light_color = Color(0.0, 0.9, 1.0)
-		light.light_energy = 1.2
-		light.omni_range = 5.0
-		add_child(light)
-
-		generators.append({"pos": pos, "progress": 0.0, "done": false, "ring_mat": ring_mat, "box_mat": box_mat})
-
-	var apos: Vector3 = layout["altar"]
-	var table := MeshInstance3D.new()
-	var tmesh := BoxMesh.new()
-	tmesh.size = Vector3(2.2, 0.8, 1.0)
-	table.mesh = tmesh
-	table.position = apos + Vector3(0, 0.4, 0)
-	var tmat := StandardMaterial3D.new()
-	tmat.albedo_color = Color(0.12, 0.12, 0.16)
-	tmat.metallic = 0.8
-	tmat.roughness = 0.35
-	table.material_override = tmat
-	add_child(table)
-	WolfLevel._emissive_box(self, apos + Vector3(0, 0.82, 0), Vector3(2.3, 0.06, 1.1), Color(1.0, 0.13, 0.13), 2.5)
-	var alight := OmniLight3D.new()
-	alight.position = apos + Vector3(0, 1.8, 0)
-	alight.light_color = Color(1.0, 0.15, 0.2)
-	alight.light_energy = 1.4
-	alight.omni_range = 7.0
-	add_child(alight)
-	altar = {"pos": apos, "captive": null, "timer": 0.0, "light": alight}
+func _reset_objective_visual(g: Dictionary) -> void:
+	var cyan := Color(0.0, 0.9, 1.0)
+	(g["ring_mat"] as StandardMaterial3D).albedo_color = cyan
+	(g["ring_mat"] as StandardMaterial3D).emission = cyan
+	(g["box_mat"] as StandardMaterial3D).emission_enabled = false
 
 
 func _sync_objective_visual(g: Dictionary) -> void:

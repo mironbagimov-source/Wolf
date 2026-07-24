@@ -25,6 +25,10 @@ signal character_picked(faction: String, index: int)
 signal restart_pressed
 
 
+func _ready() -> void:
+	build()
+
+
 func build() -> void:
 	_build_vignette()
 	_build_menu()

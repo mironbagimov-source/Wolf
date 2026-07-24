@@ -1,0 +1,1804 @@
+[gd_scene load_steps=281 format=3]
+
+[ext_resource type="Script" path="res://scripts/flicker.gd" id="1_bhfl2"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_bbwde"]
+sky_top_color = Color(0.016, 0.02, 0.05, 1)
+sky_horizon_color = Color(0.1, 0.06, 0.19, 1)
+ground_bottom_color = Color(0.01, 0.01, 0.02, 1)
+ground_horizon_color = Color(0.08, 0.05, 0.15, 1)
+sun_angle_max = 1.0
+
+[sub_resource type="Sky" id="Sky_8t5dr"]
+sky_material = SubResource("ProceduralSkyMaterial_bbwde")
+
+[sub_resource type="Environment" id="Environment_6lbyv"]
+resource_name = "NightEnvironment"
+background_mode = 2
+sky = SubResource("Sky_8t5dr")
+ambient_light_source = 2
+ambient_light_color = Color(0.07, 0.09, 0.16, 1)
+tonemap_mode = 3
+ssr_enabled = true
+ssr_max_steps = 32
+ssao_enabled = true
+glow_enabled = true
+glow_intensity = 0.9
+glow_bloom = 0.15
+fog_enabled = true
+fog_light_color = Color(0.055, 0.045, 0.1, 1)
+fog_density = 0.012
+fog_sky_affect = 0.6
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.035
+volumetric_fog_albedo = Color(0.55, 0.48, 0.72, 1)
+volumetric_fog_emission = Color(0.02, 0.015, 0.04, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_e5fhw"]
+size = Vector3(62, 1, 42)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_2bms4"]
+seed = 21
+frequency = 0.06
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_fsqmr"]
+as_normal_map = true
+bump_strength = 2.0
+noise = SubResource("FastNoiseLite_2bms4")
+
+[sub_resource type="Gradient" id="Gradient_nigx7"]
+colors = PackedColorArray(0.15, 0.15, 0.15, 1, 0.85, 0.85, 0.85, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_k6cj4"]
+seed = 7
+frequency = 0.008
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_eptnu"]
+color_ramp = SubResource("Gradient_nigx7")
+noise = SubResource("FastNoiseLite_k6cj4")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_mucq7"]
+albedo_color = Color(0.045, 0.05, 0.07, 1)
+metallic = 0.1
+roughness_texture = SubResource("NoiseTexture2D_eptnu")
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_fsqmr")
+uv1_scale = Vector3(6, 4, 1)
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_l132b"]
+size = Vector2(62, 42)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_snimq"]
+size = Vector3(6, 4.2, 6)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_v7ygs"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_ss8aw"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_v7ygs")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_bgoo7"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_ss8aw")
+
+[sub_resource type="BoxMesh" id="BoxMesh_rfesr"]
+size = Vector3(6, 4.2, 6)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_v36sf"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_7luri"]
+size = Vector3(6.12, 0.12, 6.12)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_m1r12"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 2.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_rje8e"]
+size = Vector3(0.7, 2, 0.06)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_djqhv"]
+size = Vector3(6, 4.2, 6)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_pse3d"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_2jbqd"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_pse3d")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ligpi"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_2jbqd")
+
+[sub_resource type="BoxMesh" id="BoxMesh_xj13e"]
+size = Vector3(6, 4.2, 6)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_s7h7s"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_um5pk"]
+size = Vector3(6.12, 0.12, 6.12)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_bv411"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 2.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_fdmr3"]
+size = Vector3(0.7, 2, 0.06)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_lfdit"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_mv2ig"]
+size = Vector3(0.3, 3.2, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_sve22"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_kn8gr"]
+size = Vector3(0.3, 3.2, 0.3)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_c0q8t"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_fjihc"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_c0q8t")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_0co0h"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_fjihc")
+
+[sub_resource type="BoxMesh" id="BoxMesh_ktn6a"]
+size = Vector3(3.0739, 36.5105, 3.0739)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_xfq6h"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_1b8y2"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_xfq6h")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_yto8l"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_1b8y2")
+
+[sub_resource type="BoxMesh" id="BoxMesh_8ualw"]
+size = Vector3(3.50066, 15.2907, 3.50066)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ss66n"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_c4d3a"]
+size = Vector3(0.14, 10.7035, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_45e7x"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_xelm7"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_45e7x")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_aul0u"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_xelm7")
+
+[sub_resource type="BoxMesh" id="BoxMesh_a5u28"]
+size = Vector3(4.9578, 17.9713, 4.9578)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_p0xfq"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_3tk3h"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_p0xfq")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_tyi0d"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_3tk3h")
+
+[sub_resource type="BoxMesh" id="BoxMesh_bd8dg"]
+size = Vector3(4.80242, 22.8499, 4.80242)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_s6d41"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_5cghu"]
+size = Vector3(0.14, 15.9949, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_c2d1d"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_i0deh"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_c2d1d")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_e076g"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_i0deh")
+
+[sub_resource type="BoxMesh" id="BoxMesh_olcot"]
+size = Vector3(4.57997, 27.7745, 4.57997)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_nh0xh"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_o18qq"]
+size = Vector3(0.14, 19.4422, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_ly6xh"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_n0e27"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_ly6xh")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ew63w"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_n0e27")
+
+[sub_resource type="BoxMesh" id="BoxMesh_pcmf8"]
+size = Vector3(3.31364, 35.6547, 3.31364)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_6fvoe"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_qu2jl"]
+size = Vector3(0.14, 24.9583, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_kqmoi"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_38pm0"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_kqmoi")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2ugpj"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_38pm0")
+
+[sub_resource type="BoxMesh" id="BoxMesh_u06q7"]
+size = Vector3(4.04797, 33.0447, 4.04797)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_l7cqo"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_sy4n7"]
+size = Vector3(0.14, 23.1313, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_bf7kk"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_toe15"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_bf7kk")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_rbr24"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_toe15")
+
+[sub_resource type="BoxMesh" id="BoxMesh_em2tq"]
+size = Vector3(3.17707, 26.3846, 3.17707)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_fkmxw"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_qu6gf"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_fkmxw")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_x1i50"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_qu6gf")
+
+[sub_resource type="BoxMesh" id="BoxMesh_253nh"]
+size = Vector3(4.69579, 24.2276, 4.69579)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_q1ave"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_u3udj"]
+size = Vector3(0.14, 16.9593, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_be3ij"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_6r1wh"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_be3ij")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_6rsad"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_6r1wh")
+
+[sub_resource type="BoxMesh" id="BoxMesh_6f145"]
+size = Vector3(2.61957, 23.3937, 2.61957)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_56b6g"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_jw4bb"]
+size = Vector3(0.14, 16.3756, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_hhoa1"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_tnouk"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_hhoa1")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_r3eat"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_tnouk")
+
+[sub_resource type="BoxMesh" id="BoxMesh_hb6vy"]
+size = Vector3(4.79709, 16.3836, 4.79709)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_0e4ta"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_vwo6a"]
+size = Vector3(0.14, 11.4685, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_u76bt"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_xyk2n"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_u76bt")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gdbfq"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_xyk2n")
+
+[sub_resource type="BoxMesh" id="BoxMesh_jhqux"]
+size = Vector3(3.35274, 22.5467, 3.35274)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_6swtn"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_fkqj3"]
+size = Vector3(0.14, 15.7827, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_ysctu"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_qu4gh"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_ysctu")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_uhwf0"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_qu4gh")
+
+[sub_resource type="BoxMesh" id="BoxMesh_atsgl"]
+size = Vector3(4.31059, 16.823, 4.31059)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_ugle6"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_rgcmf"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_ugle6")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_t7x84"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_rgcmf")
+
+[sub_resource type="BoxMesh" id="BoxMesh_8q31q"]
+size = Vector3(2.76065, 35.5896, 2.76065)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_gsmb3"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_s6hk7"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_gsmb3")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_m6d57"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_s6hk7")
+
+[sub_resource type="BoxMesh" id="BoxMesh_suxpq"]
+size = Vector3(4.38792, 37.6046, 4.38792)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_jceqa"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_3jr0j"]
+size = Vector3(0.14, 26.3232, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_d520o"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_ktq00"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_d520o")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_uk488"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_ktq00")
+
+[sub_resource type="BoxMesh" id="BoxMesh_gnkcb"]
+size = Vector3(5.06032, 30.8612, 5.06032)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_u3hlo"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_2ioi5"]
+size = Vector3(0.14, 21.6028, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_0evvh"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_v17hp"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_0evvh")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_v55sx"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_v17hp")
+
+[sub_resource type="BoxMesh" id="BoxMesh_cwaug"]
+size = Vector3(4.82915, 16.8993, 4.82915)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ptap7"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_kmwv2"]
+size = Vector3(0.14, 11.8295, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_opysm"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_wwags"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_opysm")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ltcme"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_wwags")
+
+[sub_resource type="BoxMesh" id="BoxMesh_ucqni"]
+size = Vector3(5.46681, 23.3596, 5.46681)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_hhmmx"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_arwql"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_hhmmx")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_tnwb0"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_arwql")
+
+[sub_resource type="BoxMesh" id="BoxMesh_k4ahs"]
+size = Vector3(4.45606, 15.7531, 4.45606)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_6xqmc"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_r1o6a"]
+size = Vector3(0.14, 11.0272, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_wesu5"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_20kf5"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_wesu5")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_xu1r4"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_20kf5")
+
+[sub_resource type="BoxMesh" id="BoxMesh_7qrij"]
+size = Vector3(3.53531, 25.944, 3.53531)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_xaxo8"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_my75y"]
+size = Vector3(0.14, 18.1608, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_fcfyl"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_f7ixj"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_fcfyl")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_mpkox"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_f7ixj")
+
+[sub_resource type="BoxMesh" id="BoxMesh_rmlxi"]
+size = Vector3(4.67117, 19.8503, 4.67117)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_3580p"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_c2hii"]
+size = Vector3(0.14, 13.8952, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_trkjw"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_0pjnn"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_trkjw")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2dj6q"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_0pjnn")
+
+[sub_resource type="BoxMesh" id="BoxMesh_cuv06"]
+size = Vector3(4.94772, 36.2886, 4.94772)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_oqfa2"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_5tgre"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_oqfa2")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_4lhnb"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_5tgre")
+
+[sub_resource type="BoxMesh" id="BoxMesh_qf1w4"]
+size = Vector3(2.92843, 34.046, 2.92843)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_iv1s1"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_l3mxs"]
+size = Vector3(0.14, 23.8322, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_qcqot"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_5tnr1"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_qcqot")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ro6ca"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_5tnr1")
+
+[sub_resource type="BoxMesh" id="BoxMesh_mp1xs"]
+size = Vector3(3.33295, 30.1662, 3.33295)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_l548i"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_um3k8"]
+size = Vector3(0.14, 21.1163, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_c81qx"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_1ty74"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_c81qx")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_25ktv"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_1ty74")
+
+[sub_resource type="BoxMesh" id="BoxMesh_j48h8"]
+size = Vector3(3.11177, 35.8255, 3.11177)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_gykhm"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_yjacp"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_gykhm")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_4fal5"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_yjacp")
+
+[sub_resource type="BoxMesh" id="BoxMesh_iy4qq"]
+size = Vector3(4.0076, 28.2069, 4.0076)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_w11rj"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_iq3pw"]
+size = Vector3(0.14, 19.7448, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_wt7yp"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_qdrbq"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_wt7yp")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_psntn"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_qdrbq")
+
+[sub_resource type="BoxMesh" id="BoxMesh_m8i07"]
+size = Vector3(4.78407, 16.0623, 4.78407)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_t0vxe"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_gmbx2"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_t0vxe")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_uvie4"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_gmbx2")
+
+[sub_resource type="BoxMesh" id="BoxMesh_e06u3"]
+size = Vector3(3.58588, 24.3429, 3.58588)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_i8f01"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_r4i8t"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_i8f01")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_6f7fc"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_r4i8t")
+
+[sub_resource type="BoxMesh" id="BoxMesh_ebogo"]
+size = Vector3(4.6352, 34.792, 4.6352)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_lrcw4"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_oc44f"]
+size = Vector3(0.14, 24.3544, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_e5x7v"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_57k6y"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_e5x7v")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_h42p7"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_57k6y")
+
+[sub_resource type="BoxMesh" id="BoxMesh_w3hnq"]
+size = Vector3(4.29155, 33.2526, 4.29155)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_tggq3"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_ashrr"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_tggq3")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_cw2fl"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_ashrr")
+
+[sub_resource type="BoxMesh" id="BoxMesh_to2yf"]
+size = Vector3(3.00264, 24.4363, 3.00264)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_6ju5h"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_svk0j"]
+size = Vector3(0.14, 17.1054, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_ubpsf"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_x4cbd"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_ubpsf")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_c1lx8"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_x4cbd")
+
+[sub_resource type="BoxMesh" id="BoxMesh_aledr"]
+size = Vector3(5.2729, 36.0741, 5.2729)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_e3how"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_xa3iv"]
+size = Vector3(0.14, 25.2519, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_fqik7"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_cdpog"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_fqik7")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gqbtx"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_cdpog")
+
+[sub_resource type="BoxMesh" id="BoxMesh_r48xi"]
+size = Vector3(3.25171, 15.7228, 3.25171)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_8sriv"]
+albedo_color = Color(1, 0.75, 0.45, 1)
+emission_enabled = true
+emission = Color(1, 0.75, 0.45, 1)
+emission_energy_multiplier = 2.2
+
+[sub_resource type="BoxMesh" id="BoxMesh_nbtfu"]
+size = Vector3(0.14, 11.006, 0.14)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_useq2"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_a0iob"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_useq2")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_rxpc5"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_a0iob")
+
+[sub_resource type="BoxMesh" id="BoxMesh_salb8"]
+size = Vector3(5.45222, 19.666, 5.45222)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_3pmow"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_ut110"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_3pmow")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ap2xm"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_ut110")
+
+[sub_resource type="BoxMesh" id="BoxMesh_36g5p"]
+size = Vector3(3.0404, 37.7995, 3.0404)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_833j0"]
+albedo_color = Color(1, 0.18, 0.58, 1)
+emission_enabled = true
+emission = Color(1, 0.18, 0.58, 1)
+emission_energy_multiplier = 3.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_dxajw"]
+size = Vector3(7, 4, 0.2)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_6kdrh"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_6geuk"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_6kdrh")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_00ixd"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_6geuk")
+
+[sub_resource type="BoxMesh" id="BoxMesh_ijvn4"]
+size = Vector3(0.93555, 0.93555, 0.93555)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_1esd6"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_kiema"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_1esd6")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_l1gvh"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_kiema")
+
+[sub_resource type="BoxMesh" id="BoxMesh_nlbce"]
+size = Vector3(1.13867, 1.13867, 1.13867)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_wwto6"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_kwgfr"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_wwto6")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_r3kqv"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_kwgfr")
+
+[sub_resource type="BoxMesh" id="BoxMesh_rj0s6"]
+size = Vector3(0.806404, 0.806404, 0.806404)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_xf23b"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_2bcts"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_xf23b")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_3p4d0"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_2bcts")
+
+[sub_resource type="BoxMesh" id="BoxMesh_pqvic"]
+size = Vector3(1.05036, 1.05036, 1.05036)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_xcri2"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_nmqor"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_xcri2")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_eb3q1"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_nmqor")
+
+[sub_resource type="BoxMesh" id="BoxMesh_1e6i4"]
+size = Vector3(0.963042, 0.963042, 0.963042)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_g0bso"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_6teel"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_g0bso")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_fe714"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_6teel")
+
+[sub_resource type="BoxMesh" id="BoxMesh_benad"]
+size = Vector3(0.823463, 0.823463, 0.823463)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_n5s5y"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_l7y20"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_n5s5y")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ci4vk"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_l7y20")
+
+[sub_resource type="BoxMesh" id="BoxMesh_bjqs4"]
+size = Vector3(0.786695, 0.786695, 0.786695)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_t1y48"]
+frequency = 0.05
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_mn8jp"]
+as_normal_map = true
+bump_strength = 1.2
+noise = SubResource("FastNoiseLite_t1y48")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_a4mbn"]
+albedo_color = Color(0.1, 0.11, 0.14, 1)
+roughness = 0.85
+normal_enabled = true
+normal_texture = SubResource("NoiseTexture2D_mn8jp")
+
+[sub_resource type="BoxMesh" id="BoxMesh_tf8jd"]
+size = Vector3(0.985756, 0.985756, 0.985756)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_76q7t"]
+albedo_color = Color(0.16, 0.17, 0.2, 1)
+metallic = 0.8
+roughness = 0.5
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_k01ih"]
+height = 1.1
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_sywdt"]
+albedo_color = Color(1, 0.6, 0.2, 1)
+emission_enabled = true
+emission = Color(1, 0.6, 0.2, 1)
+emission_energy_multiplier = 4.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_08vtv"]
+size = Vector3(0.7, 0.1, 0.7)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_oslyr"]
+albedo_color = Color(0.16, 0.17, 0.2, 1)
+metallic = 0.8
+roughness = 0.5
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_lso5q"]
+height = 1.1
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_yirrr"]
+albedo_color = Color(1, 0.6, 0.2, 1)
+emission_enabled = true
+emission = Color(1, 0.6, 0.2, 1)
+emission_energy_multiplier = 4.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_u54wg"]
+size = Vector3(0.7, 0.1, 0.7)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ss56g"]
+albedo_color = Color(0.16, 0.17, 0.2, 1)
+metallic = 0.8
+roughness = 0.5
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_74mhq"]
+height = 1.1
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ykwp7"]
+albedo_color = Color(1, 0.6, 0.2, 1)
+emission_enabled = true
+emission = Color(1, 0.6, 0.2, 1)
+emission_energy_multiplier = 4.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_fm2ln"]
+size = Vector3(0.7, 0.1, 0.7)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wuut3"]
+albedo_color = Color(0.1, 0.14, 0.2, 1)
+metallic = 0.6
+roughness = 0.4
+
+[sub_resource type="BoxMesh" id="BoxMesh_ggb8n"]
+size = Vector3(1.1, 1.2, 0.8)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_yu7gh"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 2.5
+
+[sub_resource type="TorusMesh" id="TorusMesh_iusht"]
+inner_radius = 0.85
+outer_radius = 0.95
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_awsvr"]
+albedo_color = Color(0.1, 0.14, 0.2, 1)
+metallic = 0.6
+roughness = 0.4
+
+[sub_resource type="BoxMesh" id="BoxMesh_ar6wr"]
+size = Vector3(1.1, 1.2, 0.8)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_c8wwd"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 2.5
+
+[sub_resource type="TorusMesh" id="TorusMesh_ti1sa"]
+inner_radius = 0.85
+outer_radius = 0.95
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_p2q8b"]
+albedo_color = Color(0.1, 0.14, 0.2, 1)
+metallic = 0.6
+roughness = 0.4
+
+[sub_resource type="BoxMesh" id="BoxMesh_yf1xl"]
+size = Vector3(1.1, 1.2, 0.8)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_u666k"]
+albedo_color = Color(0, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0, 0.9, 1, 1)
+emission_energy_multiplier = 2.5
+
+[sub_resource type="TorusMesh" id="TorusMesh_c14m5"]
+inner_radius = 0.85
+outer_radius = 0.95
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_fb3x6"]
+albedo_color = Color(0.12, 0.12, 0.16, 1)
+metallic = 0.8
+roughness = 0.35
+
+[sub_resource type="BoxMesh" id="BoxMesh_1tsxw"]
+size = Vector3(2.2, 0.8, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ktixt"]
+albedo_color = Color(1, 0.13, 0.13, 1)
+emission_enabled = true
+emission = Color(1, 0.13, 0.13, 1)
+emission_energy_multiplier = 2.5
+
+[sub_resource type="BoxMesh" id="BoxMesh_kvk1m"]
+size = Vector3(2.3, 0.06, 1.1)
+
+[node name="District" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_6lbyv")
+
+[node name="Moon" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.819152, 0.42625, -0.383798, 0, 0.669131, 0.743145, 0.573576, -0.608749, 0.54812, 0, 0, 0)
+light_color = Color(0.62, 0.71, 0.88, 1)
+light_energy = 0.25
+shadow_enabled = true
+
+[node name="Geometry" type="Node3D" parent="."]
+
+[node name="@StaticBody3D@4" type="StaticBody3D" parent="Geometry"]
+
+[node name="@CollisionShape3D@2" type="CollisionShape3D" parent="Geometry/@StaticBody3D@4"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+shape = SubResource("BoxShape3D_e5fhw")
+
+[node name="@MeshInstance3D@3" type="MeshInstance3D" parent="Geometry/@StaticBody3D@4"]
+material_override = SubResource("StandardMaterial3D_mucq7")
+mesh = SubResource("PlaneMesh_l132b")
+
+[node name="@StaticBody3D@7" type="StaticBody3D" parent="Geometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 2.1, 4)
+
+[node name="@CollisionShape3D@5" type="CollisionShape3D" parent="Geometry/@StaticBody3D@7"]
+shape = SubResource("BoxShape3D_snimq")
+
+[node name="@MeshInstance3D@6" type="MeshInstance3D" parent="Geometry/@StaticBody3D@7"]
+material_override = SubResource("StandardMaterial3D_bgoo7")
+mesh = SubResource("BoxMesh_rfesr")
+
+[node name="@MeshInstance3D@8" type="MeshInstance3D" parent="Geometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 3.7, 4)
+material_override = SubResource("StandardMaterial3D_v36sf")
+mesh = SubResource("BoxMesh_7luri")
+
+[node name="@MeshInstance3D@9" type="MeshInstance3D" parent="Geometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 1, 0.96)
+material_override = SubResource("StandardMaterial3D_m1r12")
+mesh = SubResource("BoxMesh_rje8e")
+
+[node name="@SpotLight3D@10" type="SpotLight3D" parent="Geometry"]
+transform = Transform3D(1, 0, 0, 0, 0.0604951, 0.998168, 0, -0.998168, 0.0604951, -10, 3.8, 0)
+light_color = Color(1, 0.18, 0.58, 1)
+light_energy = 4.0
+spot_range = 12.0
+spot_angle = 38.0
+
+[node name="@StaticBody3D@13" type="StaticBody3D" parent="Geometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 2.1, -4)
+
+[node name="@CollisionShape3D@11" type="CollisionShape3D" parent="Geometry/@StaticBody3D@13"]
+shape = SubResource("BoxShape3D_djqhv")
+
+[node name="@MeshInstance3D@12" type="MeshInstance3D" parent="Geometry/@StaticBody3D@13"]
+material_override = SubResource("StandardMaterial3D_ligpi")
+mesh = SubResource("BoxMesh_xj13e")
+
+[node name="@MeshInstance3D@14" type="MeshInstance3D" parent="Geometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 3.7, -4)
+material_override = SubResource("StandardMaterial3D_s7h7s")
+mesh = SubResource("BoxMesh_um5pk")
+
+[node name="@MeshInstance3D@15" type="MeshInstance3D" parent="Geometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1, -0.96)
+material_override = SubResource("StandardMaterial3D_bv411")
+mesh = SubResource("BoxMesh_fdmr3")
+
+[node name="@SpotLight3D@16" type="SpotLight3D" parent="Geometry"]
+transform = Transform3D(-1, 8.72627e-08, -5.2886e-09, 0, 0.0604945, 0.998169, 8.74228e-08, 0.998169, -0.0604945, 10, 3.8, 0)
+light_color = Color(0, 0.9, 1, 1)
+light_energy = 4.0
+spot_range = 12.0
+spot_angle = 38.0
+
+[node name="@MeshInstance3D@17" type="MeshInstance3D" parent="Geometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 1.6, 17.5)
+material_override = SubResource("StandardMaterial3D_lfdit")
+mesh = SubResource("BoxMesh_mv2ig")
+
+[node name="@MeshInstance3D@18" type="MeshInstance3D" parent="Geometry"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 1.6, 17.5)
+material_override = SubResource("StandardMaterial3D_sve22")
+mesh = SubResource("BoxMesh_kn8gr")
+
+[node name="Skyline" type="Node3D" parent="."]
+
+[node name="@MeshInstance3D@19" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -21.7262, 18.2553, 24.2739)
+material_override = SubResource("StandardMaterial3D_0co0h")
+mesh = SubResource("BoxMesh_ktn6a")
+
+[node name="@MeshInstance3D@20" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.6944, 7.64536, -20.4768)
+material_override = SubResource("StandardMaterial3D_yto8l")
+mesh = SubResource("BoxMesh_8ualw")
+
+[node name="@MeshInstance3D@21" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.2696, 8.40989, -18.9015)
+material_override = SubResource("StandardMaterial3D_ss66n")
+mesh = SubResource("BoxMesh_c4d3a")
+
+[node name="@MeshInstance3D@22" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 21.8238, 8.98566, -25.5244)
+material_override = SubResource("StandardMaterial3D_aul0u")
+mesh = SubResource("BoxMesh_a5u28")
+
+[node name="@MeshInstance3D@23" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -34.5875, 11.4249, 0.959064)
+material_override = SubResource("StandardMaterial3D_tyi0d")
+mesh = SubResource("BoxMesh_bd8dg")
+
+[node name="@MeshInstance3D@24" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -32.4264, 12.5674, 3.12015)
+material_override = SubResource("StandardMaterial3D_s6d41")
+mesh = SubResource("BoxMesh_5cghu")
+
+[node name="@MeshInstance3D@25" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -19.3114, 13.8873, -20.8864)
+material_override = SubResource("StandardMaterial3D_e076g")
+mesh = SubResource("BoxMesh_olcot")
+
+[node name="@MeshInstance3D@26" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -17.2504, 15.276, -18.8254)
+material_override = SubResource("StandardMaterial3D_nh0xh")
+mesh = SubResource("BoxMesh_o18qq")
+
+[node name="@MeshInstance3D@27" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18.4559, 17.8274, -25.8433)
+material_override = SubResource("StandardMaterial3D_ew63w")
+mesh = SubResource("BoxMesh_pcmf8")
+
+[node name="@MeshInstance3D@28" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -16.9648, 19.6101, -24.3522)
+material_override = SubResource("StandardMaterial3D_6fvoe")
+mesh = SubResource("BoxMesh_qu2jl")
+
+[node name="@MeshInstance3D@29" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.91752, 16.5223, -21.8776)
+material_override = SubResource("StandardMaterial3D_2ugpj")
+mesh = SubResource("BoxMesh_u06q7")
+
+[node name="@MeshInstance3D@30" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.7391, 18.1746, -20.056)
+material_override = SubResource("StandardMaterial3D_l7cqo")
+mesh = SubResource("BoxMesh_sy4n7")
+
+[node name="@MeshInstance3D@31" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24.5873, 13.1923, 20.5427)
+material_override = SubResource("StandardMaterial3D_rbr24")
+mesh = SubResource("BoxMesh_em2tq")
+
+[node name="@MeshInstance3D@32" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -31.4474, 12.1138, -18.8513)
+material_override = SubResource("StandardMaterial3D_x1i50")
+mesh = SubResource("BoxMesh_253nh")
+
+[node name="@MeshInstance3D@33" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.3343, 13.3252, -16.7381)
+material_override = SubResource("StandardMaterial3D_q1ave")
+mesh = SubResource("BoxMesh_u3udj")
+
+[node name="@MeshInstance3D@34" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30.3586, 11.6968, -20.5985)
+material_override = SubResource("StandardMaterial3D_6rsad")
+mesh = SubResource("BoxMesh_6f145")
+
+[node name="@MeshInstance3D@35" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.1798, 12.8665, -19.4197)
+material_override = SubResource("StandardMaterial3D_56b6g")
+mesh = SubResource("BoxMesh_jw4bb")
+
+[node name="@MeshInstance3D@36" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.4045, 8.19178, -23.9574)
+material_override = SubResource("StandardMaterial3D_r3eat")
+mesh = SubResource("BoxMesh_hb6vy")
+
+[node name="@MeshInstance3D@37" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14.5632, 9.01096, -21.7987)
+material_override = SubResource("StandardMaterial3D_0e4ta")
+mesh = SubResource("BoxMesh_vwo6a")
+
+[node name="@MeshInstance3D@38" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32.462, 11.2734, 3.35559)
+material_override = SubResource("StandardMaterial3D_gdbfq")
+mesh = SubResource("BoxMesh_jhqux")
+
+[node name="@MeshInstance3D@39" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 33.9708, 12.4007, 4.86432)
+material_override = SubResource("StandardMaterial3D_6swtn")
+mesh = SubResource("BoxMesh_fkqj3")
+
+[node name="@MeshInstance3D@40" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 32.2671, 8.41151, 19.0554)
+material_override = SubResource("StandardMaterial3D_uhwf0")
+mesh = SubResource("BoxMesh_atsgl")
+
+[node name="@MeshInstance3D@41" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.3312, 17.7948, -21.6956)
+material_override = SubResource("StandardMaterial3D_t7x84")
+mesh = SubResource("BoxMesh_8q31q")
+
+[node name="@MeshInstance3D@42" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -35.1435, 18.8023, -4.17717)
+material_override = SubResource("StandardMaterial3D_m6d57")
+mesh = SubResource("BoxMesh_suxpq")
+
+[node name="@MeshInstance3D@43" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -33.1689, 20.6826, -2.20261)
+material_override = SubResource("StandardMaterial3D_jceqa")
+mesh = SubResource("BoxMesh_3jr0j")
+
+[node name="@MeshInstance3D@44" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -23.8196, 15.4306, -25.1903)
+material_override = SubResource("StandardMaterial3D_uk488")
+mesh = SubResource("BoxMesh_gnkcb")
+
+[node name="@MeshInstance3D@45" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -21.5425, 16.9737, -22.9131)
+material_override = SubResource("StandardMaterial3D_u3hlo")
+mesh = SubResource("BoxMesh_2ioi5")
+
+[node name="@MeshInstance3D@46" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.01941, 8.44966, 21.2722)
+material_override = SubResource("StandardMaterial3D_v55sx")
+mesh = SubResource("BoxMesh_cwaug")
+
+[node name="@MeshInstance3D@47" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9.19253, 9.29462, 23.4453)
+material_override = SubResource("StandardMaterial3D_ptap7")
+mesh = SubResource("BoxMesh_kmwv2")
+
+[node name="@MeshInstance3D@48" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -32.9312, 11.6798, 17.8579)
+material_override = SubResource("StandardMaterial3D_ltcme")
+mesh = SubResource("BoxMesh_ucqni")
+
+[node name="@MeshInstance3D@49" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13.2704, 7.87656, 21.3548)
+material_override = SubResource("StandardMaterial3D_tnwb0")
+mesh = SubResource("BoxMesh_k4ahs")
+
+[node name="@MeshInstance3D@50" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11.2652, 8.66421, 23.3601)
+material_override = SubResource("StandardMaterial3D_6xqmc")
+mesh = SubResource("BoxMesh_r1o6a")
+
+[node name="@MeshInstance3D@51" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -32.9611, 12.972, 23.9481)
+material_override = SubResource("StandardMaterial3D_xu1r4")
+mesh = SubResource("BoxMesh_7qrij")
+
+[node name="@MeshInstance3D@52" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -31.3702, 14.2692, 25.539)
+material_override = SubResource("StandardMaterial3D_xaxo8")
+mesh = SubResource("BoxMesh_my75y")
+
+[node name="@MeshInstance3D@53" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30.3465, 9.92513, 4.18185)
+material_override = SubResource("StandardMaterial3D_mpkox")
+mesh = SubResource("BoxMesh_rmlxi")
+
+[node name="@MeshInstance3D@54" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -28.2445, 10.9176, 6.28387)
+material_override = SubResource("StandardMaterial3D_3580p")
+mesh = SubResource("BoxMesh_c2hii")
+
+[node name="@MeshInstance3D@55" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30.179, 18.1443, -11.2983)
+material_override = SubResource("StandardMaterial3D_2dj6q")
+mesh = SubResource("BoxMesh_cuv06")
+
+[node name="@MeshInstance3D@56" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8.57992, 17.023, -23.0451)
+material_override = SubResource("StandardMaterial3D_4lhnb")
+mesh = SubResource("BoxMesh_qf1w4")
+
+[node name="@MeshInstance3D@57" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.26213, 18.7253, -21.7273)
+material_override = SubResource("StandardMaterial3D_iv1s1")
+mesh = SubResource("BoxMesh_l3mxs")
+
+[node name="@MeshInstance3D@58" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15.9767, 15.0831, -23.7476)
+material_override = SubResource("StandardMaterial3D_ro6ca")
+mesh = SubResource("BoxMesh_mp1xs")
+
+[node name="@MeshInstance3D@59" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 17.4765, 16.5914, -22.2477)
+material_override = SubResource("StandardMaterial3D_l548i")
+mesh = SubResource("BoxMesh_um3k8")
+
+[node name="@MeshInstance3D@60" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -34.8671, 17.9127, -3.44652)
+material_override = SubResource("StandardMaterial3D_25ktv")
+mesh = SubResource("BoxMesh_j48h8")
+
+[node name="@MeshInstance3D@61" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.58408, 14.1034, -22.5785)
+material_override = SubResource("StandardMaterial3D_4fal5")
+mesh = SubResource("BoxMesh_iy4qq")
+
+[node name="@MeshInstance3D@62" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.780663, 15.5138, -20.7751)
+material_override = SubResource("StandardMaterial3D_w11rj")
+mesh = SubResource("BoxMesh_iq3pw")
+
+[node name="@MeshInstance3D@63" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -27.2742, 8.03114, -21.4179)
+material_override = SubResource("StandardMaterial3D_psntn")
+mesh = SubResource("BoxMesh_m8i07")
+
+[node name="@MeshInstance3D@64" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -32.0619, 12.1714, -2.69134)
+material_override = SubResource("StandardMaterial3D_uvie4")
+mesh = SubResource("BoxMesh_e06u3")
+
+[node name="@MeshInstance3D@65" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.17233, 17.396, -25.2312)
+material_override = SubResource("StandardMaterial3D_6f7fc")
+mesh = SubResource("BoxMesh_ebogo")
+
+[node name="@MeshInstance3D@66" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.25817, 19.1356, -23.1454)
+material_override = SubResource("StandardMaterial3D_lrcw4")
+mesh = SubResource("BoxMesh_oc44f")
+
+[node name="@MeshInstance3D@67" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13.6672, 16.6263, -23.1974)
+material_override = SubResource("StandardMaterial3D_h42p7")
+mesh = SubResource("BoxMesh_w3hnq")
+
+[node name="@MeshInstance3D@68" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 33.7543, 12.2181, -0.166246)
+material_override = SubResource("StandardMaterial3D_cw2fl")
+mesh = SubResource("BoxMesh_to2yf")
+
+[node name="@MeshInstance3D@69" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 35.1055, 13.4399, 1.18494)
+material_override = SubResource("StandardMaterial3D_6ju5h")
+mesh = SubResource("BoxMesh_svk0j")
+
+[node name="@MeshInstance3D@70" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.61777, 18.0371, -21.9942)
+material_override = SubResource("StandardMaterial3D_c1lx8")
+mesh = SubResource("BoxMesh_aledr")
+
+[node name="@MeshInstance3D@71" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.99057, 19.8408, -19.6214)
+material_override = SubResource("StandardMaterial3D_e3how")
+mesh = SubResource("BoxMesh_xa3iv")
+
+[node name="@MeshInstance3D@72" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.91034, 7.86142, -21.5515)
+material_override = SubResource("StandardMaterial3D_gqbtx")
+mesh = SubResource("BoxMesh_r48xi")
+
+[node name="@MeshInstance3D@73" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.37361, 8.64756, -20.0882)
+material_override = SubResource("StandardMaterial3D_8sriv")
+mesh = SubResource("BoxMesh_nbtfu")
+
+[node name="@MeshInstance3D@74" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -31.3832, 9.83302, 7.5266)
+material_override = SubResource("StandardMaterial3D_rxpc5")
+mesh = SubResource("BoxMesh_salb8")
+
+[node name="@MeshInstance3D@75" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -33.2606, 18.8998, -11.1676)
+material_override = SubResource("StandardMaterial3D_ap2xm")
+mesh = SubResource("BoxMesh_36g5p")
+
+[node name="@MeshInstance3D@76" type="MeshInstance3D" parent="Skyline"]
+transform = Transform3D(-0.609711, 0.364712, -0.703732, 0, 0.88785, 0.460132, 0.792624, 0.280548, -0.541332, -26, 21, -20)
+material_override = SubResource("StandardMaterial3D_833j0")
+mesh = SubResource("BoxMesh_dxajw")
+
+[node name="Props" type="Node3D" parent="."]
+
+[node name="@MeshInstance3D@77" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(0.484955, 0, 0.874539, 0, 1, 0, -0.874539, 0, 0.484955, -4, 0.467775, 12)
+material_override = SubResource("StandardMaterial3D_00ixd")
+mesh = SubResource("BoxMesh_ijvn4")
+
+[node name="@MeshInstance3D@78" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(-0.686838, 0, 0.72681, 0, 1, 0, -0.72681, 0, -0.686838, 3, 0.569337, 11)
+material_override = SubResource("StandardMaterial3D_l1gvh")
+mesh = SubResource("BoxMesh_nlbce")
+
+[node name="@MeshInstance3D@79" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(0.955939, 0, 0.293564, 0, 1, 0, -0.293564, 0, 0.955939, 12, 0.403202, 8)
+material_override = SubResource("StandardMaterial3D_r3kqv")
+mesh = SubResource("BoxMesh_rj0s6")
+
+[node name="@MeshInstance3D@80" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(0.34463, 0, 0.938739, 0, 1, 0, -0.938739, 0, 0.34463, -12, 0.525182, -3)
+material_override = SubResource("StandardMaterial3D_3p4d0")
+mesh = SubResource("BoxMesh_pqvic")
+
+[node name="@MeshInstance3D@81" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(-0.265308, 0, 0.964164, 0, 1, 0, -0.964164, 0, -0.265308, 10, 0.481521, -9)
+material_override = SubResource("StandardMaterial3D_eb3q1")
+mesh = SubResource("BoxMesh_1e6i4")
+
+[node name="@MeshInstance3D@82" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(0.792845, 0, 0.609424, 0, 1, 0, -0.609424, 0, 0.792845, -9, 0.411732, 5)
+material_override = SubResource("StandardMaterial3D_fe714")
+mesh = SubResource("BoxMesh_benad")
+
+[node name="@MeshInstance3D@83" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(0.753941, 0, 0.656942, 0, 1, 0, -0.656942, 0, 0.753941, 5, 0.393348, -12)
+material_override = SubResource("StandardMaterial3D_ci4vk")
+mesh = SubResource("BoxMesh_bjqs4")
+
+[node name="@MeshInstance3D@84" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(0.636684, 0, 0.771125, 0, 1, 0, -0.771125, 0, 0.636684, 15, 0.492878, 2)
+material_override = SubResource("StandardMaterial3D_a4mbn")
+mesh = SubResource("BoxMesh_tf8jd")
+
+[node name="@MeshInstance3D@85" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0.55, 10)
+material_override = SubResource("StandardMaterial3D_76q7t")
+mesh = SubResource("CylinderMesh_k01ih")
+
+[node name="@MeshInstance3D@86" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 1.12, 10)
+material_override = SubResource("StandardMaterial3D_sywdt")
+mesh = SubResource("BoxMesh_08vtv")
+
+[node name="@OmniLight3D@87" type="OmniLight3D" parent="Props"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 1.8, 10)
+light_color = Color(1, 0.55, 0.22, 1)
+light_energy = 3.0
+shadow_enabled = true
+omni_range = 10.0
+script = ExtResource("1_bhfl2")
+
+[node name="@MeshInstance3D@88" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.55, -11)
+material_override = SubResource("StandardMaterial3D_oslyr")
+mesh = SubResource("CylinderMesh_lso5q")
+
+[node name="@MeshInstance3D@89" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 1.12, -11)
+material_override = SubResource("StandardMaterial3D_yirrr")
+mesh = SubResource("BoxMesh_u54wg")
+
+[node name="@OmniLight3D@90" type="OmniLight3D" parent="Props"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 1.8, -11)
+light_color = Color(1, 0.55, 0.22, 1)
+light_energy = 3.0
+shadow_enabled = true
+omni_range = 10.0
+script = ExtResource("1_bhfl2")
+
+[node name="@MeshInstance3D@91" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 20, 0.55, 3)
+material_override = SubResource("StandardMaterial3D_ss56g")
+mesh = SubResource("CylinderMesh_74mhq")
+
+[node name="@MeshInstance3D@92" type="MeshInstance3D" parent="Props"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 20, 1.12, 3)
+material_override = SubResource("StandardMaterial3D_ykwp7")
+mesh = SubResource("BoxMesh_fm2ln")
+
+[node name="@OmniLight3D@93" type="OmniLight3D" parent="Props"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 20, 1.8, 3)
+light_color = Color(1, 0.55, 0.22, 1)
+light_energy = 3.0
+shadow_enabled = true
+omni_range = 10.0
+script = ExtResource("1_bhfl2")
+
+[node name="Objectives" type="Node3D" parent="."]
+
+[node name="HackNode1" type="Node3D" parent="Objectives"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -18, 0, 14)
+
+[node name="Box" type="MeshInstance3D" parent="Objectives/HackNode1"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+material_override = SubResource("StandardMaterial3D_wuut3")
+mesh = SubResource("BoxMesh_ggb8n")
+
+[node name="Ring" type="MeshInstance3D" parent="Objectives/HackNode1"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+material_override = SubResource("StandardMaterial3D_yu7gh")
+mesh = SubResource("TorusMesh_iusht")
+
+[node name="Light" type="OmniLight3D" parent="Objectives/HackNode1"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
+light_color = Color(0, 0.9, 1, 1)
+light_energy = 1.2
+
+[node name="HackNode2" type="Node3D" parent="Objectives"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18, 0, 14)
+
+[node name="Box" type="MeshInstance3D" parent="Objectives/HackNode2"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+material_override = SubResource("StandardMaterial3D_awsvr")
+mesh = SubResource("BoxMesh_ar6wr")
+
+[node name="Ring" type="MeshInstance3D" parent="Objectives/HackNode2"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+material_override = SubResource("StandardMaterial3D_c8wwd")
+mesh = SubResource("TorusMesh_ti1sa")
+
+[node name="Light" type="OmniLight3D" parent="Objectives/HackNode2"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
+light_color = Color(0, 0.9, 1, 1)
+light_energy = 1.2
+
+[node name="HackNode3" type="Node3D" parent="Objectives"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -14)
+
+[node name="Box" type="MeshInstance3D" parent="Objectives/HackNode3"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+material_override = SubResource("StandardMaterial3D_p2q8b")
+mesh = SubResource("BoxMesh_yf1xl")
+
+[node name="Ring" type="MeshInstance3D" parent="Objectives/HackNode3"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+material_override = SubResource("StandardMaterial3D_u666k")
+mesh = SubResource("TorusMesh_c14m5")
+
+[node name="Light" type="OmniLight3D" parent="Objectives/HackNode3"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
+light_color = Color(0, 0.9, 1, 1)
+light_energy = 1.2
+
+[node name="ImplantTable" type="Node3D" parent="Objectives"]
+
+[node name="Table" type="MeshInstance3D" parent="Objectives/ImplantTable"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+material_override = SubResource("StandardMaterial3D_fb3x6")
+mesh = SubResource("BoxMesh_1tsxw")
+
+[node name="Glow" type="MeshInstance3D" parent="Objectives/ImplantTable"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.82, 0)
+material_override = SubResource("StandardMaterial3D_ktixt")
+mesh = SubResource("BoxMesh_kvk1m")
+
+[node name="Light" type="OmniLight3D" parent="Objectives/ImplantTable"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.8, 0)
+light_color = Color(1, 0.15, 0.2, 1)
+light_energy = 1.4
+omni_range = 7.0
+
+[node name="Spawns" type="Node3D" parent="."]
+
+[node name="Survivor1" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24, 0, -10)
+
+[node name="Survivor2" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24, 0, 0)
+
+[node name="Survivor3" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24, 0, 10)
+
+[node name="Cannibal1" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24, 0, -10)
+
+[node name="Cannibal2" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24, 0, 0)
+
+[node name="Cannibal3" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24, 0, 10)
+
+[node name="Killer1" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -16)
+
+[node name="Killer2" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 0, -16)
+
+[node name="Killer3" type="Marker3D" parent="Spawns"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5, 0, -16)
+
+[node name="GateMarker" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 17.5)

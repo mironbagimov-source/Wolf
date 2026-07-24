@@ -1,0 +1,76 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_ui0f5"]
+[ext_resource type="PackedScene" path="res://assets/characters/soldier.glb" id="2_7aoik"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_ef8d6"]
+radius = 0.4
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_gfc21"]
+albedo_color = Color(1, 0.15, 0.15, 1)
+emission_enabled = true
+emission = Color(1, 0.15, 0.15, 1)
+emission_energy_multiplier = 4.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_p4nos"]
+size = Vector3(0.05, 0.05, 0.05)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_j15eh"]
+albedo_color = Color(1, 0.15, 0.15, 1)
+emission_enabled = true
+emission = Color(1, 0.15, 0.15, 1)
+emission_energy_multiplier = 4.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_c8wxj"]
+size = Vector3(0.05, 0.05, 0.05)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_irgbq"]
+albedo_color = Color(0.2, 0.22, 0.28, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_t0uox"]
+size = Vector3(0.14, 0.06, 0.08)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_iheo1"]
+albedo_color = Color(0.6, 0.65, 0.72, 1)
+emission_enabled = true
+emission = Color(1, 0.15, 0.15, 1)
+emission_energy_multiplier = 0.4
+
+[sub_resource type="BoxMesh" id="BoxMesh_kwdny"]
+size = Vector3(0.04, 0.42, 0.12)
+
+[node name="Psycho" type="CharacterBody3D"]
+script = ExtResource("1_ui0f5")
+faction = "cannibal"
+is_leader = false
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_ef8d6")
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="Soldier" type="Node3D" parent="Visual" instance=ExtResource("2_7aoik")]
+
+[node name="CyberGear" type="Node3D" parent="Visual"]
+
+[node name="EyeL" type="MeshInstance3D" parent="Visual/CyberGear"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.055, 1.67, -0.115)
+material_override = SubResource("StandardMaterial3D_gfc21")
+mesh = SubResource("BoxMesh_p4nos")
+
+[node name="EyeR" type="MeshInstance3D" parent="Visual/CyberGear"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.055, 1.67, -0.115)
+material_override = SubResource("StandardMaterial3D_j15eh")
+mesh = SubResource("BoxMesh_c8wxj")
+
+[node name="Jaw" type="MeshInstance3D" parent="Visual/CyberGear"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.52, -0.11)
+material_override = SubResource("StandardMaterial3D_irgbq")
+mesh = SubResource("BoxMesh_t0uox")
+
+[node name="ArmBlade" type="MeshInstance3D" parent="Visual/CyberGear"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, 1.05, -0.02)
+material_override = SubResource("StandardMaterial3D_iheo1")
+mesh = SubResource("BoxMesh_kwdny")

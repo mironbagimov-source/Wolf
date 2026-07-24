@@ -21,6 +21,7 @@ const BUILDING_AABBS := [
 
 static func build_environment(root: Node3D) -> void:
 	var env := Environment.new()
+	env.resource_name = "NightEnvironment"
 
 	var sky_mat := ProceduralSkyMaterial.new()
 	sky_mat.sky_top_color = Color(0.016, 0.02, 0.05)
@@ -61,10 +62,12 @@ static func build_environment(root: Node3D) -> void:
 	env.ssr_max_steps = 32
 
 	var we := WorldEnvironment.new()
+	we.name = "WorldEnvironment"
 	we.environment = env
 	root.add_child(we)
 
 	var moon := DirectionalLight3D.new()
+	moon.name = "Moon"
 	moon.rotation_degrees = Vector3(-48, -35, 0)
 	moon.light_color = Color(0.62, 0.71, 0.88)
 	moon.light_energy = 0.25
@@ -72,23 +75,138 @@ static func build_environment(root: Node3D) -> void:
 	root.add_child(moon)
 
 
-static func build_district(root: Node3D) -> Dictionary:
+## Builds the whole district as a NAMED node hierarchy (Geometry / Skyline /
+## Props / Objectives / Spawns) so tools/scene_baker.gd can pack it into
+## scenes/district.tscn — a real editor-editable scene. Spawn points and the
+## gate are Marker3D nodes: move them in the editor and the game follows.
+static func build_district(root: Node3D) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1337
 
-	_ground(root)
+	var geometry := _group(root, "Geometry")
+	_ground(geometry)
 	for aabb in BUILDING_AABBS:
-		_building(root, aabb[0], aabb[1], aabb[2], aabb[3])
-	_skyline(root, rng)
-	_props(root, rng)
-	_perimeter(root)
+		_building(geometry, aabb[0], aabb[1], aabb[2], aabb[3])
+	_perimeter(geometry)
+	_skyline(_group(root, "Skyline"), rng)
+	_props(_group(root, "Props"), rng)
 
-	return {
-		"generators": [Vector3(-18, 0, 14), Vector3(18, 0, 14), Vector3(0, 0, -14)],
-		"altar": Vector3.ZERO,
-		"gate": Vector3(0, 0, 17.5),
-		"gate_half_w": 4.0,
+	var objectives := _group(root, "Objectives")
+	var node_positions := [Vector3(-18, 0, 14), Vector3(18, 0, 14), Vector3(0, 0, -14)]
+	for i in node_positions.size():
+		_hack_node(objectives, "HackNode%d" % (i + 1), node_positions[i])
+	_implant_table(objectives, Vector3.ZERO)
+
+	var spawns := _group(root, "Spawns")
+	var spawn_sets := {
+		"Survivor": [Vector3(-24, 0, -10), Vector3(-24, 0, 0), Vector3(-24, 0, 10)],
+		"Cannibal": [Vector3(24, 0, -10), Vector3(24, 0, 0), Vector3(24, 0, 10)],
+		"Killer": [Vector3(0, 0, -16), Vector3(-2.5, 0, -16), Vector3(2.5, 0, -16)],
 	}
+	for prefix: String in spawn_sets:
+		var list: Array = spawn_sets[prefix]
+		for i in list.size():
+			var m := Marker3D.new()
+			m.name = "%s%d" % [prefix, i + 1]
+			m.position = list[i]
+			spawns.add_child(m)
+
+	var gate := Marker3D.new()
+	gate.name = "GateMarker"
+	gate.position = Vector3(0, 0, 17.5)
+	root.add_child(gate)
+
+
+static func _group(root: Node3D, p_name: String) -> Node3D:
+	var g := Node3D.new()
+	g.name = p_name
+	root.add_child(g)
+	return g
+
+
+static func _hack_node(parent: Node3D, p_name: String, pos: Vector3) -> void:
+	var node := Node3D.new()
+	node.name = p_name
+	node.position = pos
+	parent.add_child(node)
+
+	var box := MeshInstance3D.new()
+	box.name = "Box"
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(1.1, 1.2, 0.8)
+	box.mesh = mesh
+	box.position = Vector3(0, 0.6, 0)
+	var box_mat := StandardMaterial3D.new()
+	box_mat.albedo_color = Color(0.1, 0.14, 0.2)
+	box_mat.metallic = 0.6
+	box_mat.roughness = 0.4
+	box.material_override = box_mat
+	node.add_child(box)
+
+	var ring := MeshInstance3D.new()
+	ring.name = "Ring"
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.85
+	torus.outer_radius = 0.95
+	ring.mesh = torus
+	ring.position = Vector3(0, 0.05, 0)
+	var ring_mat := StandardMaterial3D.new()
+	ring_mat.albedo_color = Color(0.0, 0.9, 1.0)
+	ring_mat.emission_enabled = true
+	ring_mat.emission = Color(0.0, 0.9, 1.0)
+	ring_mat.emission_energy_multiplier = 2.5
+	ring.material_override = ring_mat
+	node.add_child(ring)
+
+	var light := OmniLight3D.new()
+	light.name = "Light"
+	light.position = Vector3(0, 1.4, 0)
+	light.light_color = Color(0.0, 0.9, 1.0)
+	light.light_energy = 1.2
+	light.omni_range = 5.0
+	node.add_child(light)
+
+
+static func _implant_table(parent: Node3D, pos: Vector3) -> void:
+	var table := Node3D.new()
+	table.name = "ImplantTable"
+	table.position = pos
+	parent.add_child(table)
+
+	var top := MeshInstance3D.new()
+	top.name = "Table"
+	var tmesh := BoxMesh.new()
+	tmesh.size = Vector3(2.2, 0.8, 1.0)
+	top.mesh = tmesh
+	top.position = Vector3(0, 0.4, 0)
+	var tmat := StandardMaterial3D.new()
+	tmat.albedo_color = Color(0.12, 0.12, 0.16)
+	tmat.metallic = 0.8
+	tmat.roughness = 0.35
+	top.material_override = tmat
+	table.add_child(top)
+
+	var glow := MeshInstance3D.new()
+	glow.name = "Glow"
+	var gmesh := BoxMesh.new()
+	gmesh.size = Vector3(2.3, 0.06, 1.1)
+	glow.mesh = gmesh
+	glow.position = Vector3(0, 0.82, 0)
+	var gmat := StandardMaterial3D.new()
+	gmat.albedo_color = Color(1.0, 0.13, 0.13)
+	gmat.emission_enabled = true
+	gmat.emission = Color(1.0, 0.13, 0.13)
+	gmat.emission_energy_multiplier = 2.5
+	glow.material_override = gmat
+	table.add_child(glow)
+
+	var light := OmniLight3D.new()
+	light.name = "Light"
+	light.position = Vector3(0, 1.8, 0)
+	light.light_color = Color(1.0, 0.15, 0.2)
+	light.light_energy = 1.4
+	light.omni_range = 7.0
+	table.add_child(light)
 
 
 ## Wet asphalt: dark albedo, noise-driven roughness whose smooth patches read
