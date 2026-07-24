@@ -56,3 +56,6 @@ Assets/_Project/Art/Generated/
 
 # Godot import cache
 godot/.godot/
+
+# Exported game builds
+build/
