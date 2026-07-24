@@ -520,6 +520,17 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
   const EXECUTE_RANGE = 2.4;
   const EXECUTE_CAM_TIME = 1.35;  // seconds the victim's exec-cam runs before the kill
 
+  // Mercenary bots: a two-man sweep team joins every match the human isn't a
+  // merc in — so the Alpha actually has hunters to fear — and backs the human
+  // merc up otherwise. Deliberately weaker than the player's merc.
+  const MERC_BOT_COUNT = 2;
+  const MERC_BOT_HP = 150;
+  const MERC_BOT_DMG_MUL = 0.75;
+  const MERC_BOT_KNIVES = 1;
+  const MERC_BOT_SENSE = 14;      // how far a bot merc notices a psycho
+  const MERC_BOT_THROW_MIN = 5;   // knife-throw window (too close = melee instead)
+  const MERC_BOT_THROW_MAX = 12;
+
   // Playable characters within each side — a light roster. Each is a stat
   // variant on its faction's base, applied to the player entity at spawn.
   const CHARACTERS = {
@@ -1308,7 +1319,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
 
     const survivorSpawns = [[-24, -10], [-24, 0], [-24, 10]];
     const cannibalSpawns = [[24, -10], [24, 0], [24, 10]];
-    const killerSpawn = [0, -16];
+    const killerSpawns = [[0, -16], [-2.5, -16], [2.5, -16]];
 
     for (let i = 0; i < 3; i++) {
       const isHuman = faction === 'survivor' && i === 0;
@@ -1335,11 +1346,22 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
       if (isHuman) state.player = e;
     }
 
-    if (faction === 'killer') {
-      const e = makeEntity('killer', killerSpawn[0], killerSpawn[1], { isPlayer: true });
-      e.yaw = 0;
+    // The merc squad enters every match: the human takes slot 0 when playing
+    // merc; otherwise it's an all-bot sweep team hunting the Alpha.
+    const mercCount = faction === 'killer' ? 1 + MERC_BOT_COUNT : MERC_BOT_COUNT;
+    for (let i = 0; i < mercCount; i++) {
+      const isHuman = faction === 'killer' && i === 0;
+      const [kx, kz] = killerSpawns[i % killerSpawns.length];
+      const e = makeEntity('killer', kx, kz, { isPlayer: isHuman });
+      e.yaw = yawToward(0 - kx, 0 - kz);
+      if (!isHuman) {
+        e.hp = e.maxHp = MERC_BOT_HP;
+        e.dmgMul = MERC_BOT_DMG_MUL;
+        e.knives = MERC_BOT_KNIVES;
+        buildEntityMesh(e);
+      }
       state.entities.push(e);
-      state.player = e;
+      if (isHuman) state.player = e;
     }
 
     applyCharacter(state.player, state.playerChar);
@@ -1565,6 +1587,7 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
     if (e.isGrabbed) return;
     if (e.faction === 'survivor') updateSurvivorBot(e, dt);
     else if (e.faction === 'cannibal') updateCannibalBot(e, dt);
+    else if (e.faction === 'killer') updateKillerBot(e, dt);
   }
 
   function pickSurvivorObjective(e) {
@@ -1637,6 +1660,47 @@ window.__ASSET_SOLDIER_B64 = "<!--SOLDIER_GLB_BASE64-->";
       return;
     }
 
+    wander(e, dt);
+  }
+
+  function nearestLivingCannibal(x, z) {
+    let best = null, bestD = Infinity;
+    for (const e of state.entities) {
+      if (e.faction !== 'cannibal' || e.isDead) continue;
+      const d = Math.hypot(e.x - x, e.z - z);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return { entity: best, dist: bestD };
+  }
+
+  // Merc bot: the contract is the Alpha — it outranks everything when sensed;
+  // otherwise the nearest psycho in the way gets dealt with. Mid-range with a
+  // knife in stock means a throw; close means melee. With no contact at all
+  // the squad sweeps toward the implant table, because psychos always come
+  // back to it.
+  function updateKillerBot(e, dt) {
+    e.wantsAttack = false; e.wantsThrow = false; e.wantsExecute = false; e.sprinting = false;
+
+    let target = null, dist = Infinity;
+    if (state.leader && !state.leader.isDead) {
+      const d = Math.hypot(state.leader.x - e.x, state.leader.z - e.z);
+      if (d <= MERC_BOT_SENSE * 1.4) { target = state.leader; dist = d; }
+    }
+    if (!target) {
+      const c = nearestLivingCannibal(e.x, e.z);
+      if (c.entity && c.dist <= MERC_BOT_SENSE) { target = c.entity; dist = c.dist; }
+    }
+
+    if (target) {
+      steerTo(e, target.x, target.z);
+      e.sprinting = dist > 6;
+      if (dist <= CONFIG.killer.attackRange) e.wantsAttack = true;
+      else if (e.knives > 0 && e.cdThrow <= 0 && dist >= MERC_BOT_THROW_MIN && dist <= MERC_BOT_THROW_MAX) e.wantsThrow = true;
+      return;
+    }
+
+    const dAltar = Math.hypot(state.altar.x - e.x, state.altar.z - e.z);
+    if (dAltar > 7) { steerTo(e, state.altar.x, state.altar.z); return; }
     wander(e, dt);
   }
 
