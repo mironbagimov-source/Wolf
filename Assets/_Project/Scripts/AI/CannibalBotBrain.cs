@@ -1,14 +1,24 @@
 using UnityEngine;
+using Wolf.Player;
 using Wolf.Player.Cannibal;
+using Wolf.Player.Killer;
 using Wolf.Player.Survivor;
 
 namespace Wolf.AI
 {
-    /// <summary>Chases the nearest living, ungrabbed Survivor in range; wanders when none are sensed.</summary>
+    /// <summary>
+    /// Chases the nearest prey it can sense and wanders when it senses none.
+    /// Victims are the primary target; a mercenary who gets close or loud is
+    /// worth turning on too, which is what makes crouch-sneaking matter. How far
+    /// the psycho senses a given target is shrunk by crouching and swollen by
+    /// sprinting or a lit torch (see <see cref="NoiseRadius"/>).
+    /// </summary>
     [RequireComponent(typeof(CannibalController))]
     public class CannibalBotBrain : BotBrainBase
     {
         [SerializeField] private float senseRadius = 15f;
+        [Tooltip("Base radius at which a mercenary is noticed (before noise modifiers).")]
+        [SerializeField] private float killerAggroRadius = 6f;
 
         private CannibalController _cannibal;
         private Vector3 _wanderDir = Vector3.forward;
@@ -26,19 +36,18 @@ namespace Wolf.AI
             AbilityPressed = false;
             Sprint = false;
 
-            SurvivorController target = FindNearestSurvivor();
-            if (target == null)
+            PlayerControllerBase prey = FindNearestPrey(out bool preyIsSurvivor, out float distance);
+            if (prey == null)
             {
                 Wander(deltaTime);
                 return;
             }
 
-            Vector3 toTarget = target.transform.position - transform.position;
-            SteerTowards(toTarget);
+            SteerTowards(prey.transform.position - transform.position);
             Sprint = true;
 
-            float distance = toTarget.magnitude;
-            if (distance <= _cannibal.GrabRange)
+            // Only victims get grabbed and dragged to the table; mercs just get mauled.
+            if (preyIsSurvivor && distance <= _cannibal.GrabRange)
             {
                 AbilityPressed = true;
             }
@@ -61,28 +70,69 @@ namespace Wolf.AI
             SteerTowards(_wanderDir);
         }
 
-        private SurvivorController FindNearestSurvivor()
+        private PlayerControllerBase FindNearestPrey(out bool isSurvivor, out float bestDistance)
         {
-            Collider[] hits = Physics.OverlapSphere(transform.position, senseRadius);
-            SurvivorController nearest = null;
-            float nearestDist = float.MaxValue;
+            isSurvivor = false;
+            bestDistance = float.MaxValue;
+            PlayerControllerBase best = null;
+
+            // Overlap a generous radius; per-target noise decides what's actually sensed.
+            float overlap = Mathf.Max(senseRadius, killerAggroRadius) + 6f;
+            Collider[] hits = Physics.OverlapSphere(transform.position, overlap);
 
             foreach (Collider hit in hits)
             {
-                if (!hit.TryGetComponent(out SurvivorController survivor) || survivor.Health.IsDead || survivor.IsGrabbed)
+                if (hit.TryGetComponent(out SurvivorController survivor))
                 {
-                    continue;
-                }
+                    if (survivor.Health.IsDead || survivor.IsGrabbed)
+                    {
+                        continue;
+                    }
 
-                float distance = Vector3.Distance(transform.position, survivor.transform.position);
-                if (distance < nearestDist)
+                    float distance = Vector3.Distance(transform.position, survivor.transform.position);
+                    if (distance <= NoiseRadius(survivor, senseRadius) && distance < bestDistance)
+                    {
+                        bestDistance = distance;
+                        best = survivor;
+                        isSurvivor = true;
+                    }
+                }
+                else if (hit.TryGetComponent(out KillerController killer))
                 {
-                    nearestDist = distance;
-                    nearest = survivor;
+                    if (killer.Health.IsDead)
+                    {
+                        continue;
+                    }
+
+                    float distance = Vector3.Distance(transform.position, killer.transform.position);
+                    if (distance <= NoiseRadius(killer, killerAggroRadius) && distance < bestDistance)
+                    {
+                        bestDistance = distance;
+                        best = killer;
+                        isSurvivor = false;
+                    }
                 }
             }
 
-            return nearest;
+            return best;
+        }
+
+        private static float NoiseRadius(PlayerControllerBase target, float baseRadius)
+        {
+            float radius = baseRadius;
+            if (target.IsCrouching)
+            {
+                radius *= 0.4f;
+            }
+            if (target.IsSprinting)
+            {
+                radius += 3f;
+            }
+            if (target is SurvivorController survivor && survivor.FlashlightOn)
+            {
+                radius += 4f;
+            }
+            return radius;
         }
     }
 }

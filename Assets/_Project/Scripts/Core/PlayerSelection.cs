@@ -9,5 +9,9 @@ namespace Wolf.Core
     {
         public static FactionType ChosenFaction = FactionType.Survivor;
         public static GameModeType ChosenMode = GameModeType.BotMatch;
+
+        /// <summary>Index into CharacterRoster.For(ChosenFaction). Wrapped on read,
+        /// so the lobby can just increment it to cycle characters.</summary>
+        public static int ChosenCharacterIndex = 0;
     }
 }

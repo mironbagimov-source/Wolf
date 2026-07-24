@@ -24,6 +24,22 @@ namespace Wolf.Health
             CurrentHealth = maxHealth;
         }
 
+        /// <summary>
+        /// Overrides max health at spawn (before any damage), refilling to full.
+        /// Used to apply a character archetype's HP multiplier. Not for mid-match
+        /// use — it discards current damage state.
+        /// </summary>
+        public void ConfigureMaxHealth(float newMax)
+        {
+            if (newMax <= 0f)
+            {
+                return;
+            }
+
+            maxHealth = newMax;
+            CurrentHealth = newMax;
+        }
+
         public void TakeDamage(DamageInfo info)
         {
             if (IsDead || info.amount <= 0f)

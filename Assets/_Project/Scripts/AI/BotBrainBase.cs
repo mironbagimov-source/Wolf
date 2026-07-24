@@ -25,6 +25,7 @@ namespace Wolf.AI
         public bool PrimaryPressed { get; protected set; }
         public bool SecondaryHeld { get; protected set; }
         public bool AbilityPressed { get; protected set; }
+        public bool ThrowPressed { get; protected set; }
         public bool FlashlightPressed { get; protected set; }
 
         protected PlayerControllerBase controller;

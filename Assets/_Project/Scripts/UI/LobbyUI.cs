@@ -22,6 +22,10 @@ namespace Wolf.UI
         [SerializeField] private Button cannibalButton;
         [SerializeField] private Button killerButton;
 
+        [Header("Character")]
+        [Tooltip("Optional: cycles the chosen character within the picked faction.")]
+        [SerializeField] private Button characterButton;
+
         [Header("Start")]
         [SerializeField] private Button startButton;
         [SerializeField] private Text statusText;
@@ -37,6 +41,8 @@ namespace Wolf.UI
             cannibalButton?.onClick.AddListener(() => SelectFaction(FactionType.Cannibal));
             killerButton?.onClick.AddListener(() => SelectFaction(FactionType.Killer));
 
+            characterButton?.onClick.AddListener(CycleCharacter);
+
             startButton?.onClick.AddListener(StartMatch);
 
             RefreshStatus();
@@ -51,6 +57,13 @@ namespace Wolf.UI
         private void SelectFaction(FactionType faction)
         {
             PlayerSelection.ChosenFaction = faction;
+            PlayerSelection.ChosenCharacterIndex = 0; // reset to the first character of the new side
+            RefreshStatus();
+        }
+
+        private void CycleCharacter()
+        {
+            PlayerSelection.ChosenCharacterIndex++; // CharacterRoster.Get wraps this
             RefreshStatus();
         }
 
@@ -63,7 +76,11 @@ namespace Wolf.UI
         {
             if (statusText != null)
             {
-                statusText.text = $"Mode: {PlayerSelection.ChosenMode}   Faction: {PlayerSelection.ChosenFaction}";
+                CharacterArchetype character = CharacterRoster.Get(PlayerSelection.ChosenFaction, PlayerSelection.ChosenCharacterIndex);
+                statusText.text =
+                    $"Режим: {PlayerSelection.ChosenMode}   " +
+                    $"Сторона: {FactionInfo.DisplayName(PlayerSelection.ChosenFaction)}   " +
+                    $"Персонаж: {character.name}";
             }
         }
     }
