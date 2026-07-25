@@ -122,7 +122,7 @@ const CHARACTERS := {
 		{"id": "mantis", "name": "Богомол", "tag": "скорость", "desc": "Быстрый и хлёсткий, но хрупкий как стекло.", "speed_mul": 1.12, "hp_mul": 0.85},
 	],
 	"killer": [
-		{"id": "blade", "name": "Клинок", "tag": "стелс · добивание", "desc": "Скорость, лишние ножи и добивание раненых [F].", "speed_mul": 1.1, "hp_mul": 0.85, "knives_add": 2, "can_execute": true},
-		{"id": "armor", "name": "Броня", "tag": "танк", "desc": "Медленный таран, держит удар и держит блок.", "speed_mul": 0.9, "hp_mul": 1.25, "stamina_block_mul": 0.6},
+		{"id": "blade", "name": "Клинок", "tag": "стелс · добивание", "desc": "Скорость, лишние ножи и добивание раненых [F].", "speed_mul": 1.1, "hp_mul": 0.85, "knives_add": 2, "can_execute": true, "accent": Color(1.0, 0.15, 0.2)},
+		{"id": "armor", "name": "Броня", "tag": "танк", "desc": "Медленный таран, держит удар и держит блок.", "speed_mul": 0.9, "hp_mul": 1.25, "stamina_block_mul": 0.6, "accent": Color(0.45, 0.35, 1.0)},
 	],
 }

@@ -168,6 +168,8 @@ func apply_archetype(arche: Dictionary) -> void:
 	hp = max_hp
 	if faction == "killer":
 		knives += int(arche.get("knives_add", 0))
+	if arche.has("accent"):
+		set_accent(arche["accent"])
 
 
 func _tint_color() -> Color:
@@ -192,15 +194,37 @@ func _collect_and_tint(node: Node) -> void:
 			if mat is StandardMaterial3D:
 				# Scene materials are shared between instances — duplicate
 				# before editing so each character tints independently.
+				# Reference art: everyone wears near-black techwear; the
+				# faction reads through the accent glow, not a body paintjob.
 				var m := (mat as StandardMaterial3D).duplicate()
-				m.albedo_color = m.albedo_color.lerp(_tint_color(), 0.25)
+				var dark := 0.30 if faction != "cannibal" else 0.45
+				m.albedo_color = Color(m.albedo_color.r * dark, m.albedo_color.g * dark, m.albedo_color.b * dark)
+				m.albedo_color = m.albedo_color.lerp(_tint_color(), 0.08)
 				m.emission_enabled = true
 				m.emission = _tint_color()
-				m.emission_energy_multiplier = 0.25
+				m.emission_energy_multiplier = 0.07
 				mi.set_surface_override_material(i, m)
 				_tint_meshes.append(mi)
 	for child in node.get_children():
 		_collect_and_tint(child)
+
+
+## Recolors gear pieces named "Accent*" — merc archetypes differ by accent
+## (Клинок = red like ref #1, Броня = blue-violet like ref #2).
+func set_accent(c: Color) -> void:
+	if visual == null:
+		return
+	var gear := visual.get_node_or_null("CyberGear")
+	if gear == null:
+		return
+	for child in gear.get_children():
+		if (child.name as String).begins_with("Accent") and child is MeshInstance3D:
+			var mat := (child as MeshInstance3D).material_override
+			if mat is StandardMaterial3D:
+				var m := (mat as StandardMaterial3D).duplicate()
+				m.albedo_color = c
+				m.emission = c
+				(child as MeshInstance3D).material_override = m
 
 
 func update_animation() -> void:
@@ -220,7 +244,9 @@ func flash_materials(delta: float) -> void:
 	if _tint_meshes.is_empty():
 		return
 	# Grabbed victims pulse red so rescuers can read them at a distance.
-	var energy := 0.25
+	# Baseline is faint: the reference art is black techwear — faction reads
+	# through the gear accents, not a glowing body.
+	var energy := 0.07
 	if hit_flash > 0.0:
 		energy = 2.5
 	elif is_grabbed:
@@ -277,7 +303,8 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 		soldier.name = "Soldier"
 		vis.add_child(soldier)
 		if p_is_leader:
-			soldier.scale = Vector3.ONE * 1.12
+			# Ref 4: the Alpha is a hulk — wider than he is tall.
+			soldier.scale = Vector3(1.28, 1.12, 1.28)
 	else:
 		var body := MeshInstance3D.new()
 		body.name = "Capsule"
@@ -292,33 +319,88 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 	return root
 
 
-## Faction cyber-gear: glowing implant eyes / jaw / arm blade on psychos,
-## a neon visor + pads on mercs, a backpack on victims. Model forward is -Z,
-## so face gear sits at negative Z. (Real CP2077 assets are CDPR property and
-## are not used; drop licensed .glb models into assets/characters/ instead.)
+## Faction cyber-gear styled after the user's reference art (model forward is
+## -Z; the back is +Z). Real CP2077 assets are CDPR property and are not used;
+## drop licensed .glb models into assets/characters/ to replace all of this.
+##  - Mercs (refs 1-2): black techwear, cyber-forearms with claw blades on
+##    BOTH arms, a katana across the back, face mask; accent color per
+##    archetype (red / blue-violet) via "Accent*" pieces.
+##  - Psycho (ref 3): gaunt, exposed skeletal cyber-arms with claws, orange
+##    seam glow on the chest, red eyes.
+##  - Alpha (ref 4): a hulk — widened body, chest armor plate, giant metal
+##    gauntlets and fists, shoulder plates, head cables, burning red eyes.
+##  - Civilian (ref 5): club-goer — neon jacket strips, two-tone hair,
+##    chrome forearm, glowing belt screen.
 static func _bake_cyber_gear(parent: Node3D, p_faction: String, p_is_leader: bool) -> void:
 	var gear := Node3D.new()
 	gear.name = "CyberGear"
 	parent.add_child(gear)
+	var chrome := Color(0.65, 0.68, 0.75)
+	var dark_metal := Color(0.16, 0.17, 0.21)
 	match p_faction:
 		"cannibal":
-			var glow: Color = WolfCfg.FACTION_COLOR["leader"] if p_is_leader else Color(1.0, 0.15, 0.15)
-			_gear_box(gear, "EyeL", Vector3(-0.055, 1.67, -0.115), Vector3(0.05, 0.05, 0.05), glow, 4.0)
-			_gear_box(gear, "EyeR", Vector3(0.055, 1.67, -0.115), Vector3(0.05, 0.05, 0.05), glow, 4.0)
-			_gear_box(gear, "Jaw", Vector3(0.0, 1.52, -0.11), Vector3(0.14, 0.06, 0.08), Color(0.2, 0.22, 0.28), 0.0)
-			_gear_box(gear, "ArmBlade", Vector3(0.30, 1.05, -0.02), Vector3(0.04, 0.42, 0.12), Color(0.6, 0.65, 0.72), 0.4, glow)
 			if p_is_leader:
-				_gear_box(gear, "SpikeL", Vector3(-0.26, 1.62, 0.0), Vector3(0.06, 0.28, 0.06), glow, 2.0)
-				_gear_box(gear, "SpikeR", Vector3(0.26, 1.62, 0.0), Vector3(0.06, 0.28, 0.06), glow, 2.0)
+				# Ref 4: the armored brute.
+				var red := Color(1.0, 0.12, 0.08)
+				# Body under this gear is scaled ×1.28 wide — everything sits
+				# further out so it reads as armor ON the hulk, not inside him.
+				_gear_box(gear, "EyeL", Vector3(-0.07, 1.66, -0.18), Vector3(0.06, 0.04, 0.04), red, 5.0)
+				_gear_box(gear, "EyeR", Vector3(0.07, 1.66, -0.18), Vector3(0.06, 0.04, 0.04), red, 5.0)
+				_gear_box(gear, "Mask", Vector3(0, 1.56, -0.17), Vector3(0.18, 0.1, 0.07), dark_metal, 0.0)
+				_gear_box(gear, "ChestPlate", Vector3(0, 1.28, -0.17), Vector3(0.48, 0.42, 0.1), chrome, 0.0)
+				_gear_box(gear, "BeltPlate", Vector3(0, 1.0, -0.16), Vector3(0.42, 0.1, 0.08), dark_metal, 0.0)
+				for s in [-1.0, 1.0]:
+					_gear_box(gear, "Shoulder", Vector3(s * 0.46, 1.52, 0), Vector3(0.26, 0.16, 0.26), chrome, 0.0)
+					_gear_box(gear, "Gauntlet", Vector3(s * 0.48, 0.9, 0), Vector3(0.2, 0.5, 0.22), chrome, 0.0)
+					_gear_box(gear, "Fist", Vector3(s * 0.48, 0.58, -0.05), Vector3(0.22, 0.18, 0.22), dark_metal, 0.0)
+					var cable := _gear_box(gear, "Cable", Vector3(s * 0.12, 1.72, 0.1), Vector3(0.035, 0.3, 0.035), dark_metal, 0.0)
+					cable.rotation_degrees = Vector3(-35, 0, s * 20)
+			else:
+				# Ref 3: the gaunt one — exposed cyber-arms, orange seams.
+				var ember := Color(1.0, 0.35, 0.1)
+				_gear_box(gear, "EyeL", Vector3(-0.055, 1.67, -0.15), Vector3(0.045, 0.04, 0.04), Color(1.0, 0.15, 0.15), 4.0)
+				_gear_box(gear, "EyeR", Vector3(0.055, 1.67, -0.15), Vector3(0.045, 0.04, 0.04), Color(1.0, 0.15, 0.15), 4.0)
+				_gear_box(gear, "SkullPlate", Vector3(0.06, 1.74, -0.02), Vector3(0.1, 0.05, 0.12), chrome, 0.0)
+				_gear_box(gear, "ChestSeam", Vector3(0.05, 1.25, -0.15), Vector3(0.05, 0.34, 0.02), ember, 2.2)
+				_gear_box(gear, "RibSeam", Vector3(-0.08, 1.12, -0.145), Vector3(0.16, 0.03, 0.02), ember, 1.6)
+				for s in [-1.0, 1.0]:
+					_gear_box(gear, "CyberArm", Vector3(s * 0.3, 0.95, 0), Vector3(0.09, 0.4, 0.11), chrome, 0.0)
+					for k in 3:
+						var claw := _gear_box(gear, "Claw", Vector3(s * (0.26 + k * 0.035), 0.6, -0.08), Vector3(0.014, 0.3, 0.03), Color(0.75, 0.78, 0.85), 0.0)
+						claw.rotation_degrees = Vector3(-12, 0, s * (4 + k * 3))
 		"killer":
-			_gear_box(gear, "Visor", Vector3(0.0, 1.66, -0.115), Vector3(0.20, 0.045, 0.05), Color(0.0, 0.9, 1.0), 4.0)
-			_gear_box(gear, "PadL", Vector3(-0.26, 1.48, 0.0), Vector3(0.14, 0.08, 0.18), Color(0.1, 0.12, 0.16), 0.0)
-			_gear_box(gear, "PadR", Vector3(0.26, 1.48, 0.0), Vector3(0.14, 0.08, 0.18), Color(0.1, 0.12, 0.16), 0.0)
+			# Refs 1-2: black-ops merc. Accent* pieces get recolored per
+			# archetype (Клинок = red, Броня = blue-violet).
+			var accent := Color(1.0, 0.15, 0.2)
+			_gear_box(gear, "AccentEyeL", Vector3(-0.055, 1.66, -0.15), Vector3(0.05, 0.035, 0.04), accent, 4.0)
+			_gear_box(gear, "AccentEyeR", Vector3(0.055, 1.66, -0.15), Vector3(0.05, 0.035, 0.04), accent, 4.0)
+			_gear_box(gear, "Mask", Vector3(0, 1.55, -0.145), Vector3(0.15, 0.09, 0.06), dark_metal, 0.0)
+			_gear_box(gear, "ChestRig", Vector3(0, 1.3, -0.145), Vector3(0.3, 0.26, 0.06), Color(0.09, 0.1, 0.13), 0.0)
+			for s in [-1.0, 1.0]:
+				_gear_box(gear, "CyberArm", Vector3(s * 0.3, 0.95, 0), Vector3(0.1, 0.38, 0.12), dark_metal, 0.0)
+				_gear_box(gear, "AccentArmGlow", Vector3(s * 0.3, 0.95, -0.08), Vector3(0.03, 0.3, 0.015), accent, 2.0)
+				for k in 3:
+					var claw := _gear_box(gear, "Claw", Vector3(s * (0.26 + k * 0.035), 0.58, -0.1), Vector3(0.014, 0.34, 0.035), Color(0.7, 0.74, 0.82), 0.0)
+					claw.rotation_degrees = Vector3(-14, 0, s * (3 + k * 3))
+			# Katana across the back (ref 1).
+			var blade := _gear_box(gear, "KatanaBlade", Vector3(0.12, 1.45, 0.16), Vector3(0.025, 0.8, 0.045), Color(0.8, 0.83, 0.9), 0.0)
+			blade.rotation_degrees = Vector3(0, 0, -38)
+			var hilt := _gear_box(gear, "AccentKatanaHilt", Vector3(0.36, 1.74, 0.16), Vector3(0.04, 0.2, 0.055), accent, 0.8)
+			hilt.rotation_degrees = Vector3(0, 0, -38)
 		"survivor":
-			_gear_box(gear, "Backpack", Vector3(0.0, 1.28, 0.17), Vector3(0.26, 0.34, 0.12), Color(0.13, 0.19, 0.16), 0.0)
+			# Ref 5: the club kid from «Облака».
+			var neon_a := Color(1.0, 0.2, 0.75)
+			var neon_b := Color(0.1, 0.9, 1.0)
+			_gear_box(gear, "HairA", Vector3(-0.05, 1.78, 0.0), Vector3(0.14, 0.09, 0.2), neon_a, 1.2)
+			_gear_box(gear, "HairB", Vector3(0.07, 1.77, 0.0), Vector3(0.1, 0.08, 0.2), neon_b, 1.2)
+			_gear_box(gear, "JacketTrimL", Vector3(-0.26, 1.15, -0.1), Vector3(0.04, 0.44, 0.04), neon_a, 1.8)
+			_gear_box(gear, "JacketTrimR", Vector3(0.26, 1.15, -0.1), Vector3(0.04, 0.44, 0.04), neon_b, 1.8)
+			_gear_box(gear, "CollarGlow", Vector3(0, 1.52, -0.14), Vector3(0.24, 0.03, 0.03), neon_b, 1.8)
+			_gear_box(gear, "ChromeArm", Vector3(0.29, 0.95, 0), Vector3(0.08, 0.36, 0.1), chrome, 0.0)
+			_gear_box(gear, "BeltScreen", Vector3(0.08, 1.0, -0.15), Vector3(0.13, 0.1, 0.02), Color(0.55, 0.3, 1.0), 2.0)
 
 
-static func _gear_box(parent: Node3D, p_name: String, pos: Vector3, size: Vector3, color: Color, glow_energy: float, emit_color := Color.BLACK) -> void:
+static func _gear_box(parent: Node3D, p_name: String, pos: Vector3, size: Vector3, color: Color, glow_energy: float, emit_color := Color.BLACK) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = p_name
 	var box := BoxMesh.new()
@@ -327,9 +409,14 @@ static func _gear_box(parent: Node3D, p_name: String, pos: Vector3, size: Vector
 	mi.position = pos
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
+	mat.metallic = 0.55
+	mat.roughness = 0.4
 	if glow_energy > 0.0:
 		mat.emission_enabled = true
 		mat.emission = emit_color if emit_color != Color.BLACK else color
 		mat.emission_energy_multiplier = glow_energy
 	mi.material_override = mat
-	parent.add_child(mi)
+	# force_readable_name: duplicates become "Claw2"/"AccentArmGlow2" so
+	# set_accent's begins_with("Accent") keeps matching after auto-rename.
+	parent.add_child(mi, true)
+	return mi

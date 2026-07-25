@@ -182,6 +182,8 @@ func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
 			m.dmg_mul = WolfCfg.MERC_BOT_DMG_MUL
 			m.knives = WolfCfg.MERC_BOT_KNIVES
 			m.set_weapon(WolfCfg.WEAPONS["killer"].pick_random())
+			# Squad accents alternate between the two merc looks (refs 1-2).
+			m.set_accent(WolfCfg.CHARACTERS["killer"][i % 2]["accent"])
 
 	player.apply_archetype(WolfCfg.CHARACTERS[faction][arche_index])
 	if weapon_index >= 0:
@@ -487,6 +489,8 @@ func _resolve_bot_strike(e: WolfChar) -> void:
 
 func _deliver_strike(e: WolfChar, dmg_mul: float, charged: bool) -> void:
 	var target := _acquire_melee_target(e)
+	if _test_mode != "" and e.is_player:
+		print("DBG strike: target=%s charged=%s mul=%.2f" % ["null" if target == null else target.faction, str(charged), dmg_mul])
 	if target == null:
 		_try_hit_door(e)
 		return
@@ -1137,6 +1141,8 @@ func _run_test(delta: float) -> void:
 				get_tree().quit(1)
 		"bomb":
 			_test_bomb(delta)
+		"cast":
+			_test_cast(delta)
 		"exec":
 			if _test_t > 0.5 and mode == "menu":
 				_start_match("survivor", 0, -1)
@@ -1200,7 +1206,17 @@ func _test_charged(_delta: float) -> void:
 		ev.button_index = MOUSE_BUTTON_LEFT
 		ev.pressed = true
 		Input.parse_input_event(ev)
-	elif _test_staged and _test_t > 2.6 and not _test_shot_taken:
+	elif _test_staged and not _test_shot_taken:
+		# The stealth model means a motionless merc goes unnoticed — the bot
+		# would wander off mid-charge. Pin it in guard for the measurement.
+		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
+		_duel_bot.velocity = Vector3.ZERO
+		_duel_bot.bot_block_t = 30.0
+		_duel_bot.winding = false
+		_duel_bot.cd_attack = 5.0
+		_duel_bot.rotation.y = _yaw_toward(player.global_position.x - _duel_bot.global_position.x, player.global_position.z - _duel_bot.global_position.z)
+		if _test_t <= 2.6:
+			return
 		_test_shot_taken = true
 		var ev := InputEventMouseButton.new()
 		ev.button_index = MOUSE_BUTTON_LEFT
@@ -1281,6 +1297,55 @@ func _test_bomb(_delta: float) -> void:
 	elif _test_t > 25.0:
 		print("TEST RESULT: bomb FAIL planted=%s mode=%s progress=%.1f" % [str(bomb_planted), mode, bomb_progress])
 		get_tree().quit(1)
+
+
+var _cast_line: Array = []
+
+
+## Character-art check: line up one of each look (civilian, psycho, Alpha,
+## both merc accents) in front of the camera and screenshot for comparison
+## against the user's reference images.
+func _test_cast(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and _cast_line.is_empty():
+		var civ: WolfChar = null
+		var psycho: WolfChar = null
+		var alpha: WolfChar = null
+		var mercs: Array = []
+		for e: WolfChar in entities:
+			if e.is_player:
+				continue
+			if e.faction == "survivor" and civ == null:
+				civ = e
+			elif e.faction == "cannibal" and e.is_leader:
+				alpha = e
+			elif e.faction == "cannibal" and psycho == null:
+				psycho = e
+			elif e.faction == "killer" and mercs.size() < 2:
+				mercs.append(e)
+		var x := -20.4
+		for p in [civ, psycho, alpha] + mercs:
+			if p == null:
+				continue
+			_cast_line.append([p, Vector3(x, 0.2, 13.0)])
+			x += 1.5
+		player.global_position = Vector3(-17.4, 0.2, 9.9)
+	elif not _cast_line.is_empty():
+		# Re-pin every tick so AI can't wander/strike out of the lineup.
+		for item in _cast_line:
+			var c: WolfChar = item[0]
+			c.global_position = item[1]
+			c.velocity = Vector3.ZERO
+			c.cd_attack = 10.0
+			c.winding = false
+			c.bot_block_t = 0.0
+			c.hide_telegraph()
+			c.rotation.y = _yaw_toward(player.global_position.x - c.global_position.x, player.global_position.z - c.global_position.z)
+		player.rotation.y = _yaw_toward(-17.4 - player.global_position.x, 13.0 - player.global_position.z)
+		if _test_t > 2.6 and not _test_shot_taken:
+			_test_shot_taken = true
+			_finish_test("cast ok: lineup=%d" % _cast_line.size())
 
 
 func _finish_test(msg: String) -> void:
