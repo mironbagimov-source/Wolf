@@ -184,14 +184,23 @@ func _tint_color() -> Color:
 	return WolfCfg.FACTION_COLOR["leader"] if is_leader else WolfCfg.FACTION_COLOR[faction]
 
 
+## Prefers the player that actually has our clips — imported models may carry
+## their own AnimationPlayer (e.g. Michelle ships a SambaDance) which must not
+## shadow the retargeted Idle/Walk/Run library.
 func _find_anim(node: Node) -> AnimationPlayer:
+	var players: Array = []
+	_collect_anim_players(node, players)
+	for p: AnimationPlayer in players:
+		if p.has_animation("Idle"):
+			return p
+	return players[0] if not players.is_empty() else null
+
+
+func _collect_anim_players(node: Node, out: Array) -> void:
 	if node is AnimationPlayer:
-		return node
+		out.append(node)
 	for child in node.get_children():
-		var found := _find_anim(child)
-		if found != null:
-			return found
-	return null
+		_collect_anim_players(child, out)
 
 
 func _collect_and_tint(node: Node) -> void:
@@ -439,9 +448,9 @@ static func _bake_cyber_gear(parent: Node3D, p_faction: String, p_is_leader: boo
 				_gear_box(gear, "HairB", Vector3(0.07, 1.77, 0.0), Vector3(0.1, 0.08, 0.2), neon_b, 1.2)
 				_gear_box(gear, "CollarGlow", Vector3(0, 1.52, -0.14), Vector3(0.24, 0.03, 0.03), neon_b, 1.8)
 				_gear_box(gear, "ChromeArm", Vector3(0.29, 0.95, 0), Vector3(0.08, 0.36, 0.1), chrome, 0.0)
-			_gear_box(gear, "JacketTrimL", Vector3(-0.21, 1.18, -0.08), Vector3(0.035, 0.36, 0.035), neon_a, 1.8)
-			_gear_box(gear, "JacketTrimR", Vector3(0.21, 1.18, -0.08), Vector3(0.035, 0.36, 0.035), neon_b, 1.8)
-			_gear_box(gear, "BeltScreen", Vector3(0.08, 1.0, -0.15), Vector3(0.13, 0.1, 0.02), Color(0.55, 0.3, 1.0), 2.0)
+			_gear_box(gear, "JacketTrimL", Vector3(-0.17, 1.16, -0.07), Vector3(0.03, 0.32, 0.03), neon_a, 1.8)
+			_gear_box(gear, "JacketTrimR", Vector3(0.17, 1.16, -0.07), Vector3(0.03, 0.32, 0.03), neon_b, 1.8)
+			_gear_box(gear, "BeltScreen", Vector3(0.06, 1.0, -0.13), Vector3(0.11, 0.09, 0.02), Color(0.55, 0.3, 1.0), 2.0)
 
 
 static func _gear_box(parent: Node3D, p_name: String, pos: Vector3, size: Vector3, color: Color, glow_energy: float, emit_color := Color.BLACK) -> MeshInstance3D:
