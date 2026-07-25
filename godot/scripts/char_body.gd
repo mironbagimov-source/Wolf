@@ -48,6 +48,12 @@ var winding := false                      # bots: wind-up before the strike land
 var windup_t := 0.0
 var windup_charged := false
 var bot_block_t := 0.0                    # bots hold a raised guard briefly
+var block_age := 0.0                      # how long the guard has been up (parry timing)
+var dash_t := 0.0                         # dodge dash in progress (i-frames vs melee)
+var dash_dir := Vector3.ZERO
+var dash_cd := 0.0
+var lunge_cd := 0.0                       # psycho leap cooldown
+var reach_bonus := 0.0                    # transient: sprint-attack lunge reach
 var _telegraph: MeshInstance3D = null
 
 var speed_mul := 1.0
@@ -69,6 +75,7 @@ var visual: Node3D = null
 var _anim: AnimationPlayer = null
 var _anim_current := ""
 var _tint_meshes: Array = []
+var _avatar_mode := false  # true when the visual is a downloaded avatar body
 
 
 ## Called by main.gd right after instancing the faction scene.
@@ -105,6 +112,7 @@ func init_stats(p_is_player: bool) -> void:
 	if is_player and visual != null:
 		visual.visible = false  # first person: don't render your own body
 	elif visual != null:
+		_avatar_mode = visual.has_node("Body")
 		_anim = _find_anim(visual)
 		_collect_and_tint(visual)
 
@@ -194,12 +202,13 @@ func _collect_and_tint(node: Node) -> void:
 			if mat is StandardMaterial3D:
 				# Scene materials are shared between instances — duplicate
 				# before editing so each character tints independently.
-				# Reference art: everyone wears near-black techwear; the
-				# faction reads through the accent glow, not a body paintjob.
 				var m := (mat as StandardMaterial3D).duplicate()
-				var dark := 0.30 if faction != "cannibal" else 0.45
-				m.albedo_color = Color(m.albedo_color.r * dark, m.albedo_color.g * dark, m.albedo_color.b * dark)
-				m.albedo_color = m.albedo_color.lerp(_tint_color(), 0.08)
+				if not _avatar_mode:
+					# Fallback soldier body: near-black techwear so the
+					# faction reads through gear accents, not a paintjob.
+					var dark := 0.30 if faction != "cannibal" else 0.45
+					m.albedo_color = Color(m.albedo_color.r * dark, m.albedo_color.g * dark, m.albedo_color.b * dark)
+					m.albedo_color = m.albedo_color.lerp(_tint_color(), 0.08)
 				m.emission_enabled = true
 				m.emission = _tint_color()
 				m.emission_energy_multiplier = 0.07
@@ -298,12 +307,38 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 	tele.visible = false
 	root.add_child(tele)
 
-	if ResourceLoader.exists("res://assets/characters/soldier.glb"):
+	var role := "leader" if p_is_leader else p_faction
+	var body_path := "res://assets/characters/bodies/%s_body.glb" % role
+	if ResourceLoader.exists(body_path):
+		# Downloaded 100Avatars body (see assets/characters/bodies/LICENSE.md);
+		# Idle/Walk/Run are retargeted from the soldier rig at bake time and
+		# saved as a shared binary .res so the .tscn stays small.
+		var av: Node3D = (load(body_path) as PackedScene).instantiate()
+		av.name = "Body"
+		vis.add_child(av)
+		if p_is_leader:
+			# Ref 4: the Alpha is a hulk — wider than he is tall.
+			av.scale = Vector3(1.28, 1.12, 1.28)
+		var soldier_scene: Node3D = (load("res://assets/characters/soldier.glb") as PackedScene).instantiate()
+		var src_anim := WolfRetarget.find_anim_player(soldier_scene)
+		var src_skel := WolfRetarget.find_skeleton(soldier_scene)
+		var tgt_skel := WolfRetarget.find_skeleton(av)
+		if src_anim != null and src_skel != null and tgt_skel != null:
+			var lib := WolfRetarget.build_library(src_anim, src_skel, soldier_scene,
+					tgt_skel, av, "Body/" + str(av.get_path_to(tgt_skel)))
+			var res_path := "res://scenes/chars/anims_%s.res" % role
+			ResourceSaver.save(lib, res_path)
+			lib.take_over_path(res_path)
+			var ap := AnimationPlayer.new()
+			ap.name = "AnimationPlayer"
+			vis.add_child(ap)
+			ap.add_animation_library("", lib)
+		soldier_scene.free()
+	elif ResourceLoader.exists("res://assets/characters/soldier.glb"):
 		var soldier: Node3D = (load("res://assets/characters/soldier.glb") as PackedScene).instantiate()
 		soldier.name = "Soldier"
 		vis.add_child(soldier)
 		if p_is_leader:
-			# Ref 4: the Alpha is a hulk — wider than he is tall.
 			soldier.scale = Vector3(1.28, 1.12, 1.28)
 	else:
 		var body := MeshInstance3D.new()
@@ -315,7 +350,7 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 		body.position = Vector3(0, 0.9, 0)
 		vis.add_child(body)
 
-	_bake_cyber_gear(vis, p_faction, p_is_leader)
+	_bake_cyber_gear(vis, p_faction, p_is_leader, ResourceLoader.exists(body_path))
 	return root
 
 
@@ -331,7 +366,7 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 ##    gauntlets and fists, shoulder plates, head cables, burning red eyes.
 ##  - Civilian (ref 5): club-goer — neon jacket strips, two-tone hair,
 ##    chrome forearm, glowing belt screen.
-static func _bake_cyber_gear(parent: Node3D, p_faction: String, p_is_leader: bool) -> void:
+static func _bake_cyber_gear(parent: Node3D, p_faction: String, p_is_leader: bool, avatar := false) -> void:
 	var gear := Node3D.new()
 	gear.name = "CyberGear"
 	parent.add_child(gear)
@@ -340,10 +375,13 @@ static func _bake_cyber_gear(parent: Node3D, p_faction: String, p_is_leader: boo
 	match p_faction:
 		"cannibal":
 			if p_is_leader:
-				# Ref 4: the armored brute.
+				if avatar:
+					# The Devil body carries the brute look on its own; only a
+					# belt plate so the silhouette reads "armored".
+					_gear_box(gear, "BeltPlate", Vector3(0, 1.02, -0.14), Vector3(0.36, 0.09, 0.08), dark_metal, 0.0)
+					return
+				# Ref 4: the armored brute (fallback soldier body).
 				var red := Color(1.0, 0.12, 0.08)
-				# Body under this gear is scaled ×1.28 wide — everything sits
-				# further out so it reads as armor ON the hulk, not inside him.
 				_gear_box(gear, "EyeL", Vector3(-0.07, 1.66, -0.18), Vector3(0.06, 0.04, 0.04), red, 5.0)
 				_gear_box(gear, "EyeR", Vector3(0.07, 1.66, -0.18), Vector3(0.06, 0.04, 0.04), red, 5.0)
 				_gear_box(gear, "Mask", Vector3(0, 1.56, -0.17), Vector3(0.18, 0.1, 0.07), dark_metal, 0.0)
@@ -356,29 +394,33 @@ static func _bake_cyber_gear(parent: Node3D, p_faction: String, p_is_leader: boo
 					var cable := _gear_box(gear, "Cable", Vector3(s * 0.12, 1.72, 0.1), Vector3(0.035, 0.3, 0.035), dark_metal, 0.0)
 					cable.rotation_degrees = Vector3(-35, 0, s * 20)
 			else:
-				# Ref 3: the gaunt one — exposed cyber-arms, orange seams.
+				# Ref 3: claw blades on both hands (avatar keeps its own face).
 				var ember := Color(1.0, 0.35, 0.1)
-				_gear_box(gear, "EyeL", Vector3(-0.055, 1.67, -0.15), Vector3(0.045, 0.04, 0.04), Color(1.0, 0.15, 0.15), 4.0)
-				_gear_box(gear, "EyeR", Vector3(0.055, 1.67, -0.15), Vector3(0.045, 0.04, 0.04), Color(1.0, 0.15, 0.15), 4.0)
-				_gear_box(gear, "SkullPlate", Vector3(0.06, 1.74, -0.02), Vector3(0.1, 0.05, 0.12), chrome, 0.0)
-				_gear_box(gear, "ChestSeam", Vector3(0.05, 1.25, -0.15), Vector3(0.05, 0.34, 0.02), ember, 2.2)
-				_gear_box(gear, "RibSeam", Vector3(-0.08, 1.12, -0.145), Vector3(0.16, 0.03, 0.02), ember, 1.6)
+				if not avatar:
+					_gear_box(gear, "EyeL", Vector3(-0.055, 1.67, -0.15), Vector3(0.045, 0.04, 0.04), Color(1.0, 0.15, 0.15), 4.0)
+					_gear_box(gear, "EyeR", Vector3(0.055, 1.67, -0.15), Vector3(0.045, 0.04, 0.04), Color(1.0, 0.15, 0.15), 4.0)
+					_gear_box(gear, "SkullPlate", Vector3(0.06, 1.74, -0.02), Vector3(0.1, 0.05, 0.12), chrome, 0.0)
+					_gear_box(gear, "ChestSeam", Vector3(0.05, 1.25, -0.15), Vector3(0.05, 0.34, 0.02), ember, 2.2)
+					_gear_box(gear, "RibSeam", Vector3(-0.08, 1.12, -0.145), Vector3(0.16, 0.03, 0.02), ember, 1.6)
+					for s in [-1.0, 1.0]:
+						_gear_box(gear, "CyberArm", Vector3(s * 0.3, 0.95, 0), Vector3(0.09, 0.4, 0.11), chrome, 0.0)
 				for s in [-1.0, 1.0]:
-					_gear_box(gear, "CyberArm", Vector3(s * 0.3, 0.95, 0), Vector3(0.09, 0.4, 0.11), chrome, 0.0)
 					for k in 3:
 						var claw := _gear_box(gear, "Claw", Vector3(s * (0.26 + k * 0.035), 0.6, -0.08), Vector3(0.014, 0.3, 0.03), Color(0.75, 0.78, 0.85), 0.0)
 						claw.rotation_degrees = Vector3(-12, 0, s * (4 + k * 3))
 		"killer":
-			# Refs 1-2: black-ops merc. Accent* pieces get recolored per
-			# archetype (Клинок = red, Броня = blue-violet).
+			# Refs 1-2: merc. Accent* pieces get recolored per archetype
+			# (Клинок = red, Броня = blue-violet).
 			var accent := Color(1.0, 0.15, 0.2)
-			_gear_box(gear, "AccentEyeL", Vector3(-0.055, 1.66, -0.15), Vector3(0.05, 0.035, 0.04), accent, 4.0)
-			_gear_box(gear, "AccentEyeR", Vector3(0.055, 1.66, -0.15), Vector3(0.05, 0.035, 0.04), accent, 4.0)
-			_gear_box(gear, "Mask", Vector3(0, 1.55, -0.145), Vector3(0.15, 0.09, 0.06), dark_metal, 0.0)
-			_gear_box(gear, "ChestRig", Vector3(0, 1.3, -0.145), Vector3(0.3, 0.26, 0.06), Color(0.09, 0.1, 0.13), 0.0)
+			if not avatar:
+				_gear_box(gear, "AccentEyeL", Vector3(-0.055, 1.66, -0.15), Vector3(0.05, 0.035, 0.04), accent, 4.0)
+				_gear_box(gear, "AccentEyeR", Vector3(0.055, 1.66, -0.15), Vector3(0.05, 0.035, 0.04), accent, 4.0)
+				_gear_box(gear, "Mask", Vector3(0, 1.55, -0.145), Vector3(0.15, 0.09, 0.06), dark_metal, 0.0)
+				_gear_box(gear, "ChestRig", Vector3(0, 1.3, -0.145), Vector3(0.3, 0.26, 0.06), Color(0.09, 0.1, 0.13), 0.0)
+				for s in [-1.0, 1.0]:
+					_gear_box(gear, "CyberArm", Vector3(s * 0.3, 0.95, 0), Vector3(0.1, 0.38, 0.12), dark_metal, 0.0)
 			for s in [-1.0, 1.0]:
-				_gear_box(gear, "CyberArm", Vector3(s * 0.3, 0.95, 0), Vector3(0.1, 0.38, 0.12), dark_metal, 0.0)
-				_gear_box(gear, "AccentArmGlow", Vector3(s * 0.3, 0.95, -0.08), Vector3(0.03, 0.3, 0.015), accent, 2.0)
+				_gear_box(gear, "AccentArmGlow", Vector3(s * 0.24, 0.98, -0.05), Vector3(0.025, 0.26, 0.015), accent, 2.0)
 				for k in 3:
 					var claw := _gear_box(gear, "Claw", Vector3(s * (0.26 + k * 0.035), 0.58, -0.1), Vector3(0.014, 0.34, 0.035), Color(0.7, 0.74, 0.82), 0.0)
 					claw.rotation_degrees = Vector3(-14, 0, s * (3 + k * 3))
@@ -388,15 +430,17 @@ static func _bake_cyber_gear(parent: Node3D, p_faction: String, p_is_leader: boo
 			var hilt := _gear_box(gear, "AccentKatanaHilt", Vector3(0.36, 1.74, 0.16), Vector3(0.04, 0.2, 0.055), accent, 0.8)
 			hilt.rotation_degrees = Vector3(0, 0, -38)
 		"survivor":
-			# Ref 5: the club kid from «Облака».
+			# Ref 5: the club kid from «Облака» (the Shiro body already has the
+			# two-tone hair — no hair boxes on top of it).
 			var neon_a := Color(1.0, 0.2, 0.75)
 			var neon_b := Color(0.1, 0.9, 1.0)
-			_gear_box(gear, "HairA", Vector3(-0.05, 1.78, 0.0), Vector3(0.14, 0.09, 0.2), neon_a, 1.2)
-			_gear_box(gear, "HairB", Vector3(0.07, 1.77, 0.0), Vector3(0.1, 0.08, 0.2), neon_b, 1.2)
-			_gear_box(gear, "JacketTrimL", Vector3(-0.26, 1.15, -0.1), Vector3(0.04, 0.44, 0.04), neon_a, 1.8)
-			_gear_box(gear, "JacketTrimR", Vector3(0.26, 1.15, -0.1), Vector3(0.04, 0.44, 0.04), neon_b, 1.8)
-			_gear_box(gear, "CollarGlow", Vector3(0, 1.52, -0.14), Vector3(0.24, 0.03, 0.03), neon_b, 1.8)
-			_gear_box(gear, "ChromeArm", Vector3(0.29, 0.95, 0), Vector3(0.08, 0.36, 0.1), chrome, 0.0)
+			if not avatar:
+				_gear_box(gear, "HairA", Vector3(-0.05, 1.78, 0.0), Vector3(0.14, 0.09, 0.2), neon_a, 1.2)
+				_gear_box(gear, "HairB", Vector3(0.07, 1.77, 0.0), Vector3(0.1, 0.08, 0.2), neon_b, 1.2)
+				_gear_box(gear, "CollarGlow", Vector3(0, 1.52, -0.14), Vector3(0.24, 0.03, 0.03), neon_b, 1.8)
+				_gear_box(gear, "ChromeArm", Vector3(0.29, 0.95, 0), Vector3(0.08, 0.36, 0.1), chrome, 0.0)
+			_gear_box(gear, "JacketTrimL", Vector3(-0.21, 1.18, -0.08), Vector3(0.035, 0.36, 0.035), neon_a, 1.8)
+			_gear_box(gear, "JacketTrimR", Vector3(0.21, 1.18, -0.08), Vector3(0.035, 0.36, 0.035), neon_b, 1.8)
 			_gear_box(gear, "BeltScreen", Vector3(0.08, 1.0, -0.15), Vector3(0.13, 0.1, 0.02), Color(0.55, 0.3, 1.0), 2.0)
 
 

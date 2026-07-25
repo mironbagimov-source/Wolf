@@ -48,6 +48,27 @@ const BOT_WINDUP := 0.45          # readable wind-up before a bot's light strike
 const BOT_CHARGED_WINDUP := 0.9   # charged bot strike: longer, red telegraph
 const BOT_CHARGED_CHANCE := 0.25
 
+# --- CP2077-style layer: parry / dodge dash / fatigue -------------------
+# Блок, поднятый в последний момент перед ударом — парирование: урон 0,
+# атакующий открыт. Заряженный удар парировать нельзя (он ломает блок).
+const PARRY_WINDOW := 0.22
+const PARRY_STAGGER := 0.9
+const PARRY_STAMINA_COST := 4.0
+# Дэш-уклонение: двойное нажатие WASD, короткие i-кадры от ближнего боя.
+const DASH_SPEED := 9.0
+const DASH_TIME := 0.22
+const DASH_STAMINA_COST := 15.0
+const DASH_CD := 0.6
+const DOUBLE_TAP_WINDOW := 0.3
+# Усталость: на низкой стамине бьёшь слабее и медленнее (как в 2.0).
+const LOW_STAMINA_FRAC := 0.35
+const LOW_STAMINA_DMG_MUL := 0.75
+const LOW_STAMINA_CD_MUL := 1.3
+# Мантис-прыжок психов: рывок к жертве со средней дистанции.
+const LUNGE_MIN := 3.0
+const LUNGE_MAX := 6.0
+const LUNGE_CD := 4.0
+
 const STAMINA_MAX := 100.0
 const STAMINA_ATTACK_COST := 14.0
 const STAMINA_CHARGE_EXTRA := 16.0

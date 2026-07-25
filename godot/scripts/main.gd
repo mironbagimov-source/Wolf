@@ -47,6 +47,7 @@ var _captured := false
 var _look_delta := Vector2.ZERO
 var _keys_prev := {}
 var _mouse_prev := {}
+var _tap_time := {}  # double-tap dodge detection per movement key
 var _pitch := 0.0
 var _eye_y := WolfCfg.EYE_STAND
 
@@ -343,7 +344,7 @@ func _mouse_pressed_once(btn: MouseButton) -> bool:
 
 
 func _store_prev_input() -> void:
-	for code in [KEY_E, KEY_F, KEY_Q, KEY_SPACE, KEY_C]:
+	for code in [KEY_E, KEY_F, KEY_Q, KEY_SPACE, KEY_C, KEY_W, KEY_A, KEY_S, KEY_D]:
 		_keys_prev[code] = Input.is_key_pressed(code)
 	for btn in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 		_mouse_prev[btn] = Input.is_mouse_button_pressed(btn)
@@ -380,6 +381,16 @@ func _update_player_input(delta: float) -> void:
 	p.move_input = Vector2(ix, iz)
 	p.sprinting = _key(KEY_SHIFT)
 	p.crouching = _key(KEY_C) and not p.sprinting
+
+	# CP2077-style dodge: double-tap a movement key to dash that way with
+	# brief i-frames against melee.
+	for entry in [[KEY_W, Vector2(0, 1)], [KEY_S, Vector2(0, -1)], [KEY_A, Vector2(-1, 0)], [KEY_D, Vector2(1, 0)]]:
+		if _key_pressed_once(entry[0]):
+			var now := Time.get_ticks_msec() / 1000.0
+			var last: float = _tap_time.get(entry[0], -10.0)
+			_tap_time[entry[0]] = now
+			if now - last <= WolfCfg.DOUBLE_TAP_WINDOW:
+				_try_dash(p, entry[1])
 
 	var target_eye := WolfCfg.EYE_CROUCH if p.crouching else WolfCfg.EYE_STAND
 	_eye_y = lerpf(_eye_y, target_eye, minf(1.0, delta * 10.0))
@@ -421,7 +432,25 @@ func _update_player_input(delta: float) -> void:
 
 func _melee_range(e: WolfChar) -> float:
 	var base: float = WolfCfg.CONFIG[e.faction].get("attack_range", 2.0)
-	return base + e.weapon.get("range", 0.0)
+	return base + e.weapon.get("range", 0.0) + e.reach_bonus
+
+
+## Усталость: на низкой стамине удары слабее и медленнее (CP2077 2.0).
+func _fatigued(e: WolfChar) -> bool:
+	return e.stamina < WolfCfg.STAMINA_MAX * WolfCfg.LOW_STAMINA_FRAC
+
+
+func _try_dash(e: WolfChar, dir2: Vector2) -> void:
+	if e.dash_cd > 0.0 or e.stagger_t > 0.0 or e.being_executed or e.is_grabbed:
+		return
+	if e.stamina < WolfCfg.DASH_STAMINA_COST:
+		return
+	var local := Vector3(dir2.x, 0, -dir2.y).normalized()
+	e.dash_dir = (e.basis * local).normalized()
+	e.dash_t = WolfCfg.DASH_TIME
+	e.dash_cd = WolfCfg.DASH_CD
+	e.stamina -= WolfCfg.DASH_STAMINA_COST
+	e.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
 
 
 func _acquire_melee_target(e: WolfChar) -> WolfChar:
@@ -430,6 +459,8 @@ func _acquire_melee_target(e: WolfChar) -> WolfChar:
 	for t: WolfChar in entities:
 		if t == e or t.is_dead or t.faction == e.faction or t.being_executed:
 			continue
+		if t.dash_t > 0.0:
+			continue  # dodge i-frames: a dashing target can't be struck
 		var dp := t.global_position - e.global_position
 		if absf(dp.y) > WolfCfg.SAME_FLOOR_DY:
 			continue
@@ -452,9 +483,17 @@ func _player_strike(p: WolfChar) -> void:
 	p.stamina -= WolfCfg.STAMINA_ATTACK_COST + WolfCfg.STAMINA_CHARGE_EXTRA * charge_frac
 	p.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
 	p.cd_attack = WolfCfg.CONFIG[p.faction]["attack_cd"] / p.weapon.get("speed", 1.0)
+	if _fatigued(p):
+		p.cd_attack *= WolfCfg.LOW_STAMINA_CD_MUL
 	_kick_viewmodel(charged)
 	var dmg_mul := 1.0 + charge_frac * (WolfCfg.CHARGE_DMG_MAX_MUL - 1.0)
+	# Удар из спринта — выпад вперёд с увеличенной досягаемостью (CP2077).
+	if p.sprinting and p.move_input.y > 0.5:
+		p.dash_dir = -p.basis.z
+		p.dash_t = 0.16
+		p.reach_bonus = 0.5
 	_deliver_strike(p, dmg_mul, charged)
+	p.reach_bonus = 0.0
 
 
 func _bot_begin_windup(e: WolfChar, charged: bool) -> void:
@@ -483,6 +522,8 @@ func _resolve_bot_strike(e: WolfChar) -> void:
 	var charged := e.windup_charged
 	_cancel_windup(e)
 	e.cd_attack = WolfCfg.CONFIG[e.faction]["attack_cd"] / e.weapon.get("speed", 1.0)
+	if _fatigued(e):
+		e.cd_attack *= WolfCfg.LOW_STAMINA_CD_MUL
 	e.recover_t = WolfCfg.BOT_ATTACK_RECOVER
 	_deliver_strike(e, 1.5 if charged else 1.0, charged)
 
@@ -511,6 +552,15 @@ func _deliver_strike(e: WolfChar, dmg_mul: float, charged: bool) -> void:
 		var facing := _yaw_toward(e.global_position.x - target.global_position.x, e.global_position.z - target.global_position.z)
 		defending = absf(wrapf(facing - target.rotation.y, -PI, PI)) < PI / 1.8
 	if defending:
+		# Парирование: блок, поднятый в последний момент, отбивает лёгкий
+		# удар начисто и раскрывает атакующего для контратаки.
+		if not charged and target.block_age <= WolfCfg.PARRY_WINDOW:
+			target.stamina -= WolfCfg.PARRY_STAMINA_COST
+			target.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
+			e.stagger_t = maxf(e.stagger_t, WolfCfg.PARRY_STAGGER)
+			e.recover_t = maxf(e.recover_t, 0.4)
+			e.hit_flash = 0.25
+			return
 		target.stamina -= WolfCfg.STAMINA_BLOCK_HIT_COST * target.stamina_block_mul
 		target.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
 		if charged:
@@ -522,6 +572,8 @@ func _deliver_strike(e: WolfChar, dmg_mul: float, charged: bool) -> void:
 			target.stamina = 0.0
 			target.stagger_t = maxf(target.stagger_t, 0.9)
 
+	if _fatigued(e):
+		dmg *= WolfCfg.LOW_STAMINA_DMG_MUL
 	_damage(target, dmg, e)
 
 
@@ -829,6 +881,12 @@ func _bot_psycho(e: WolfChar, delta: float) -> void:
 			if flat <= _melee_range(e) and e.cd_attack <= 0.0:
 				e.rotation.y = _yaw_toward(dp.x, dp.z)
 				_bot_begin_windup(e, randf() < WolfCfg.BOT_CHARGED_CHANCE)
+			elif flat >= WolfCfg.LUNGE_MIN and flat <= WolfCfg.LUNGE_MAX and e.lunge_cd <= 0.0 and e.stamina >= WolfCfg.STAMINA_ATTACK_COST:
+				# Мантис-прыжок: рывок к жертве через полкомнаты.
+				e.lunge_cd = WolfCfg.LUNGE_CD
+				e.rotation.y = _yaw_toward(dp.x, dp.z)
+				e.dash_dir = Vector3(dp.x, 0, dp.z).normalized()
+				e.dash_t = 0.35
 		return
 
 	# No prey sensed: roam the whole tower on patrol points (lobby, shops,
@@ -876,6 +934,12 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.stagger_t = maxf(0.0, e.stagger_t - delta)
 	e.recover_t = maxf(0.0, e.recover_t - delta)
 	e.bot_block_t = maxf(0.0, e.bot_block_t - delta)
+	e.dash_cd = maxf(0.0, e.dash_cd - delta)
+	e.lunge_cd = maxf(0.0, e.lunge_cd - delta)
+	if e.is_blocking or e.bot_block_t > 0.0:
+		e.block_age += delta
+	else:
+		e.block_age = 0.0
 	e.flash_materials(delta)
 
 	# Stamina regen after a short breather.
@@ -912,6 +976,10 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 		wish = (e.basis * local) * speed
 	if e.stagger_t > 0.0:
 		wish += e.knockback
+	# Dodge dash / psycho lunge overrides normal locomotion for its duration.
+	if e.dash_t > 0.0:
+		e.dash_t = maxf(0.0, e.dash_t - delta)
+		wish = e.dash_dir * WolfCfg.DASH_SPEED
 
 	e.velocity.x = wish.x
 	e.velocity.z = wish.z
@@ -1143,6 +1211,10 @@ func _run_test(delta: float) -> void:
 			_test_bomb(delta)
 		"cast":
 			_test_cast(delta)
+		"parry":
+			_test_parry(delta)
+		"dash":
+			_test_dash(delta)
 		"exec":
 			if _test_t > 0.5 and mode == "menu":
 				_start_match("survivor", 0, -1)
@@ -1300,6 +1372,72 @@ func _test_bomb(_delta: float) -> void:
 
 
 var _cast_line: Array = []
+var _test_pos_before := Vector3.ZERO
+
+
+## Parry check: raising the guard just before a bot's light strike lands must
+## negate ALL damage and stagger the attacker.
+func _test_parry(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
+		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
+	elif _test_staged and _duel_bot != null and not _test_shot_taken:
+		if _duel_bot.winding:
+			_duel_bot.windup_charged = false  # parry only counters LIGHT strikes
+			if _duel_bot.windup_t <= 0.18 and not player.is_blocking:
+				var ev := InputEventMouseButton.new()
+				ev.button_index = MOUSE_BUTTON_RIGHT
+				ev.pressed = true
+				Input.parse_input_event(ev)
+		elif player.is_blocking:
+			# The wind-up resolved against our raised guard — measure.
+			_test_shot_taken = true
+			var loss := player.max_hp - player.hp
+			var ok := loss < 0.5 and _duel_bot.stagger_t > 0.0
+			print("TEST RESULT: parry loss=%.1f attacker_staggered=%s %s" % [loss, str(_duel_bot.stagger_t > 0.0), "OK" if ok else "FAIL"])
+			get_tree().quit(0 if ok else 1)
+	if _test_t > 30.0:
+		print("TEST RESULT: parry FAIL timeout winding=%s" % str(_duel_bot != null and _duel_bot.winding))
+		get_tree().quit(1)
+
+
+## Dodge check: a double-tapped movement key must dash the player sideways
+## and spend stamina.
+func _test_dash(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.2 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_test_pos_before = player.global_position
+	elif _test_staged and not _test_shot_taken:
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_D
+		ev.physical_keycode = KEY_D
+		if _test_t > 1.3 and _test_t <= 1.4:
+			ev.pressed = true
+			Input.parse_input_event(ev)
+		elif _test_t > 1.4 and _test_t <= 1.5:
+			ev.pressed = false
+			Input.parse_input_event(ev)
+		elif _test_t > 1.5 and _test_t <= 1.6:
+			ev.pressed = true
+			Input.parse_input_event(ev)
+		elif _test_t > 1.6 and _test_t <= 1.7:
+			# release again: displacement past here comes from the dash itself,
+			# not from simply strafing with D held
+			ev.pressed = false
+			Input.parse_input_event(ev)
+		elif _test_t > 2.2:
+			_test_shot_taken = true
+			var moved := (player.global_position - _test_pos_before).length()
+			var ok := moved > 1.2 and player.stamina < WolfCfg.STAMINA_MAX - 1.0
+			print("TEST RESULT: dash moved=%.2f stamina=%.0f %s" % [moved, player.stamina, "OK" if ok else "FAIL"])
+			get_tree().quit(0 if ok else 1)
 
 
 ## Character-art check: line up one of each look (civilian, psycho, Alpha,
