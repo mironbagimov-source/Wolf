@@ -15,7 +15,7 @@ var _floor_ys: Array = []
 func _ready() -> void:
 	collision_layer = 4
 	sync_to_physics = true
-	for f in 4:
+	for f in WolfCfg.FLOORS:
 		_floor_ys.append(f * WolfCfg.FLOOR_H - 0.15)  # platform top flush with the slab
 	position.y = _floor_ys[0]
 
@@ -23,7 +23,15 @@ func _ready() -> void:
 func request_next() -> void:
 	if moving:
 		return
-	target_floor = (current_floor + 1) % 4
+	target_floor = (current_floor + 1) % WolfCfg.FLOORS
+	moving = true
+
+
+## Direct floor selection (digit keys while riding).
+func request_floor(f: int) -> void:
+	if f < 0 or f >= WolfCfg.FLOORS or f == current_floor:
+		return
+	target_floor = f
 	moving = true
 
 

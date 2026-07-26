@@ -17,3 +17,5 @@ window/size/viewport_height=720
 renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="gl_compatibility"
 environment/defaults/default_clear_color=Color(0.02, 0.024, 0.05, 1)
+limits/opengl/max_renderable_lights=64
+limits/opengl/max_lights_per_object=16

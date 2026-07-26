@@ -70,6 +70,7 @@ var hit_flash := 0.0
 
 var wander_dir := Vector3.FORWARD
 var wander_timer := 0.0
+var patrol_idx := -1  # persistent roam target — bots finish long descents
 
 var visual: Node3D = null
 var _anim: AnimationPlayer = null

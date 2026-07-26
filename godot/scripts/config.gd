@@ -8,10 +8,11 @@ const EYE_CROUCH := 1.02
 const ENTITY_RADIUS := 0.4
 
 ## Tower interior bounds (outer walls).
-const BOUND_X := 21.4
-const BOUND_Z := 15.4
+const BOUND_X := 29.4
+const BOUND_Z := 21.4
 const FLOOR_H := 5.0
-const ELEVATOR_SPEED := 3.2
+const FLOORS := 8
+const ELEVATOR_SPEED := 4.0
 
 const FACTION_COLOR := {
 	"survivor": Color(0.27, 0.84, 0.77),
@@ -96,7 +97,7 @@ const WEAPONS := {
 }
 
 # --- Objectives ----------------------------------------------------------
-const POLICE_TIME := 180.0        # seconds until police arrive (civilians' win clock)
+const POLICE_TIME := 210.0        # seconds until police arrive (civilians' win clock)
 const BOMB_PLANT_TIME := 5.0      # seconds the merc holds E at the bomb site
 const INTERACT_RANGE := 2.6
 const FLEE_RADIUS := 10.0
@@ -117,7 +118,7 @@ const EXECUTE_THRESHOLD := 0.30
 const EXECUTE_RANGE := 2.4
 const EXECUTE_CAM_TIME := 1.35
 
-const MERC_BOT_COUNT := 2
+const MERC_BOT_COUNT := 3
 const MERC_BOT_HP := 150.0
 const MERC_BOT_DMG_MUL := 0.75
 const MERC_BOT_KNIVES := 1

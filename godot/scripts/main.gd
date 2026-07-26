@@ -94,6 +94,23 @@ func _ready() -> void:
 			print("NAV READY: %d polygons" % nav.navigation_mesh.get_polygon_count()))
 		nav.bake_navigation_mesh.call_deferred(true)
 
+	# Heavy screen-space/GI effects need the Forward+ renderer (the shipped
+	# build). The compatibility fallback — including the headless test rig —
+	# skips them; the scene's lights and glow still carry the look.
+	if RenderingServer.get_rendering_device() != null:
+		var we := district.get_node_or_null("WorldEnvironment") as WorldEnvironment
+		if we != null and we.environment != null:
+			var env := we.environment
+			env.sdfgi_enabled = true
+			env.sdfgi_use_occlusion = true
+			env.ssil_enabled = true
+			env.volumetric_fog_enabled = true
+			env.volumetric_fog_density = 0.012
+			env.volumetric_fog_albedo = Color(0.7, 0.75, 0.9)
+		var moon := district.get_node_or_null("Moon") as DirectionalLight3D
+		if moon != null:
+			moon.shadow_enabled = true
+
 
 func _on_character_picked(faction: String, char_index: int) -> void:
 	if faction == "survivor":
@@ -160,14 +177,16 @@ func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
 		if (d as WolfDoor).is_open and not (d as WolfDoor).is_broken:
 			(d as WolfDoor).toggle()  # matches start with doors closed
 
-	for i in 3:
+	var civ_spawns := _spawn_positions("Survivor")
+	for i in 6:
 		var is_human := faction == "survivor" and i == 0
-		_spawn_char("survivor", _spawn_positions("Survivor")[i], is_human, false)
+		_spawn_char("survivor", civ_spawns[i % civ_spawns.size()], is_human, false)
 
-	for i in 3:
+	var psycho_spawns := _spawn_positions("Cannibal")
+	for i in 4:
 		var is_human := faction == "cannibal" and i == 0
 		var is_lead := i == 0
-		var c := _spawn_char("cannibal", _spawn_positions("Cannibal")[i], is_human, is_lead)
+		var c := _spawn_char("cannibal", psycho_spawns[i % psycho_spawns.size()], is_human, is_lead)
 		if not is_human:
 			c.can_execute = true
 			c.set_weapon(WolfCfg.WEAPONS["cannibal"].pick_random())
@@ -344,7 +363,8 @@ func _mouse_pressed_once(btn: MouseButton) -> bool:
 
 
 func _store_prev_input() -> void:
-	for code in [KEY_E, KEY_F, KEY_Q, KEY_SPACE, KEY_C, KEY_W, KEY_A, KEY_S, KEY_D]:
+	for code in [KEY_E, KEY_F, KEY_Q, KEY_SPACE, KEY_C, KEY_W, KEY_A, KEY_S, KEY_D,
+			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8]:
 		_keys_prev[code] = Input.is_key_pressed(code)
 	for btn in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 		_mouse_prev[btn] = Input.is_mouse_button_pressed(btn)
@@ -398,6 +418,12 @@ func _update_player_input(delta: float) -> void:
 
 	p.interact_held = _key(KEY_E)
 	p.interact_pressed = _key_pressed_once(KEY_E)
+
+	# Elevator floor selection with the digit keys while riding.
+	if elevator != null and elevator.is_riding(p):
+		for i in WolfCfg.FLOORS:
+			if _key_pressed_once((KEY_1 + i) as Key):
+				elevator.request_floor(i)
 
 	if p.faction == "survivor" and _key_pressed_once(KEY_F):
 		p.flashlight_on = not p.flashlight_on
@@ -889,11 +915,17 @@ func _bot_psycho(e: WolfChar, delta: float) -> void:
 				e.dash_t = 0.35
 		return
 
-	# No prey sensed: roam the whole tower on patrol points (lobby, shops,
-	# hotel, club) — this is what makes the factions actually cross paths.
+	# No prey sensed: roam the whole tower on patrol points. The target is
+	# PERSISTENT until reached (or timed out) — in the 8-floor tower a
+	# rotating target made bots dither around stairwells and never finish a
+	# long descent, so the factions stopped crossing paths.
 	if not patrol_points.is_empty():
-		var idx := (Time.get_ticks_msec() / 8000 + e.get_instance_id()) % patrol_points.size()
-		_nav_steer(e, patrol_points[idx], delta)
+		e.wander_timer -= delta
+		var reached := e.patrol_idx >= 0 and e.global_position.distance_to(patrol_points[e.patrol_idx]) < 2.5
+		if e.patrol_idx < 0 or e.wander_timer <= 0.0 or reached:
+			e.patrol_idx = randi() % patrol_points.size()
+			e.wander_timer = 35.0
+		_nav_steer(e, patrol_points[e.patrol_idx], delta)
 		e.sprinting = false
 
 
@@ -1051,14 +1083,14 @@ func _prompt_for(p: WolfChar) -> String:
 		return "Тебя добивают…"
 	if elevator != null and elevator.is_riding(p):
 		if elevator.moving:
-			return "Лифт едет…"
-		return "[E] Лифт — на этаж %d" % (((elevator.current_floor + 1) % 4) + 1)
+			return "Лифт едет… (этаж %d)" % (elevator.target_floor + 1)
+		return "[E] вверх · [1-8] выбрать этаж (сейчас %d)" % (elevator.current_floor + 1)
 	if p.charging:
 		return "ЗАРЯД удара… отпусти ЛКМ" if p.charge_t >= WolfCfg.CHARGE_MIN else "Удар…"
 	if p.faction == "survivor":
 		if _in_safe_zone(p.global_position):
 			return "Вы в укрытии — ждите полицию"
-		return "Найди безопасную комнату (зелёная вывеска, 3-й этаж)"
+		return "Найди безопасную комнату (зелёная вывеска, 4–5 этажи)"
 	if p.faction == "cannibal":
 		if p.can_execute and _find_execute_target(p) != null:
 			return "[F] ДОБИВАНИЕ"
@@ -1185,7 +1217,7 @@ func _run_test(delta: float) -> void:
 			elif mode == "playing" and _test_t > 1.6 and not _test_staged:
 				_test_staged = true
 				if _test_mode == "rooms":
-					player.global_position = Vector3(-10, 2 * WolfCfg.FLOOR_H + 0.2, 6)
+					player.global_position = Vector3(-10, 3 * WolfCfg.FLOOR_H + 0.2, 12)
 			elif _test_staged and _test_t > 2.4 and not _test_shot_taken:
 				_test_shot_taken = true
 				_finish_test("%s ok: entities=%d floor_y=%.1f" % [_test_mode, entities.size(), player.global_position.y])
@@ -1310,15 +1342,25 @@ func _test_meet(_delta: float) -> void:
 	elif mode == "playing" and _test_t > 2.0:
 		var psycho_low := false
 		var civ_hit := false
+		if int(_test_t) % 20 == 0 and int(_test_t) != _meet_dbg_t:
+			_meet_dbg_t = int(_test_t)
+			for e: WolfChar in entities:
+				if e.faction == "cannibal":
+					var tgt := "-"
+					if e.patrol_idx >= 0 and e.patrol_idx < patrol_points.size():
+						tgt = "%.0f" % (patrol_points[e.patrol_idx] as Vector3).y
+					print("DBG meet t=%d psycho y=%.1f idx=%d tgt_y=%s dead=%s" % [int(_test_t), e.global_position.y, e.patrol_idx, tgt, str(e.is_dead)])
 		for e: WolfChar in entities:
-			if e.faction == "cannibal" and e.global_position.y < 11.0:
+			# Descended = left the club levels (spawn is floors 7-8) and got
+			# at least four floors down the giant tower.
+			if e.faction == "cannibal" and e.global_position.y < 3.0 * WolfCfg.FLOOR_H + 1.0:
 				psycho_low = true
 			if e.faction == "survivor" and (e.hp < e.max_hp or e.is_dead):
 				civ_hit = true
 		if (psycho_low and civ_hit) or mode == "ended":
 			print("TEST RESULT: meet OK psycho_descended=%s civ_contacted=%s" % [str(psycho_low), str(civ_hit)])
 			get_tree().quit(0)
-		elif _test_t > 100.0:
+		elif _test_t > 160.0:
 			print("TEST RESULT: meet FAIL psycho_descended=%s civ_contacted=%s" % [str(psycho_low), str(civ_hit)])
 			get_tree().quit(1)
 
@@ -1374,6 +1416,7 @@ func _test_bomb(_delta: float) -> void:
 var _cast_line: Array = []
 var _test_pos_before := Vector3.ZERO
 var _dash_step := 0
+var _meet_dbg_t := -1
 
 
 ## Parry check: raising the guard just before a bot's light strike lands must
