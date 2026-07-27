@@ -62,7 +62,7 @@ const RESULT_COPY := {
 	"civs_dead": ["Психи победили", "В башне не осталось живых гражданских.", "cannibal"],
 	"police": ["Полиция прибыла", "Выжившие гражданские спасены.", "survivor"],
 	"psychos_dead": ["Психи уничтожены", "Наёмники зачистили башню — гражданские спасены.", "killer"],
-	"merc_done": ["Контракт закрыт", "Психи мертвы, бомба заложена, наёмники ушли до сирен.", "killer"],
+	"merc_done": ["Контракт закрыт", "Бомба заложена, наёмники растворились до сирен.", "killer"],
 }
 
 
@@ -94,22 +94,29 @@ func _ready() -> void:
 			print("NAV READY: %d polygons" % nav.navigation_mesh.get_polygon_count()))
 		nav.bake_navigation_mesh.call_deferred(true)
 
-	# Heavy screen-space/GI effects need the Forward+ renderer (the shipped
-	# build). The compatibility fallback — including the headless test rig —
-	# skips them; the scene's lights and glow still carry the look.
-	if RenderingServer.get_rendering_device() != null:
-		var we := district.get_node_or_null("WorldEnvironment") as WorldEnvironment
-		if we != null and we.environment != null:
-			var env := we.environment
-			env.sdfgi_enabled = true
-			env.sdfgi_use_occlusion = true
-			env.ssil_enabled = true
-			env.volumetric_fog_enabled = true
-			env.volumetric_fog_density = 0.012
-			env.volumetric_fog_albedo = Color(0.7, 0.75, 0.9)
-		var moon := district.get_node_or_null("Moon") as DirectionalLight3D
-		if moon != null:
-			moon.shadow_enabled = true
+	# Fast graphics by default — the full effect stack tanked FPS. The menu
+	# button switches to the heavy set; either way the extras only run on the
+	# Forward+ renderer (the compatibility fallback ignores them).
+	ui.graphics_toggled.connect(_apply_graphics)
+	_apply_graphics(false)
+
+
+func _apply_graphics(high: bool) -> void:
+	var has_rd := RenderingServer.get_rendering_device() != null
+	var we := district.get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if we != null and we.environment != null:
+		var env := we.environment
+		env.ssao_enabled = has_rd
+		env.ssr_enabled = high and has_rd
+		env.sdfgi_enabled = high and has_rd
+		env.sdfgi_use_occlusion = high
+		env.ssil_enabled = high and has_rd
+		env.volumetric_fog_enabled = high and has_rd
+		env.volumetric_fog_density = 0.012
+		env.volumetric_fog_albedo = Color(0.7, 0.75, 0.9)
+	var moon := district.get_node_or_null("Moon") as DirectionalLight3D
+	if moon != null:
+		moon.shadow_enabled = high and has_rd
 
 
 func _on_character_picked(faction: String, char_index: int) -> void:
@@ -191,7 +198,8 @@ func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
 			c.can_execute = true
 			c.set_weapon(WolfCfg.WEAPONS["cannibal"].pick_random())
 
-	var merc_count := 1 + WolfCfg.MERC_BOT_COUNT if faction == "killer" else WolfCfg.MERC_BOT_COUNT
+	# Отряд наёмников — максимум двое: игрок + напарник (или пара ботов).
+	var merc_count := 2
 	var merc_spawns := _spawn_positions("Killer")
 	for i in merc_count:
 		var is_human := faction == "killer" and i == 0
@@ -313,12 +321,13 @@ func _check_win() -> void:
 	if _alive("survivor") == 0:
 		_end_game("civs_dead")
 		return
-	if _alive("cannibal") == 0:
-		# The merc player still has to finish the contract; everyone else ends here.
-		if player.faction != "killer":
-			_end_game("psychos_dead")
-		elif bomb_planted and _in_zone(player.global_position, evac_pos, evac_half) and not player.is_dead:
+	# Контракт наёмника — только бомба и отход; психи — просто помеха.
+	if player.faction == "killer":
+		if bomb_planted and _in_zone(player.global_position, evac_pos, evac_half) and not player.is_dead:
 			_end_game("merc_done")
+		return
+	if _alive("cannibal") == 0:
+		_end_game("psychos_dead")
 
 
 # ---------------------------------------------------------------------------
@@ -933,8 +942,9 @@ func _bot_merc(e: WolfChar, delta: float) -> void:
 	e.wants_execute = false
 	e.sprinting = false
 
+	# Психи — помеха, не цель: бот дерётся только с теми, кто рядом.
 	var psycho := _nearest_living("cannibal", e.global_position)
-	if psycho[0] != null and psycho[1] <= WolfCfg.MERC_BOT_SENSE:
+	if psycho[0] != null and psycho[1] <= WolfCfg.MERC_BOT_SENSE * 0.6:
 		var target: WolfChar = psycho[0]
 		e.sprinting = psycho[1] > 6.0
 		_nav_steer(e, target.global_position, delta)
@@ -949,8 +959,17 @@ func _bot_merc(e: WolfChar, delta: float) -> void:
 				e.wants_throw = true
 		return
 
-	# Sweep upward toward the club — that's where the trouble lives.
-	_nav_steer(e, bomb_site, delta)
+	# Напарник держится рядом с игроком-наёмником; без игрока в отряде боты
+	# сами идут закладывать — к бомб-сайту, а после закладки к эвакуации.
+	if player != null and player.faction == "killer" and not player.is_dead:
+		var dp := player.global_position - e.global_position
+		if Vector2(dp.x, dp.z).length() > 3.0 or absf(dp.y) > 2.2:
+			e.sprinting = Vector2(dp.x, dp.z).length() > 8.0
+			_nav_steer(e, player.global_position, delta)
+		else:
+			e.move_input = Vector2.ZERO
+		return
+	_nav_steer(e, evac_pos if bomb_planted else bomb_site, delta)
 
 
 # ---------------------------------------------------------------------------
@@ -1100,10 +1119,9 @@ func _prompt_for(p: WolfChar) -> String:
 			return "[F] ДОБИВАНИЕ"
 		if bomb_progress > 0.0 and not bomb_planted:
 			return "Установка бомбы… %d%%" % int(bomb_progress / WolfCfg.BOMB_PLANT_TIME * 100.0)
-		if _alive("cannibal") > 0:
-			return "Психов осталось: %d · бомба ждёт в «Облаках»" % _alive("cannibal")
 		if not bomb_planted:
-			return "Психи мертвы — заложи бомбу в клубе [E]"
+			var noise := " · психи рядом: %d" % _alive("cannibal") if _alive("cannibal") > 0 else ""
+			return "Контракт: бомба в «Облаках» (8 этаж) [E]%s" % noise
 		if not _in_zone(p.global_position, evac_pos, evac_half):
 			return "Бомба заложена — уходи через лобби!"
 		return ""
@@ -1389,14 +1407,12 @@ func _test_lift(_delta: float) -> void:
 		get_tree().quit(1)
 
 
+## Новые правила: бомба закладывается при живых психах — они лишь помеха.
 func _test_bomb(_delta: float) -> void:
 	if _test_t > 0.5 and mode == "menu":
 		_start_match("killer", 0, 0)
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
-		for e: WolfChar in entities:
-			if e.faction == "cannibal":
-				_damage(e, 99999.0, player)
 		player.global_position = bomb_site + Vector3(0, 0.2, -1.5)
 		var ev := InputEventKey.new()
 		ev.keycode = KEY_E

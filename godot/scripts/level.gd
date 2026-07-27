@@ -438,18 +438,18 @@ static func _floor_club(root: Node3D, parent: Node3D) -> void:
 
 static func _lights(parent: Node3D) -> void:
 	# Warm white ceiling grid on every floor — the tower reads BRIGHT.
+	# Four strong lamps per floor, not nine: the light count was the main
+	# FPS sink (and the GL fallback caps renderable lights).
 	for f in FLOORS:
 		var y: float = H * f + H - 0.5
-		for lx in [-20.0, 0.0, 20.0]:
-			for lz in [-14.0, 0.0, 14.0]:
-				if lx == 0.0 and lz == 0.0:
-					continue  # atrium void
-				_emissive(parent, Vector3(lx, y + 0.3, lz), Vector3(2.6, 0.08, 0.6), WARM_WHITE, 1.6)
+		for lx in [-16.0, 16.0]:
+			for lz in [-11.0, 11.0]:
+				_emissive(parent, Vector3(lx, y + 0.3, lz), Vector3(3.0, 0.08, 0.7), WARM_WHITE, 1.6)
 				var l := OmniLight3D.new()
 				l.position = Vector3(lx, y, lz)
 				l.light_color = WARM_WHITE
-				l.light_energy = 2.5
-				l.omni_range = 17.0
+				l.light_energy = 3.2
+				l.omni_range = 22.0
 				parent.add_child(l)
 	# Atrium accent shafts.
 	for f in range(1, FLOORS):

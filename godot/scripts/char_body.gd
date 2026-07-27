@@ -319,6 +319,8 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 
 	var role := "leader" if p_is_leader else p_faction
 	var body_path := "res://assets/characters/bodies/%s_body.glb" % role
+	if not ResourceLoader.exists(body_path):
+		body_path = "res://assets/characters/bodies/%s_body.fbx" % role
 	if ResourceLoader.exists(body_path):
 		# Downloaded 100Avatars body (see assets/characters/bodies/LICENSE.md);
 		# Idle/Walk/Run are retargeted from the soldier rig at bake time and
@@ -326,9 +328,22 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 		var av: Node3D = (load(body_path) as PackedScene).instantiate()
 		av.name = "Body"
 		vis.add_child(av)
+		# Source scales vary wildly (one FBX imports at 16cm tall) —
+		# normalize every body to its role's height.
+		var boxes: Array = []
+		_model_aabb(av, Transform3D.IDENTITY, boxes)
+		if not boxes.is_empty():
+			var merged: AABB = boxes[0]
+			for b: AABB in boxes:
+				merged = merged.merge(b)
+			var target_h: float = {"survivor": 1.68, "cannibal": 1.72, "killer": 1.85, "leader": 2.2}[role]
+			if merged.size.y > 0.01:
+				av.scale = Vector3.ONE * (target_h / merged.size.y)
 		if p_is_leader:
-			# Ref 4: the Alpha is a hulk — wider than he is tall.
-			av.scale = Vector3(1.28, 1.12, 1.28)
+			av.scale *= Vector3(1.12, 1.0, 1.12)  # the Alpha reads wider
+		# The soldier clips carry the soldier's facing; flip the body so the
+		# retargeted pose looks down the character's -Z like everything else.
+		av.rotation.y = PI
 		var soldier_scene: Node3D = (load("res://assets/characters/soldier.glb") as PackedScene).instantiate()
 		var src_anim := WolfRetarget.find_anim_player(soldier_scene)
 		var src_skel := WolfRetarget.find_skeleton(soldier_scene)
@@ -452,6 +467,15 @@ static func _bake_cyber_gear(parent: Node3D, p_faction: String, p_is_leader: boo
 			_gear_box(gear, "JacketTrimL", Vector3(-0.17, 1.16, -0.07), Vector3(0.03, 0.32, 0.03), neon_a, 1.8)
 			_gear_box(gear, "JacketTrimR", Vector3(0.17, 1.16, -0.07), Vector3(0.03, 0.32, 0.03), neon_b, 1.8)
 			_gear_box(gear, "BeltScreen", Vector3(0.06, 1.0, -0.13), Vector3(0.11, 0.09, 0.02), Color(0.55, 0.3, 1.0), 2.0)
+
+
+static func _model_aabb(node: Node, xf: Transform3D, out: Array) -> void:
+	if node is Node3D:
+		xf = xf * (node as Node3D).transform
+	if node is MeshInstance3D:
+		out.append(xf * (node as MeshInstance3D).get_aabb())
+	for c in node.get_children():
+		_model_aabb(c, xf, out)
 
 
 static func _gear_box(parent: Node3D, p_name: String, pos: Vector3, size: Vector3, color: Color, glow_energy: float, emit_color := Color.BLACK) -> MeshInstance3D:

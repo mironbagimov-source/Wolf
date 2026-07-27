@@ -8,6 +8,7 @@ var charselect: Control
 var hud: Control
 var end_screen: Control
 var pause_hint: Label
+var _gfx_high := false
 
 var hp_fill: ColorRect
 var stance_label: Label
@@ -31,6 +32,7 @@ signal faction_picked(faction: String)
 signal character_picked(faction: String, index: int)
 signal weapon_picked(faction: String, char_index: int, weapon_index: int)
 signal restart_pressed
+signal graphics_toggled(high: bool)
 
 
 func _ready() -> void:
@@ -128,13 +130,22 @@ func _build_menu() -> void:
 	var cards := [
 		["survivor", "ГРАЖДАНСКИЙ", "хоррор · без оружия", "Найди безопасную комнату в номерах и дождись полиции."],
 		["cannibal", "КИБЕР-ПСИХ", "реверсивный хоррор", "Перебей всех гражданских, пока не приехала полиция."],
-		["killer", "НАЁМНИК", "зачистка · стелс", "Вырежи психов, заложи бомбу в клубе и уйди через лобби."],
+		["killer", "НАЁМНИК", "рейд · стелс", "Отряд из двоих: заложи бомбу в «Облаках» и уйди через лобби. Психи — лишь помеха."],
 	]
 	for c in cards:
 		var b := _card_button(row, c[1], c[2], c[3], WolfCfg.FACTION_COLOR[c[0]])
 		b.pressed.connect(_on_faction.bind(c[0]))
 
 	_label(box, "Мышь — осмотр · WASD — движение · двойное нажатие WASD — дэш-уклонение · Shift — бег · C — присед\nЛКМ — удар (зажать = заряженный) · ПКМ — блок (в последний момент = парирование) · Q — нож · F — добивание / фонарь · E — двери, лифт и бомба · ESC — курсор", 14, Color(0.45, 0.52, 0.66))
+
+	var gfx := Button.new()
+	gfx.text = "ГРАФИКА: БЫСТРАЯ (максимум FPS)"
+	gfx.add_theme_font_size_override("font_size", 15)
+	gfx.pressed.connect(func() -> void:
+		_gfx_high = not _gfx_high
+		gfx.text = "ГРАФИКА: КРАСИВАЯ (SDFGI, туман — тяжело)" if _gfx_high else "ГРАФИКА: БЫСТРАЯ (максимум FPS)"
+		graphics_toggled.emit(_gfx_high))
+	box.add_child(gfx)
 
 
 func _build_charselect() -> void:

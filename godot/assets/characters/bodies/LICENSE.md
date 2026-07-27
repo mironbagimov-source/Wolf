@@ -1,9 +1,14 @@
 # Character body models
 
-- `survivor_body.glb` — "Michelle", a Mixamo-derived character shipped with
-  the three.js examples (https://github.com/mrdoob/three.js, MIT-licensed
-  repository; character usable under Adobe Mixamo's royalty-free terms).
-  Idle/Walk/Run are retargeted at bake time from soldier.glb by
-  tools/retarget.gd.
-- The combat factions (merc, psycho, Alpha) use `soldier.glb` ("Vanguard",
-  same origin) with procedural cyber-gear — see char_body.gd.
+Mixamo characters (Adobe Mixamo royalty-free terms; files provided by the
+project owner):
+- killer_body.fbx   — "Heraklios" by A. Dizon (merc)
+- cannibal_body.fbx — "Medea" by M. Arrebola (psycho)
+- leader_body.fbx   — "Pumpkinhulk" by L. Shaw (Alpha)
+
+From the three.js examples (MIT-licensed repository, Mixamo-derived):
+- survivor_body.glb — "Michelle" (civilian)
+- soldier.glb (../) — "Vanguard", fallback body and the Idle/Walk/Run
+  animation source; clips are retargeted onto every body at bake time by
+  tools/retarget.gd (exact local-delta transfer — all rigs share Mixamo
+  bone conventions).

@@ -1,0 +1,37 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://bsm428u6ba8ey"
+path="res://.godot/imported/killer_body_0.png-dd4ebb8045d8ae5d0318f8b2233ca738.ctex"
+metadata={
+"vram_texture": false
+}
+generator_parameters={
+"md5": "4050fa8be9a4c64c005fef8ab749033e"
+}
+
+[deps]
+
+source_file="res://assets/characters/bodies/killer_body_0.png"
+dest_files=["res://.godot/imported/killer_body_0.png-dd4ebb8045d8ae5d0318f8b2233ca738.ctex"]
+
+[params]
+
+compress/mode=1
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=512
+detect_3d/compress_to=1
