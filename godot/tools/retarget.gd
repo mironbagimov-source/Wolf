@@ -17,7 +17,8 @@ static func bone_key(bname: String) -> String:
 	if idx < 0:
 		return bname
 	var suffix := bname.substr(idx + 9)
-	while suffix.begins_with("_") or suffix.begins_with(":"):
+	# Strip the numbered-prefix variants too: "mixamorig1_Hips" -> "Hips".
+	while suffix.length() > 0 and (suffix[0] == "_" or suffix[0] == ":" or (suffix[0] >= "0" and suffix[0] <= "9")):
 		suffix = suffix.substr(1)
 	return suffix
 

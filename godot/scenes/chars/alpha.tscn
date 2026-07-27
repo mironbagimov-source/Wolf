@@ -1,58 +1,58 @@
 [gd_scene load_steps=9 format=3]
 
-[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_aka18"]
-[ext_resource type="PackedScene" path="res://assets/characters/bodies/leader_body.fbx" id="2_v6nh0"]
-[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_leader.res" id="3_bl5de"]
+[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_rct41"]
+[ext_resource type="PackedScene" path="res://assets/characters/bodies/pumpkinhulk.fbx" id="2_betdy"]
+[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_leader.res" id="3_dvrpn"]
 
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_gcjo6"]
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_l3lki"]
 radius = 0.4
 height = 1.8
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_bnm3m"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ci6tt"]
 albedo_color = Color(0.16, 0.17, 0.21, 1)
 metallic = 0.55
 roughness = 0.4
 
-[sub_resource type="BoxMesh" id="BoxMesh_jw4a0"]
+[sub_resource type="BoxMesh" id="BoxMesh_o7qmw"]
 size = Vector3(0.36, 0.09, 0.08)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_g81jv"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dwvj6"]
 albedo_color = Color(1, 1, 0, 1)
 emission_enabled = true
 emission = Color(1, 1, 0, 1)
 emission_energy_multiplier = 4.0
 
-[sub_resource type="BoxMesh" id="BoxMesh_r32a8"]
+[sub_resource type="BoxMesh" id="BoxMesh_smv3s"]
 size = Vector3(0.16, 0.16, 0.16)
 
 [node name="Alpha" type="CharacterBody3D"]
-script = ExtResource("1_aka18")
+script = ExtResource("1_rct41")
 faction = "cannibal"
 is_leader = true
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_gcjo6")
+shape = SubResource("CapsuleShape3D_l3lki")
 
 [node name="Visual" type="Node3D" parent="."]
 
-[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_v6nh0")]
+[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_betdy")]
 transform = Transform3D(-1.20757, 0, -1.05569e-07, 0, 1.07818, 0, 1.05569e-07, 0, -1.20757, 0, 0, 0)
 
 [node name="AnimationPlayer" type="AnimationPlayer" parent="Visual"]
 libraries = {
-"": ExtResource("3_bl5de")
+"": ExtResource("3_dvrpn")
 }
 
 [node name="CyberGear" type="Node3D" parent="Visual"]
 
 [node name="BeltPlate" type="MeshInstance3D" parent="Visual/CyberGear"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.02, -0.14)
-material_override = SubResource("StandardMaterial3D_bnm3m")
-mesh = SubResource("BoxMesh_jw4a0")
+material_override = SubResource("StandardMaterial3D_ci6tt")
+mesh = SubResource("BoxMesh_o7qmw")
 
 [node name="Telegraph" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3, 0)
 visible = false
-material_override = SubResource("StandardMaterial3D_g81jv")
-mesh = SubResource("BoxMesh_r32a8")
+material_override = SubResource("StandardMaterial3D_dwvj6")
+mesh = SubResource("BoxMesh_smv3s")

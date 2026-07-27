@@ -40,17 +40,20 @@ func _init() -> void:
 
 	_save(district, "res://scenes/district.tscn")
 
-	# --- characters (one editable scene per faction role) ---
+	# --- characters (one editable scene per archetype body) ---
 	var chars := [
-		["survivor", false, "res://scenes/chars/survivor.tscn"],
-		["cannibal", false, "res://scenes/chars/psycho.tscn"],
-		["cannibal", true, "res://scenes/chars/alpha.tscn"],
-		["killer", false, "res://scenes/chars/merc.tscn"],
+		["survivor", false, 0, "res://scenes/chars/survivor.tscn"],
+		["survivor", false, 1, "res://scenes/chars/survivor_b.tscn"],
+		["cannibal", false, 0, "res://scenes/chars/psycho.tscn"],
+		["cannibal", false, 1, "res://scenes/chars/psycho_b.tscn"],
+		["cannibal", true, 0, "res://scenes/chars/alpha.tscn"],
+		["killer", false, 0, "res://scenes/chars/merc.tscn"],
+		["killer", false, 1, "res://scenes/chars/merc_b.tscn"],
 	]
 	for c in chars:
-		var body := WolfChar.build_scene_tree(c[0], c[1])
-		body.name = (c[2] as String).get_file().get_basename().capitalize()
-		_save(body, c[2])
+		var body := WolfChar.build_scene_tree(c[0], c[1], c[2])
+		body.name = (c[3] as String).get_file().get_basename().capitalize()
+		_save(body, c[3])
 
 	print("BAKE DONE")
 	quit(0)

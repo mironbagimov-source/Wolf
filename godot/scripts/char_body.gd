@@ -282,7 +282,20 @@ func flash_materials(delta: float) -> void:
 # character scenes (scenes/chars/*.tscn) that the editor can open and edit.
 # ---------------------------------------------------------------------------
 
-static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterBody3D:
+## Каждому архетипу — своя модель (файлы кладёт владелец проекта, см.
+## bodies/LICENSE.md). Вариант "a" — первый архетип фракции, "b" — второй.
+const BODY_FILES := {
+	"survivor_a": "michelle.glb",     # Курьер — Michelle
+	"survivor_b": "medea.fbx",        # Медтех — Medea
+	"cannibal_a": "ch45.fbx",         # Мясник — Ch45
+	"cannibal_b": "xbot.fbx",         # Богомол — X Bot
+	"killer_a": "erika.fbx",          # Клинок — Erika
+	"killer_b": "heraklios.fbx",      # Броня — Heraklios
+	"leader": "pumpkinhulk.fbx",      # Альфа — Pumpkinhulk
+}
+
+
+static func build_scene_tree(p_faction: String, p_is_leader: bool, p_variant := 0) -> CharacterBody3D:
 	var root := CharacterBody3D.new()
 	root.set_script(load("res://scripts/char_body.gd"))
 	root.set("faction", p_faction)
@@ -317,10 +330,8 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 	tele.visible = false
 	root.add_child(tele)
 
-	var role := "leader" if p_is_leader else p_faction
-	var body_path := "res://assets/characters/bodies/%s_body.glb" % role
-	if not ResourceLoader.exists(body_path):
-		body_path = "res://assets/characters/bodies/%s_body.fbx" % role
+	var role := "leader" if p_is_leader else "%s_%s" % [p_faction, "b" if p_variant == 1 else "a"]
+	var body_path: String = "res://assets/characters/bodies/" + BODY_FILES.get(role, "")
 	if ResourceLoader.exists(body_path):
 		# Downloaded 100Avatars body (see assets/characters/bodies/LICENSE.md);
 		# Idle/Walk/Run are retargeted from the soldier rig at bake time and
@@ -336,7 +347,7 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool) -> CharacterB
 			var merged: AABB = boxes[0]
 			for b: AABB in boxes:
 				merged = merged.merge(b)
-			var target_h: float = {"survivor": 1.68, "cannibal": 1.72, "killer": 1.85, "leader": 2.2}[role]
+			var target_h: float = 2.2 if p_is_leader else {"survivor": 1.68, "cannibal": 1.8, "killer": 1.85}[p_faction]
 			if merged.size.y > 0.01:
 				av.scale = Vector3.ONE * (target_h / merged.size.y)
 		if p_is_leader:

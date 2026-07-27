@@ -1,0 +1,37 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://1b5siofb6dbi"
+path="res://.godot/imported/erika_4.png-276dd131a92a762f36c416c749d603f4.ctex"
+metadata={
+"vram_texture": false
+}
+generator_parameters={
+"md5": "184960f0d258ff8a0ff1cfd091b4b9c5"
+}
+
+[deps]
+
+source_file="res://assets/characters/bodies/erika_4.png"
+dest_files=["res://.godot/imported/erika_4.png-276dd131a92a762f36c416c749d603f4.ctex"]
+
+[params]
+
+compress/mode=1
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=512
+detect_3d/compress_to=1

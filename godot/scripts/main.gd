@@ -12,10 +12,13 @@ extends Node3D
 const KnifeScene := preload("res://scripts/knife.gd")
 
 const CHAR_SCENE_PATHS := {
-	"survivor": "res://scenes/chars/survivor.tscn",
-	"cannibal": "res://scenes/chars/psycho.tscn",
+	"survivor_a": "res://scenes/chars/survivor.tscn",
+	"survivor_b": "res://scenes/chars/survivor_b.tscn",
+	"cannibal_a": "res://scenes/chars/psycho.tscn",
+	"cannibal_b": "res://scenes/chars/psycho_b.tscn",
 	"leader": "res://scenes/chars/alpha.tscn",
-	"killer": "res://scenes/chars/merc.tscn",
+	"killer_a": "res://scenes/chars/merc.tscn",
+	"killer_b": "res://scenes/chars/merc_b.tscn",
 }
 var _char_scenes := {}
 
@@ -184,16 +187,18 @@ func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
 		if (d as WolfDoor).is_open and not (d as WolfDoor).is_broken:
 			(d as WolfDoor).toggle()  # matches start with doors closed
 
+	# Каждый архетип носит свою модель: игрок — выбранную, боты чередуются.
 	var civ_spawns := _spawn_positions("Survivor")
 	for i in 6:
 		var is_human := faction == "survivor" and i == 0
-		_spawn_char("survivor", civ_spawns[i % civ_spawns.size()], is_human, false)
+		var v := arche_index % 2 if is_human else i % 2
+		_spawn_char("survivor", civ_spawns[i % civ_spawns.size()], is_human, false, v)
 
 	var psycho_spawns := _spawn_positions("Cannibal")
 	for i in 4:
 		var is_human := faction == "cannibal" and i == 0
 		var is_lead := i == 0
-		var c := _spawn_char("cannibal", psycho_spawns[i % psycho_spawns.size()], is_human, is_lead)
+		var c := _spawn_char("cannibal", psycho_spawns[i % psycho_spawns.size()], is_human, is_lead, i % 2)
 		if not is_human:
 			c.can_execute = true
 			c.set_weapon(WolfCfg.WEAPONS["cannibal"].pick_random())
@@ -203,7 +208,8 @@ func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
 	var merc_spawns := _spawn_positions("Killer")
 	for i in merc_count:
 		var is_human := faction == "killer" and i == 0
-		var m := _spawn_char("killer", merc_spawns[i % merc_spawns.size()], is_human, false)
+		var v: int = arche_index % 2 if is_human else (1 - arche_index % 2 if faction == "killer" else i % 2)
+		var m := _spawn_char("killer", merc_spawns[i % merc_spawns.size()], is_human, false, v)
 		if not is_human:
 			m.hp = WolfCfg.MERC_BOT_HP
 			m.max_hp = WolfCfg.MERC_BOT_HP
@@ -231,8 +237,8 @@ func _spawn_positions(prefix: String) -> Array:
 	return out
 
 
-func _spawn_char(faction: String, pos: Vector3, is_human: bool, is_lead: bool) -> WolfChar:
-	var key := "leader" if is_lead else faction
+func _spawn_char(faction: String, pos: Vector3, is_human: bool, is_lead: bool, variant := 0) -> WolfChar:
+	var key := "leader" if is_lead else "%s_%s" % [faction, "b" if variant == 1 else "a"]
 	if not _char_scenes.has(key):
 		_char_scenes[key] = load(CHAR_SCENE_PATHS[key])
 	var c: WolfChar = (_char_scenes[key] as PackedScene).instantiate()
@@ -1511,30 +1517,25 @@ func _test_dash(_delta: float) -> void:
 ## against the user's reference images.
 func _test_cast(_delta: float) -> void:
 	if _test_t > 0.5 and mode == "menu":
-		_start_match("killer", 0, 0)
+		_start_match("survivor", 0, -1)  # обе модели наёмников — боты
 	elif mode == "playing" and _test_t > 1.4 and _cast_line.is_empty():
-		var civ: WolfChar = null
-		var psycho: WolfChar = null
-		var alpha: WolfChar = null
-		var mercs: Array = []
-		for e: WolfChar in entities:
-			if e.is_player:
-				continue
-			if e.faction == "survivor" and civ == null:
-				civ = e
-			elif e.faction == "cannibal" and e.is_leader:
-				alpha = e
-			elif e.faction == "cannibal" and psycho == null:
-				psycho = e
-			elif e.faction == "killer" and mercs.size() < 2:
-				mercs.append(e)
-		var x := -20.4
-		for p in [civ, psycho, alpha] + mercs:
-			if p == null:
-				continue
+		# Один представитель каждого УНИКАЛЬНОГО тела (архетипы различаются
+		# сценой) — сверка с референсами владельца.
+		var picks: Array = []
+		var seen := {}
+		for grp: Array in [["survivor", false], ["cannibal", false], ["cannibal", true], ["killer", false]]:
+			for e: WolfChar in entities:
+				if e.is_player or e.faction != grp[0] or e.is_leader != grp[1]:
+					continue
+				if seen.has(e.scene_file_path):
+					continue
+				seen[e.scene_file_path] = true
+				picks.append(e)
+		var x := -22.0
+		for p: WolfChar in picks:
 			_cast_line.append([p, Vector3(x, 0.2, 13.0)])
 			x += 1.5
-		player.global_position = Vector3(-17.4, 0.2, 9.9)
+		player.global_position = Vector3((-22.0 + x - 1.5) / 2.0, 0.2, 9.2)
 	elif not _cast_line.is_empty():
 		# Re-pin every tick so AI can't wander/strike out of the lineup.
 		for item in _cast_line:
