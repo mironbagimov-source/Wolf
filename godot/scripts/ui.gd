@@ -30,7 +30,7 @@ var dir_chips: Array = []   # [left, right, overhead] ColorRects around the cros
 
 signal faction_picked(faction: String)
 signal character_picked(faction: String, index: int)
-signal weapon_picked(faction: String, char_index: int, weapon_index: int)
+signal weapon_picked(faction: String, char_index: int, weapon_index: int, loadout: Dictionary)
 signal restart_pressed
 signal graphics_toggled(high: bool)
 
@@ -136,7 +136,7 @@ func _build_menu() -> void:
 		var b := _card_button(row, c[1], c[2], c[3], WolfCfg.FACTION_COLOR[c[0]])
 		b.pressed.connect(_on_faction.bind(c[0]))
 
-	_label(box, "Мышь — осмотр · WASD — движение · двойное нажатие WASD — дэш-уклонение · Shift — бег · C — присед\nЛКМ — удар (зажать = заряженный) · ПКМ — блок (в последний момент = парирование) · Q — нож · F — добивание / фонарь · E — двери, лифт и бомба · ESC — курсор", 14, Color(0.45, 0.52, 0.66))
+	_label(box, "Мышь — осмотр · WASD — движение · двойное WASD — дэш · Shift — бег · C — присед · SPACE в грав-шахте — вверх\nЛКМ — удар/выстрел · ПКМ — блок (в последний момент = парирование) · 1/2/3 — стволы и клинок (наёмник) · Q — нож · F — добивание/фонарь · E — двери и взрывчатка · ESC — курсор", 14, Color(0.45, 0.52, 0.66))
 
 	var gfx := Button.new()
 	gfx.text = "ГРАФИКА: БЫСТРАЯ (максимум FPS)"
@@ -220,16 +220,69 @@ func _build_weaponselect() -> void:
 func open_weaponselect(faction: String, char_index: int) -> void:
 	charselect.visible = false
 	weaponselect.visible = true
-	_ws_title.text = "Оружие — " + WolfCfg.FACTION_NAME[faction]
+	_ws_title.text = "Снаряжение — " + WolfCfg.FACTION_NAME[faction]
 	_ws_title.add_theme_color_override("font_color", WolfCfg.FACTION_COLOR[faction])
 	for child in _ws_box.get_children():
 		child.queue_free()
-	var weapons: Array = WolfCfg.WEAPONS[faction]
-	for i in weapons.size():
-		var w: Dictionary = weapons[i]
-		var stats := "урон ×%.2f · скорость ×%.2f" % [w["dmg"], w["speed"]]
-		var b := _card_button(_ws_box, w["name"], stats, w["desc"], WolfCfg.FACTION_COLOR[faction])
-		b.pressed.connect(func() -> void: weapon_picked.emit(faction, char_index, i))
+	if faction == "cannibal":
+		var weapons: Array = WolfCfg.WEAPONS[faction]
+		for i in weapons.size():
+			var w: Dictionary = weapons[i]
+			var stats := "урон ×%.2f · скорость ×%.2f" % [w["dmg"], w["speed"]]
+			var b := _card_button(_ws_box, w["name"], stats, w["desc"], WolfCfg.FACTION_COLOR[faction])
+			b.pressed.connect(func() -> void: weapon_picked.emit(faction, char_index, i, {}))
+		return
+
+	# Наёмник: основное [1] + вторичное [2] + ближний бой [3], затем «В БОЙ».
+	var sel := {"primary": 0, "secondary": 0, "melee": 0}
+	var groups := [
+		["ОСНОВНОЕ  [1]", "primary", WolfCfg.FIREARMS["primary"]],
+		["ВТОРИЧНОЕ  [2]", "secondary", WolfCfg.FIREARMS["secondary"]],
+		["БЛИЖНИЙ БОЙ  [3]", "melee", WolfCfg.WEAPONS["killer"]],
+	]
+	for g: Array in groups:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 6)
+		_ws_box.add_child(col)
+		var head := Label.new()
+		head.text = g[0]
+		head.add_theme_font_size_override("font_size", 15)
+		head.add_theme_color_override("font_color", WolfCfg.FACTION_COLOR[faction])
+		col.add_child(head)
+		var opts: Array = g[2]
+		var btns: Array = []
+		for i in opts.size():
+			var w: Dictionary = opts[i]
+			var b := Button.new()
+			b.text = ("► " if i == 0 else "   ") + str(w["name"])
+			b.tooltip_text = str(w.get("desc", ""))
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.add_theme_font_size_override("font_size", 15)
+			col.add_child(b)
+			btns.append(b)
+			var slot: String = g[1]
+			var idx := i
+			b.pressed.connect(func() -> void:
+				sel[slot] = idx
+				for j in btns.size():
+					(btns[j] as Button).text = ("► " if j == idx else "   ") + str((opts[j] as Dictionary)["name"]))
+		var hint := Label.new()
+		hint.text = "\n".join((opts.map(func(w: Dictionary) -> String: return "%s — %s" % [w["name"], w.get("desc", "")])))
+		hint.add_theme_font_size_override("font_size", 11)
+		hint.add_theme_color_override("font_color", Color(0.45, 0.52, 0.66))
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hint.custom_minimum_size = Vector2(240, 0)
+		col.add_child(hint)
+	var go_col := VBoxContainer.new()
+	go_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	_ws_box.add_child(go_col)
+	var go := Button.new()
+	go.text = "  В БОЙ  "
+	go.add_theme_font_size_override("font_size", 22)
+	go_col.add_child(go)
+	go.pressed.connect(func() -> void:
+		weapon_picked.emit(faction, char_index, sel["melee"],
+			{"primary": sel["primary"], "secondary": sel["secondary"]}))
 
 
 func _build_hud() -> void:

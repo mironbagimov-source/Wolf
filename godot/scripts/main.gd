@@ -38,7 +38,10 @@ var player: WolfChar = null
 
 var safe_zones: Array = []      # [{pos, half}]
 var patrol_points: Array = []
-var bomb_site := Vector3.ZERO
+var bomb_site := Vector3.ZERO      # где лежит взрывчатка (или куда выпала)
+var bomb_spots: Array = []         # кандидаты спавна
+var bomb_carried := false          # игрок несёт взрывчатку
+var bomb_pickup: Node3D = null     # визуал брикетов
 var evac_pos := Vector3.ZERO
 var evac_half := Vector3.ONE
 var police_t := 0.0
@@ -83,7 +86,7 @@ func _ready() -> void:
 	ui = $UI
 	ui.faction_picked.connect(func(f: String) -> void: ui.open_charselect(f))
 	ui.character_picked.connect(_on_character_picked)
-	ui.weapon_picked.connect(func(f: String, ci: int, wi: int) -> void: _start_match(f, ci, wi))
+	ui.weapon_picked.connect(func(f: String, ci: int, wi: int, lo: Dictionary) -> void: _start_match(f, ci, wi, lo))
 	ui.restart_pressed.connect(_back_to_menu)
 
 	_test_mode = OS.get_environment("WOLF_TEST")
@@ -146,9 +149,12 @@ func _collect_layout() -> void:
 	if patrol != null:
 		for child in patrol.get_children():
 			patrol_points.append((child as Marker3D).global_position)
-	var site := district.get_node_or_null("BombSite")
-	if site != null:
-		bomb_site = (site as Marker3D).global_position
+	bomb_spots.clear()
+	var spots := district.get_node_or_null("BombSpots")
+	if spots != null:
+		for child in spots.get_children():
+			bomb_spots.append((child as Marker3D).global_position)
+	bomb_pickup = district.get_node_or_null("BombPickup")
 	var evac := district.get_node_or_null("EvacMarker")
 	if evac != null:
 		evac_pos = (evac as Marker3D).global_position
@@ -171,7 +177,7 @@ func _in_safe_zone(pos: Vector3) -> bool:
 # match lifecycle
 # ---------------------------------------------------------------------------
 
-func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
+func _start_match(faction: String, arche_index: int, weapon_index: int, loadout := {}) -> void:
 	for e in entities:
 		e.queue_free()
 	for k in knives:
@@ -182,6 +188,12 @@ func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
 	exec_cam = {}
 	bomb_progress = 0.0
 	bomb_planted = false
+	bomb_carried = false
+	if not bomb_spots.is_empty():
+		bomb_site = bomb_spots.pick_random()
+	if bomb_pickup != null:
+		bomb_pickup.global_position = bomb_site
+		bomb_pickup.visible = true
 	var override := OS.get_environment("WOLF_POLICE")
 	police_t = float(override) if override != "" else WolfCfg.POLICE_TIME
 	for d in doors:
@@ -223,6 +235,11 @@ func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
 	player.apply_archetype(WolfCfg.CHARACTERS[faction][arche_index])
 	if weapon_index >= 0:
 		player.set_weapon(WolfCfg.WEAPONS[faction][weapon_index])
+	if faction == "killer":
+		player.firearm_primary = WolfCfg.FIREARMS["primary"][clampi(int(loadout.get("primary", 0)), 0, 2)]
+		player.firearm_secondary = WolfCfg.FIREARMS["secondary"][clampi(int(loadout.get("secondary", 0)), 0, 1)]
+		player.ammo = {1: int(player.firearm_primary["ammo"]), 2: int(player.firearm_secondary["ammo"])}
+		player.weapon_slot = 1
 	_setup_player_camera()
 
 	mode = "playing"
@@ -275,13 +292,41 @@ func _setup_player_camera() -> void:
 	_build_viewmodel()
 
 
-## First-person weapon: a simple blade/maul silhouette that sways, raises on
-## wind-up toward the strike side, and swings on release.
+## First-person weapon: a simple silhouette per active slot (gun barrel or
+## blade) that sways, raises on wind-up and kicks on fire.
 func _build_viewmodel() -> void:
+	var old := player_cam.get_node_or_null("Viewmodel")
+	if old != null:
+		old.free()
 	viewmodel = null
 	if player.faction == "survivor":
 		return
 	viewmodel = Node3D.new()
+	viewmodel.name = "Viewmodel"
+	if player.faction == "killer" and player.weapon_slot != 3:
+		var gun: Dictionary = player.firearm_primary if player.weapon_slot == 1 else player.firearm_secondary
+		var long_gun := player.weapon_slot == 1
+		var barrel := MeshInstance3D.new()
+		var bbox := BoxMesh.new()
+		bbox.size = Vector3(0.055, 0.07, 0.62) if long_gun else Vector3(0.05, 0.09, 0.3)
+		barrel.mesh = bbox
+		var bmat := StandardMaterial3D.new()
+		bmat.albedo_color = Color(0.13, 0.14, 0.17)
+		bmat.metallic = 0.7
+		bmat.roughness = 0.35
+		barrel.material_override = bmat
+		viewmodel.add_child(barrel)
+		var grip := MeshInstance3D.new()
+		var gbox := BoxMesh.new()
+		gbox.size = Vector3(0.05, 0.16, 0.07)
+		grip.mesh = gbox
+		grip.position = Vector3(0, -0.1, 0.18)
+		grip.material_override = bmat
+		viewmodel.add_child(grip)
+		viewmodel.position = Vector3(0.28, -0.24, -0.5)
+		viewmodel.rotation_degrees = Vector3(0, -2, 0)
+		player_cam.add_child(viewmodel)
+		return
 	var heavy: bool = player.weapon.get("dmg", 1.0) > 1.2
 	var blade := MeshInstance3D.new()
 	var box := BoxMesh.new()
@@ -436,13 +481,27 @@ func _update_player_input(delta: float) -> void:
 	p.interact_held = _key(KEY_E)
 	p.interact_pressed = _key_pressed_once(KEY_E)
 
+	# Слоты оружия наёмника: 1 — основное, 2 — вторичное, 3 — ближний бой.
+	if p.faction == "killer":
+		for pair: Array in [[KEY_1, 1], [KEY_2, 2], [KEY_3, 3]]:
+			if _key_pressed_once(pair[0] as Key) and p.weapon_slot != pair[1]:
+				p.weapon_slot = pair[1]
+				p.charging = false
+				_build_viewmodel()
+
 
 	if p.faction == "survivor" and _key_pressed_once(KEY_F):
 		p.flashlight_on = not p.flashlight_on
 		if flashlight != null:
 			flashlight.light_energy = 4.0 if p.flashlight_on else 0.0
 
-	if p.faction != "survivor":
+	var use_gun := p.faction == "killer" and p.weapon_slot != 3
+	if use_gun:
+		p.is_blocking = false
+		p.charging = false
+		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and p.cd_attack <= 0.0:
+			_fire_gun(p)
+	elif p.faction != "survivor":
 		p.is_blocking = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not p.charging
 		# Charge-and-release melee: tap = quick strike, hold = charged strike.
 		var lmb := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or (_key(KEY_SPACE) and not _in_shaft(p.global_position))
@@ -471,6 +530,35 @@ func _update_player_input(delta: float) -> void:
 ## Внутри прозрачной грав-шахты лифта (движение по вертикали свободное).
 func _in_shaft(pos: Vector3) -> bool:
 	return pos.x > 8.0 and pos.x < 11.0 and absf(pos.z) < 1.5
+
+
+## Хитскан-выстрел из активного ствола игрока. Гремит: психи слышат.
+func _fire_gun(p: WolfChar) -> void:
+	var gun: Dictionary = p.firearm_primary if p.weapon_slot == 1 else p.firearm_secondary
+	if gun.is_empty():
+		return
+	if int(p.ammo.get(p.weapon_slot, 0)) <= 0:
+		p.cd_attack = 0.35  # сухой щелчок
+		return
+	p.ammo[p.weapon_slot] = int(p.ammo[p.weapon_slot]) - 1
+	p.cd_attack = float(gun["cd"])
+	p.gunshot_t = WolfCfg.GUNSHOT_NOISE_T
+	_kick_viewmodel(false)
+	var space := get_world_3d().direct_space_state
+	for i in int(gun["pellets"]):
+		var basis := player_cam.global_transform.basis
+		var spread: float = gun["spread"]
+		var dir := (-basis.z + basis.x * randf_range(-spread, spread) + basis.y * randf_range(-spread, spread)).normalized()
+		var from := player_cam.global_position
+		var q := PhysicsRayQueryParameters3D.create(from, from + dir * float(gun["range"]), 1 | 2 | 4, [p.get_rid()])
+		var hit := space.intersect_ray(q)
+		if hit.is_empty():
+			continue
+		var col: Object = hit["collider"]
+		if col is WolfChar and not (col as WolfChar).is_dead:
+			_damage(col as WolfChar, float(gun["dmg"]), p)
+		elif col is WolfDoor and not (col as WolfDoor).is_broken:
+			(col as WolfDoor).damage(float(gun["dmg"]))
 
 
 func _melee_range(e: WolfChar) -> float:
@@ -666,6 +754,12 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
 		target.is_dead = true
 		target.hp = 0.0
 		target.hide_telegraph()
+		if target.is_player and bomb_carried:
+			bomb_carried = false
+			bomb_site = target.global_position
+			if bomb_pickup != null:
+				bomb_pickup.global_position = bomb_site
+				bomb_pickup.visible = true
 		if target._anim != null and target._anim.has_animation("Death"):
 			target.play_death()
 		elif target.visual != null:
@@ -777,6 +871,8 @@ func _noise_radius(target: WolfChar, base: float) -> float:
 		r += WolfCfg.SPRINT_NOISE_BONUS
 	if target.flashlight_on:
 		r += WolfCfg.FLASHLIGHT_NOISE_BONUS
+	if target.gunshot_t > 0.0:
+		r += WolfCfg.GUNSHOT_NOISE
 	if target.faction == "survivor" and _in_safe_zone(target.global_position):
 		r *= WolfCfg.SAFE_SENSE_MUL
 	return r
@@ -1011,7 +1107,7 @@ func _bot_merc(e: WolfChar, delta: float) -> void:
 		else:
 			e.move_input = Vector2.ZERO
 		return
-	_bot_goto(e, evac_pos if bomb_planted else bomb_site, delta)
+	_bot_goto(e, evac_pos if bomb_planted else bomb_site, delta)  # без игрока в отряде — к заряду
 
 
 # ---------------------------------------------------------------------------
@@ -1029,6 +1125,7 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.bot_block_t = maxf(0.0, e.bot_block_t - delta)
 	e.dash_cd = maxf(0.0, e.dash_cd - delta)
 	e.lunge_cd = maxf(0.0, e.lunge_cd - delta)
+	e.gunshot_t = maxf(0.0, e.gunshot_t - delta)
 	if e.is_blocking or e.bot_block_t > 0.0:
 		e.block_age += delta
 	else:
@@ -1125,15 +1222,27 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 			door.toggle()
 			break
 
-	# Bomb: the merc player holds E at the site (psychos wiped or not — your call).
+	# Взрывчатка: найти (подбор E), донести до грав-лифта, заложить (держать E).
 	if e.faction == "killer" and not bomb_planted:
-		var dp := bomb_site - e.global_position
-		if absf(dp.y) < 2.5 and Vector2(dp.x, dp.z).length() <= 2.4 and e.interact_held:
-			bomb_progress += delta
-			if bomb_progress >= WolfCfg.BOMB_PLANT_TIME:
-				bomb_planted = true
+		if not bomb_carried:
+			var dp := bomb_site - e.global_position
+			if e.interact_pressed and absf(dp.y) < 2.5 and Vector2(dp.x, dp.z).length() <= WolfCfg.BOMB_PICKUP_RANGE:
+				bomb_carried = true
+				if bomb_pickup != null:
+					bomb_pickup.visible = false
 		else:
-			bomb_progress = maxf(0.0, bomb_progress - delta * 2.0)
+			var shaft_d := Vector2(e.global_position.x - 9.5, e.global_position.z).length()
+			if shaft_d <= WolfCfg.BOMB_PLANT_RANGE and e.interact_held:
+				bomb_progress += delta
+				if bomb_progress >= WolfCfg.BOMB_PLANT_TIME:
+					bomb_planted = true
+					bomb_carried = false
+					if bomb_pickup != null:
+						# Заложенный заряд виден в шахте на этаже закладки.
+						bomb_pickup.global_position = Vector3(9.5, floorf(e.global_position.y / WolfCfg.FLOOR_H) * WolfCfg.FLOOR_H + 0.1, 0.0)
+						bomb_pickup.visible = true
+			else:
+				bomb_progress = maxf(0.0, bomb_progress - delta * 2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1161,10 +1270,11 @@ func _prompt_for(p: WolfChar) -> String:
 		if p.can_execute and _find_execute_target(p) != null:
 			return "[F] ДОБИВАНИЕ"
 		if bomb_progress > 0.0 and not bomb_planted:
-			return "Установка бомбы… %d%%" % int(bomb_progress / WolfCfg.BOMB_PLANT_TIME * 100.0)
+			return "Закладка в грав-лифт… %d%%" % int(bomb_progress / WolfCfg.BOMB_PLANT_TIME * 100.0)
+		if not bomb_planted and not bomb_carried:
+			return "Взрывчатка на этаже %d — найди и подбери [E]" % (int(round(bomb_site.y / WolfCfg.FLOOR_H)) + 1)
 		if not bomb_planted:
-			var noise := " · психи рядом: %d" % _alive("cannibal") if _alive("cannibal") > 0 else ""
-			return "Контракт: бомба в «Облаках» (16 этаж) [E]%s" % noise
+			return "Взрывчатка у тебя — заложи в ГРАВ-ЛИФТ [держать E у шахты]" 
 		if not _in_zone(p.global_position, evac_pos, evac_half):
 			return "Бомба заложена — уходи через лобби!"
 		return ""
@@ -1184,9 +1294,16 @@ func _update_hud() -> void:
 	var stance: Array = []
 	if p.char_name != "":
 		stance.append(p.char_name)
-	if p.faction != "survivor":
+	if p.faction == "cannibal":
 		stance.append(p.weapon.get("name", ""))
 	if p.faction == "killer":
+		var slots := [
+			"[1] %s (%d)" % [p.firearm_primary.get("name", "—"), int(p.ammo.get(1, 0))],
+			"[2] %s (%d)" % [p.firearm_secondary.get("name", "—"), int(p.ammo.get(2, 0))],
+			"[3] %s" % p.weapon.get("name", ""),
+		]
+		slots[p.weapon_slot - 1] = "► " + slots[p.weapon_slot - 1]
+		stance.append("  ".join(slots))
 		stance.append("Ножи %d" % p.knives)
 	if p.crouching:
 		stance.append("присед")
@@ -1302,6 +1419,8 @@ func _run_test(delta: float) -> void:
 				get_tree().quit(1)
 		"bomb":
 			_test_bomb(delta)
+		"gun":
+			_test_gun(delta)
 		"cast":
 			_test_cast(delta)
 		"parry":
@@ -1339,6 +1458,7 @@ func _test_duel(_delta: float) -> void:
 		_test_staged = true
 		# Isolated corner: away from the merc allies who otherwise "help".
 		player.global_position = Vector3(-18, 0.2, 12)
+		player.weapon_slot = 3
 		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
 		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
 		var ev := InputEventMouseButton.new()
@@ -1363,6 +1483,7 @@ func _test_charged(_delta: float) -> void:
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
 		player.global_position = Vector3(-18, 0.2, 12)
+		player.weapon_slot = 3
 		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
 		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
 		_duel_bot.bot_block_t = 30.0
@@ -1447,25 +1568,70 @@ func _test_lift(_delta: float) -> void:
 		get_tree().quit(1)
 
 
-## Новые правила: бомба закладывается при живых психах — они лишь помеха.
+## Огнестрел: очередь из ПП должна снять психу заметно здоровья и потратить
+## патроны.
+func _test_gun(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = true
+		Input.parse_input_event(ev)
+	elif _test_staged and not _test_shot_taken:
+		_duel_bot.global_position = player.global_position + _fwd(player) * 6.0
+		_duel_bot.velocity = Vector3.ZERO
+		_duel_bot.cd_attack = 10.0
+		_duel_bot.winding = false
+		if _test_t > 3.2:
+			_test_shot_taken = true
+			var loss := _duel_bot.max_hp - _duel_bot.hp
+			var used: int = 90 - int(player.ammo.get(1, 0))
+			var ok := loss > 20.0 and used >= 4 and player.weapon_slot == 1
+			print("TEST RESULT: gun loss=%.0f ammo_used=%d slot=%d %s" % [loss, used, player.weapon_slot, "OK" if ok else "FAIL"])
+			get_tree().quit(0 if ok else 1)
+
+
+## Полный цикл контракта: найти взрывчатку (случайный спот), подобрать [E],
+## донести к грав-шахте, заложить (держать E), уйти в эвак.
 func _test_bomb(_delta: float) -> void:
 	if _test_t > 0.5 and mode == "menu":
 		_start_match("killer", 0, 0)
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
-		player.global_position = bomb_site + Vector3(0, 0.2, -1.5)
+		player.global_position = bomb_site + Vector3(0.5, 0.2, 0.5)
+	elif _test_staged and not bomb_carried and not bomb_planted and _test_t > 1.6 and _test_t < 4.0:
+		# жмём E у взрывчатки (подбор)
 		var ev := InputEventKey.new()
 		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = fmod(_test_t, 0.4) < 0.2  # серия нажатий
+		Input.parse_input_event(ev)
+	elif _test_staged and bomb_carried and not bomb_planted:
+		# к шахте и держим E
+		if Vector2(player.global_position.x - 9.5, player.global_position.z + 2.8).length() > 0.5:
+			player.global_position = Vector3(9.5, 0.3, -2.8)
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
 		ev.pressed = true
 		Input.parse_input_event(ev)
 	elif _test_staged and bomb_planted and not _test_shot_taken:
 		_test_shot_taken = true
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = false
+		Input.parse_input_event(ev)
 		player.global_position = evac_pos + Vector3(0, 0.2, 0)
 		await get_tree().create_timer(0.5).timeout
-		print("TEST RESULT: bomb ok mode=%s" % mode)
+		print("TEST RESULT: bomb ok mode=%s (нашёл-принёс-заложил)" % mode)
 		get_tree().quit(0 if mode == "ended" else 1)
-	elif _test_t > 25.0:
-		print("TEST RESULT: bomb FAIL planted=%s mode=%s progress=%.1f" % [str(bomb_planted), mode, bomb_progress])
+	elif _test_t > 40.0:
+		print("TEST RESULT: bomb FAIL carried=%s planted=%s mode=%s progress=%.1f" % [str(bomb_carried), str(bomb_planted), mode, bomb_progress])
 		get_tree().quit(1)
 
 
@@ -1483,6 +1649,7 @@ func _test_parry(_delta: float) -> void:
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
 		player.global_position = Vector3(-18, 0.2, 12)
+		player.weapon_slot = 3
 		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
 		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
 	elif _test_staged and _duel_bot != null and not _test_shot_taken:

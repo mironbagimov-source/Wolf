@@ -28,7 +28,7 @@ const FACTION_NAME := {"survivor": "Гражданский", "cannibal": "Киб
 
 const CONFIG := {
 	"survivor": {"speed": 3.3, "sprint_mul": 1.7, "hp": 110.0},
-	"cannibal": {"speed": 3.7, "sprint_mul": 1.45, "hp": 140.0,
+	"cannibal": {"speed": 3.7, "sprint_mul": 1.45, "hp": 210.0,
 		"attack_range": 2.2, "attack_damage": 34.0, "attack_cd": 0.8,
 		"sense_radius": 14.0, "killer_aggro": 6.0},
 	"killer": {"speed": 3.5, "sprint_mul": 1.55, "hp": 220.0,
@@ -37,7 +37,7 @@ const CONFIG := {
 		"knives": 3, "throw_damage": 140.0, "throw_speed": 26.0, "throw_range": 24.0, "throw_cd": 0.55},
 }
 
-const ALPHA_HP := 400.0
+const ALPHA_HP := 560.0
 
 # --- Melee: strike / block / charged strike ------------------------------
 # Tap LMB = quick strike. Hold LMB = charge (released strike hits harder and
@@ -100,9 +100,27 @@ const WEAPONS := {
 	],
 }
 
+# --- Огнестрел наёмников: основное [1], вторичное [2], ближний бой [3] ----
+# Выстрелы гремят на всю округу (gunshot_t раздувает радиус слуха психов).
+const FIREARMS := {
+	"primary": [
+		{"id": "smg", "name": "ПП «Сайто»", "desc": "Скорострельный, точный, жрёт боезапас.", "dmg": 11.0, "cd": 0.12, "range": 40.0, "pellets": 1, "spread": 0.025, "ammo": 90},
+		{"id": "shotgun", "name": "Дробовик «Крит»", "desc": "Восемь картечин. В упор решает всё.", "dmg": 9.0, "cd": 0.9, "range": 16.0, "pellets": 8, "spread": 0.09, "ammo": 24},
+		{"id": "rifle", "name": "Винтовка «Хиро»", "desc": "Медленно, далеко, очень больно.", "dmg": 38.0, "cd": 0.8, "range": 60.0, "pellets": 1, "spread": 0.004, "ammo": 30},
+	],
+	"secondary": [
+		{"id": "pistol", "name": "Пистолет «Ку»", "desc": "Ровный запасной ствол.", "dmg": 16.0, "cd": 0.3, "range": 30.0, "pellets": 1, "spread": 0.015, "ammo": 36},
+		{"id": "revolver", "name": "Револьвер «Око»", "desc": "Шесть тяжёлых аргументов.", "dmg": 42.0, "cd": 0.75, "range": 35.0, "pellets": 1, "spread": 0.008, "ammo": 18},
+	],
+}
+const GUNSHOT_NOISE := 26.0       # насколько выстрел раздувает слух психов
+const GUNSHOT_NOISE_T := 1.6
+
 # --- Objectives ----------------------------------------------------------
 const POLICE_TIME := 240.0        # seconds until police arrive (civilians' win clock)
-const BOMB_PLANT_TIME := 5.0      # seconds the merc holds E at the bomb site
+const BOMB_PLANT_TIME := 5.0      # seconds the merc holds E at the shaft
+const BOMB_PICKUP_RANGE := 2.6    # подобрать взрывчатку [E]
+const BOMB_PLANT_RANGE := 3.2     # радиус закладки от центра грав-шахты
 const INTERACT_RANGE := 2.6
 const FLEE_RADIUS := 10.0
 const SAFE_SENSE_MUL := 0.3       # how well psychos sense a civilian inside a safe room

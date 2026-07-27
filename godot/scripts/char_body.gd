@@ -75,6 +75,13 @@ var lift_t := 0.0     # >0: едет грузовым лифтом (см. main._
 var lift_target_y := 0.0
 var desired_yaw := 0.0  # боты доворачиваются плавно, а не рывком
 
+# Огнестрел наёмника: [1] основное, [2] вторичное, [3] ближний бой.
+var firearm_primary := {}
+var firearm_secondary := {}
+var weapon_slot := 3
+var ammo := {1: 0, 2: 0}
+var gunshot_t := 0.0    # недавно стрелял — психи слышат издалека
+
 var visual: Node3D = null
 var _anim: AnimationPlayer = null
 var _anim_current := ""

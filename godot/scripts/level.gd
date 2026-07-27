@@ -137,6 +137,38 @@ static func build_district(root: Node3D) -> void:
 	evac.set_meta("half", Vector3(4.0, 2.0, 1.8))
 	root.add_child(evac)
 
+	# Кандидаты на спавн взрывчатки — по одной точке на характерное место.
+	var bomb_spots := _group(root, "BombSpots")
+	var spots := [
+		Vector3(0, 0, -12.6),          # лобби, за ресепшеном
+		Vector3(-22, H, 16.4),         # лавка на 2-м
+		Vector3(16, 2 * H, -16.4),     # лавка на 3-м
+		Vector3(-14, 3 * H, 16.4),     # фудкорт, за стойкой
+		Vector3(-16.9, 4 * H, 19.3),   # номер на 5-м, у кровати
+		Vector3(9.1, 6 * H, -19.3),    # номер на 7-м
+		Vector3(22, 9 * H, -12.6),     # офисный стол на 10-м
+		Vector3(2, 11 * H, 17.6),      # аркада, за баром
+		Vector3(-16.9, 12 * H, -19.3), # люкс на 13-м
+		Vector3(2, 15 * H, 17.6),      # клуб, за баром
+	]
+	for i in spots.size():
+		var m := Marker3D.new()
+		m.name = "BS%d" % i
+		m.position = spots[i]
+		bomb_spots.add_child(m)
+
+	# Сам предмет: брикеты взрывчатки с детонатором (позицию задаёт main).
+	var pickup := Node3D.new()
+	pickup.name = "BombPickup"
+	for i in 3:
+		var brick := _panel(pickup, Vector3(-0.14 + i * 0.14, 0.09, 0), Vector3(0.13, 0.18, 0.3), _mat_explosive(), "Brick%d" % i)
+		brick.rotation_degrees = Vector3(0, -4.0 + i * 4.0, 0)
+	_panel(pickup, Vector3(0, 0.11, 0), Vector3(0.46, 0.05, 0.32), _mat_strap(), "Strap")
+	_emissive(pickup, Vector3(0.12, 0.21, 0.05), Vector3(0.05, 0.03, 0.05), NEON_RED, 3.0, "Detonator")
+	var tmr := _emissive(pickup, Vector3(-0.08, 0.2, 0.03), Vector3(0.12, 0.05, 0.02), Color(0.2, 1.0, 0.3), 1.6, "TimerScreen")
+	tmr.rotation_degrees = Vector3(-20, 0, 0)
+	root.add_child(pickup)
+
 
 # ---------------------------------------------------------------------------
 # structure
@@ -379,12 +411,8 @@ static func _floor_club(root: Node3D, parent: Node3D, f: int) -> void:
 		_solid(parent, Vector3(bx, y + 0.45, -19.5), Vector3(3.2, 0.9, 2.6), _mat_carpet(), "Booth")
 		_emissive(parent, Vector3(bx, y + 2.4, -21.2), Vector3(2.8, 0.3, 0.1), NEON_MAGENTA, 1.6)
 
-	var device := _emissive(parent, Vector3(24, y + 0.6, 5), Vector3(1.2, 1.2, 1.2), NEON_RED, 1.8, "BombDevice")
-	device.set_meta("keep", true)
-	var site := Marker3D.new()
-	site.name = "BombSite"
-	site.position = Vector3(24, y, 5)
-	root.add_child(site)
+	# Взрывчатку больше не приносят В клуб — её ищут по башне (BombSpots) и
+	# закладывают в грав-лифт.
 
 
 static func _lights(parent: Node3D) -> void:
@@ -633,6 +661,20 @@ static func _mat_pool() -> StandardMaterial3D:
 		var n := _noise2(u, v, 13.0, 2.9) * 0.06
 		return Color(0.05 + n, 0.32 + n, 0.12 + n))
 	return _std(tex, null, Color.WHITE, 0.8)
+
+
+static func _mat_explosive() -> StandardMaterial3D:
+	var tex := _texture("explosive", 64, func(u: float, v: float) -> Color:
+		var n := _noise2(u, v, 9.0, 4.1) * 0.06
+		return Color(0.72 + n, 0.62 + n, 0.42 + n))
+	return _std(tex, null, Color.WHITE, 0.8, 0.0, 1.0)
+
+
+static func _mat_strap() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.12, 0.12, 0.14)
+	mat.roughness = 0.9
+	return mat
 
 
 static func _grav_beam_mat() -> StandardMaterial3D:
