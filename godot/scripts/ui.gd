@@ -28,6 +28,7 @@ var _ws_box: HBoxContainer
 var stamina_fill: ColorRect
 var timer_label: Label
 var dir_chips: Array = []   # [left, right, overhead] ColorRects around the crosshair
+var hitmark: Control        # крестик-хитмаркер вокруг прицела
 
 signal faction_picked(faction: String)
 signal character_picked(faction: String, index: int)
@@ -368,6 +369,22 @@ func _build_hud() -> void:
 	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(crosshair)
 
+	# Хит-маркер: крестик из четырёх засечек, вспыхивает при попадании.
+	hitmark = Control.new()
+	hitmark.set_anchors_preset(Control.PRESET_CENTER)
+	hitmark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for off: Array in [[-9.0, -9.0], [9.0, -9.0], [-9.0, 9.0], [9.0, 9.0]]:
+		var seg := ColorRect.new()
+		seg.size = Vector2(9, 2)
+		seg.position = Vector2((off[0] as float) - 4.5, (off[1] as float) - 1.0)
+		seg.pivot_offset = Vector2(4.5, 1)
+		seg.rotation_degrees = 45.0 if (off[0] as float) * (off[1] as float) > 0.0 else -45.0
+		seg.color = Color(1.0, 0.9, 0.85)
+		seg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hitmark.add_child(seg)
+	hitmark.modulate.a = 0.0
+	hud.add_child(hitmark)
+
 	pause_hint = Label.new()
 	pause_hint.set_anchors_preset(Control.PRESET_CENTER)
 	pause_hint.position = Vector2(-300, 60)
@@ -434,6 +451,13 @@ func flash_damage() -> void:
 	damage_flash.color.a = 0.45
 	var tween := create_tween()
 	tween.tween_property(damage_flash, "color:a", 0.0, 0.4)
+
+
+## Короткая вспышка хит-маркера вокруг прицела (урон нанесён).
+func show_hitmark() -> void:
+	hitmark.modulate.a = 1.0
+	var tween := create_tween()
+	tween.tween_property(hitmark, "modulate:a", 0.0, 0.25)
 
 
 func set_flash_alpha(a: float) -> void:
