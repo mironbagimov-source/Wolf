@@ -51,13 +51,50 @@ func _init() -> void:
 		["killer", false, 0, "res://scenes/chars/merc.tscn"],
 		["killer", false, 1, "res://scenes/chars/merc_b.tscn"],
 	]
+	# UAL: одна библиотека анимаций на всех — ретаргетится на каждое тело.
+	var ual_ap: AnimationPlayer = null
+	var ual_skel: Skeleton3D = null
+	if ResourceLoader.exists("res://assets/anims/AnimationLibrary_Godot_Standard.gltf"):
+		var ual: Node3D = (load("res://assets/anims/AnimationLibrary_Godot_Standard.gltf") as PackedScene).instantiate()
+		root.add_child(ual)  # в дереве: global_transform нужен ретаргету
+		ual.visible = false
+		ual_ap = WolfRetarget.find_anim_player(ual)
+		ual_skel = WolfRetarget.find_skeleton(ual)
+
 	for c in chars:
 		var body := WolfChar.build_scene_tree(c[0], c[1], c[2])
 		body.name = (c[3] as String).get_file().get_basename().capitalize()
+		if ual_ap != null:
+			_apply_ual(body, c[0], c[1], c[2], ual_ap, ual_skel)
 		_save(body, c[3])
 
 	print("BAKE DONE")
 	quit(0)
+
+
+## Заменяет солдатскую библиотеку клипов на полную UAL (идл/шаг/бег, атаки,
+## попадания, смерть, кувырок, присед) — ретаргет требует дерева сцены.
+func _apply_ual(char_root: Node3D, p_faction: String, p_is_leader: bool, p_variant: int,
+		ual_ap: AnimationPlayer, ual_skel: Skeleton3D) -> void:
+	var vis := char_root.get_node_or_null("Visual")
+	if vis == null:
+		return
+	var av := vis.get_node_or_null("Body") as Node3D
+	var ap := vis.get_node_or_null("AnimationPlayer") as AnimationPlayer
+	if av == null or ap == null:
+		return
+	root.add_child(char_root)  # временно в дерево ради global_transform
+	var tgt_skel := WolfRetarget.find_skeleton(av)
+	if tgt_skel != null:
+		var lib := WolfRetarget.build_library_ual(ual_ap, ual_skel, tgt_skel,
+				"Body/" + str(av.get_path_to(tgt_skel)))
+		var role := "leader" if p_is_leader else "%s_%s" % [p_faction, ["a", "b", "c"][clampi(p_variant, 0, 2)]]
+		var res_path := "res://scenes/chars/anims_%s.res" % role
+		ResourceSaver.save(lib, res_path)
+		lib.take_over_path(res_path)
+		ap.remove_animation_library("")
+		ap.add_animation_library("", lib)
+	root.remove_child(char_root)
 
 
 func _save(root: Node, path: String) -> void:

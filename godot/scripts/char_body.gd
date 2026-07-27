@@ -73,6 +73,7 @@ var wander_timer := 0.0
 var patrol_idx := -1  # persistent roam target — bots finish long descents
 var lift_t := 0.0     # >0: едет грузовым лифтом (см. main._bot_goto)
 var lift_target_y := 0.0
+var desired_yaw := 0.0  # боты доворачиваются плавно, а не рывком
 
 var visual: Node3D = null
 var _anim: AnimationPlayer = null
@@ -224,16 +225,57 @@ func set_accent(c: Color) -> void:
 				(child as MeshInstance3D).material_override = m
 
 
-func update_animation() -> void:
-	if _anim == null:
+## Гистерезис: состояние должно продержаться, прежде чем анимация сменится —
+## иначе боты на границе «стою/иду» перезапускали Walk каждый кадр и модели
+## заметно трясло.
+var _anim_pending := ""
+var _anim_pending_t := 0.0
+var _oneshot_t := 0.0  # проигрывается ваншот (атака/попадание/кувырок)
+
+
+## Ваншот поверх локомоции: атака, попадание, кувырок.
+func play_oneshot(anim: String) -> void:
+	if _anim == null or not _anim.has_animation(anim) or is_dead:
 		return
-	var moving := move_input.length() > 0.05 and not is_grabbed and not is_dead
+	_anim.play(anim, 0.1)
+	_anim_current = anim
+	_anim_pending = ""
+	_oneshot_t = _anim.get_animation(anim).length * 0.9
+
+
+## Смерть: финальная поза остаётся до конца матча.
+func play_death() -> void:
+	if _anim == null or not _anim.has_animation("Death"):
+		return
+	_anim.play("Death", 0.15)
+	_anim_current = "Death"
+	_oneshot_t = 9999.0
+
+
+func update_animation(delta := 0.016) -> void:
+	if _anim == null or is_dead:
+		return
+	if _oneshot_t > 0.0:
+		_oneshot_t -= delta
+		return
+	var moving := move_input.length() > 0.05 and not is_grabbed
 	var target := "Idle"
-	if moving:
+	if crouching and _anim.has_animation("CrouchIdle"):
+		target = "CrouchWalk" if moving else "CrouchIdle"
+	elif moving:
 		target = "Run" if sprinting else "Walk"
-	if target != _anim_current and _anim.has_animation(target):
+	if target == _anim_current:
+		_anim_pending = ""
+		return
+	if target != _anim_pending:
+		_anim_pending = target
+		_anim_pending_t = 0.0
+		return
+	_anim_pending_t += delta
+	if _anim_pending_t >= 0.12 and _anim.has_animation(target):
 		_anim_current = target
-		_anim.play(target, 0.25)
+		_anim_pending = ""
+		_anim.play(target, 0.2)
 
 
 func flash_materials(delta: float) -> void:

@@ -247,6 +247,7 @@ func _spawn_char(faction: String, pos: Vector3, is_human: bool, is_lead: bool, v
 	c.init_stats(is_human)
 	c.global_position = pos
 	c.rotation.y = atan2(pos.x, pos.z)
+	c.desired_yaw = c.rotation.y
 	entities.append(c)
 	if is_human:
 		player = c
@@ -435,16 +436,6 @@ func _update_player_input(delta: float) -> void:
 	p.interact_held = _key(KEY_E)
 	p.interact_pressed = _key_pressed_once(KEY_E)
 
-	# Elevator: digits 1-9,0 pick floors 1-10 while riding; X — вниз на этаж.
-	if elevator != null and elevator.is_riding(p):
-		for i in 9:
-			if _key_pressed_once((KEY_1 + i) as Key):
-				elevator.request_floor(i)
-		if _key_pressed_once(KEY_0):
-			elevator.request_floor(9)
-		if _key_pressed_once(KEY_X):
-			var base := elevator.target_floor if elevator.moving else elevator.current_floor
-			elevator.request_floor(maxi(0, base - 1))
 
 	if p.faction == "survivor" and _key_pressed_once(KEY_F):
 		p.flashlight_on = not p.flashlight_on
@@ -454,7 +445,7 @@ func _update_player_input(delta: float) -> void:
 	if p.faction != "survivor":
 		p.is_blocking = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not p.charging
 		# Charge-and-release melee: tap = quick strike, hold = charged strike.
-		var lmb := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or _key(KEY_SPACE)
+		var lmb := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or (_key(KEY_SPACE) and not _in_shaft(p.global_position))
 		if lmb and not p.charging and p.cd_attack <= 0.0 and p.stamina >= WolfCfg.STAMINA_ATTACK_COST:
 			p.charging = true
 			p.charge_t = 0.0
@@ -476,6 +467,11 @@ func _update_player_input(delta: float) -> void:
 # ---------------------------------------------------------------------------
 # melee: strike / block / charged strike
 # ---------------------------------------------------------------------------
+
+## Внутри прозрачной грав-шахты лифта (движение по вертикали свободное).
+func _in_shaft(pos: Vector3) -> bool:
+	return pos.x > 8.0 and pos.x < 11.0 and absf(pos.z) < 1.5
+
 
 func _melee_range(e: WolfChar) -> float:
 	var base: float = WolfCfg.CONFIG[e.faction].get("attack_range", 2.0)
@@ -552,6 +548,7 @@ func _bot_begin_windup(e: WolfChar, charged: bool) -> void:
 	e.windup_charged = charged
 	e.windup_t = (WolfCfg.BOT_CHARGED_WINDUP if charged else WolfCfg.BOT_WINDUP) / e.weapon.get("speed", 1.0)
 	e.show_telegraph(charged)
+	e.play_oneshot("AttackHeavy" if charged else (["Attack", "Attack2"][randi() % 2] as String))
 	# The intended victim may raise a guard against the readable wind-up.
 	var target := _acquire_melee_target(e)
 	if target != null and not target.is_player and target.faction != "survivor" and target.bot_block_t <= 0.0 and not target.winding:
@@ -669,9 +666,13 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
 		target.is_dead = true
 		target.hp = 0.0
 		target.hide_telegraph()
-		if target.visual != null:
-			target.visual.rotation.x = -PI / 2.0
+		if target._anim != null and target._anim.has_animation("Death"):
+			target.play_death()
+		elif target.visual != null:
+			target.visual.rotation.x = -PI / 2.0  # запасной вариант без клипа
 		_check_win()
+	elif not target.is_player and dmg > 3.0:
+		target.play_oneshot("Hit")
 
 
 func _find_execute_target(e: WolfChar) -> WolfChar:
@@ -864,7 +865,7 @@ func _nav_steer(e: WolfChar, target: Vector3, delta: float) -> float:
 	if Vector2(dx, dz).length() < 0.25:
 		e.move_input = Vector2.ZERO
 	else:
-		e.rotation.y = _yaw_toward(dx, dz)
+		e.desired_yaw = _yaw_toward(dx, dz)
 		e.move_input = Vector2(0, 1)
 	return (target - e.global_position).length()
 
@@ -954,14 +955,15 @@ func _bot_psycho(e: WolfChar, delta: float) -> void:
 				e.wants_execute = true
 				return
 			if flat <= _melee_range(e) and e.cd_attack <= 0.0:
-				e.rotation.y = _yaw_toward(dp.x, dp.z)
+				e.desired_yaw = _yaw_toward(dp.x, dp.z)
 				_bot_begin_windup(e, randf() < WolfCfg.BOT_CHARGED_CHANCE)
 			elif flat >= WolfCfg.LUNGE_MIN and flat <= WolfCfg.LUNGE_MAX and e.lunge_cd <= 0.0 and e.stamina >= WolfCfg.STAMINA_ATTACK_COST:
 				# Мантис-прыжок: рывок к жертве через полкомнаты.
 				e.lunge_cd = WolfCfg.LUNGE_CD
-				e.rotation.y = _yaw_toward(dp.x, dp.z)
+				e.desired_yaw = _yaw_toward(dp.x, dp.z)
 				e.dash_dir = Vector3(dp.x, 0, dp.z).normalized()
 				e.dash_t = 0.35
+				e.play_oneshot("Roll")
 		return
 
 	# No prey sensed: roam the whole tower on patrol points. The target is
@@ -992,10 +994,10 @@ func _bot_merc(e: WolfChar, delta: float) -> void:
 		if absf(dp.y) <= WolfCfg.SAME_FLOOR_DY:
 			var flat := Vector2(dp.x, dp.z).length()
 			if flat <= _melee_range(e) and e.cd_attack <= 0.0:
-				e.rotation.y = _yaw_toward(dp.x, dp.z)
+				e.desired_yaw = _yaw_toward(dp.x, dp.z)
 				_bot_begin_windup(e, randf() < WolfCfg.BOT_CHARGED_CHANCE)
 			elif e.knives > 0 and e.cd_throw <= 0.0 and flat >= WolfCfg.MERC_BOT_THROW_MIN and flat <= WolfCfg.MERC_BOT_THROW_MAX:
-				e.rotation.y = _yaw_toward(dp.x, dp.z)
+				e.desired_yaw = _yaw_toward(dp.x, dp.z)
 				e.wants_throw = true
 		return
 
@@ -1061,6 +1063,9 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	if e.winding:
 		speed *= 0.35
 
+	if not e.is_player:
+		e.rotation.y = lerp_angle(e.rotation.y, e.desired_yaw, minf(1.0, delta * 10.0))
+
 	var wish := Vector3.ZERO
 	if e.move_input.length() > 0.001 and not stunned:
 		var local := Vector3(e.move_input.x, 0, -e.move_input.y).normalized()
@@ -1074,7 +1079,12 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 
 	e.velocity.x = wish.x
 	e.velocity.z = wish.z
-	e.velocity.y = maxf(e.velocity.y - 20.0 * delta, -30.0)
+	if e.is_player and _in_shaft(e.global_position):
+		# Грав-шахта: SPACE тянет вверх, без ввода — мягкое снижение.
+		var target_vy := 8.0 if Input.is_key_pressed(KEY_SPACE) else -4.5
+		e.velocity.y = lerpf(e.velocity.y, target_vy, minf(1.0, delta * 8.0))
+	else:
+		e.velocity.y = maxf(e.velocity.y - 20.0 * delta, -30.0)
 	e.move_and_slide()
 	e.global_position.x = clampf(e.global_position.x, -WolfCfg.BOUND_X, WolfCfg.BOUND_X)
 	e.global_position.z = clampf(e.global_position.z, -WolfCfg.BOUND_Z, WolfCfg.BOUND_Z)
@@ -1093,27 +1103,12 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.wants_throw = false
 
 	_apply_interact(e, delta)
-	e.update_animation()
+	e.update_animation(delta)
 
 
 func _apply_interact(e: WolfChar, delta: float) -> void:
 	if not e.is_player:
 		return
-	# Elevator first: standing in the cab, E sends it to the next floor.
-	if elevator != null and elevator.is_riding(e):
-		if e.interact_pressed and not elevator.moving:
-			elevator.request_next()
-		return
-
-	# Кнопка вызова: E у дверей шахты пригоняет кабину на твой этаж.
-	if elevator != null and e.interact_pressed:
-		var shaft_xz := Vector2(9.5, 0.0)
-		var here := Vector2(e.global_position.x, e.global_position.z)
-		if here.distance_to(shaft_xz) < 4.0:
-			var my_floor := clampi(int(round(e.global_position.y / WolfCfg.FLOOR_H)), 0, WolfCfg.FLOORS - 1)
-			if elevator.current_floor != my_floor or elevator.moving:
-				elevator.request_floor(my_floor)
-				return
 
 	# Doors: toggle with E (psycho player breaks them with strikes instead).
 	if e.interact_pressed and e.faction != "cannibal":
@@ -1150,10 +1145,8 @@ func _prompt_for(p: WolfChar) -> String:
 		return "Вы мертвы."
 	if p.being_executed:
 		return "Тебя добивают…"
-	if elevator != null and elevator.is_riding(p):
-		if elevator.moving:
-			return "Лифт едет… (на этаж %d)" % (elevator.target_floor + 1)
-		return "[E] вверх · [X] вниз · [1-9,0] этажи 1-10 · сейчас %d" % (elevator.current_floor + 1)
+	if _in_shaft(p.global_position):
+		return "ГРАВ-ШАХТА · SPACE — вверх · отпусти — плавно вниз · этаж %d" % (clampi(int(round(p.global_position.y / WolfCfg.FLOOR_H)), 0, WolfCfg.FLOORS - 1) + 1)
 	if p.charging:
 		return "ЗАРЯД удара… отпусти ЛКМ" if p.charge_t >= WolfCfg.CHARGE_MIN else "Удар…"
 	if p.faction == "survivor":
@@ -1433,27 +1426,24 @@ func _test_meet(_delta: float) -> void:
 			get_tree().quit(1)
 
 
-## The elevator must carry the standing player to the next floor on E.
+## Грав-шахта должна поднять игрока на этаж, пока он держит SPACE.
 func _test_lift(_delta: float) -> void:
 	if _test_t > 0.5 and mode == "menu":
 		_start_match("killer", 0, 0)
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
-		player.global_position = elevator.global_position + Vector3(0, 0.6, 0)
+		player.global_position = Vector3(9.5, 0.3, 0.0)
 		var ev := InputEventKey.new()
-		ev.keycode = KEY_E
+		ev.keycode = KEY_SPACE
+		ev.physical_keycode = KEY_SPACE
 		ev.pressed = true
 		Input.parse_input_event(ev)
 	elif _test_staged and not _test_shot_taken and player.global_position.y > 4.5:
 		_test_shot_taken = true
-		print("TEST RESULT: lift OK floor_y=%.1f elevator_floor=%d" % [player.global_position.y, elevator.current_floor])
+		print("TEST RESULT: lift OK grav shaft y=%.1f" % player.global_position.y)
 		get_tree().quit(0)
 	elif _test_staged and _test_t > 20.0:
-		print("TEST RESULT: lift FAIL y=%.1f elev_null=%s riding=%s moving=%s cur=%d" % [
-			player.global_position.y, str(elevator == null),
-			str(elevator != null and elevator.is_riding(player)),
-			str(elevator != null and elevator.moving),
-			elevator.current_floor if elevator != null else -1])
+		print("TEST RESULT: lift FAIL y=%.1f in_shaft=%s" % [player.global_position.y, str(_in_shaft(player.global_position))])
 		get_tree().quit(1)
 
 

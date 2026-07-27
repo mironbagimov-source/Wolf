@@ -101,7 +101,8 @@ static func build_district(root: Node3D) -> void:
 	_floor_club(root, geometry, 15)
 	_lights(geometry)
 
-	root.add_child(WolfElevator.build())
+	# Кабины больше нет — лифт это прозрачная ГРАВ-ШАХТА: шагни внутрь,
+	# SPACE тянет вверх, без ввода плавно опускает (см. main.gd).
 
 	var spawns := _group(root, "Spawns")
 	var spawn_sets := {
@@ -218,6 +219,10 @@ static func _elevator_shaft(parent: Node3D) -> void:
 		# Номер этажа у двери лифта.
 		_emissive(parent, Vector3(cx - 2.0, H * f + 2.4, ELEV[2] - 0.3), Vector3(0.5, 0.35, 0.1), NEON_CYAN, 1.5, "FloorSign%d" % f)
 	_emissive(parent, Vector3(cx, total_h - 0.3, ELEV[2] - 0.25), Vector3(2.6, 0.3, 0.1), NEON_CYAN, 2.0, "LiftSign")
+	# Антиграв-лучи в углах шахты — видно, что это грав-колонна.
+	for corner: Array in [[ELEV[0] + 0.35, ELEV[2] + 0.35], [ELEV[1] - 0.35, ELEV[2] + 0.35],
+			[ELEV[0] + 0.35, ELEV[3] - 0.35], [ELEV[1] - 0.35, ELEV[3] - 0.35]]:
+		_panel(parent, Vector3(corner[0], total_h / 2, corner[1]), Vector3(0.07, total_h, 0.07), _grav_beam_mat(), "GravBeam")
 
 
 static func _city_windows(parent: Node3D) -> void:
@@ -628,6 +633,16 @@ static func _mat_pool() -> StandardMaterial3D:
 		var n := _noise2(u, v, 13.0, 2.9) * 0.06
 		return Color(0.05 + n, 0.32 + n, 0.12 + n))
 	return _std(tex, null, Color.WHITE, 0.8)
+
+
+static func _grav_beam_mat() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.3, 0.9, 1.0, 0.8)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = NEON_CYAN
+	mat.emission_energy_multiplier = 1.6
+	return mat
 
 
 static func _mat_glass() -> StandardMaterial3D:
