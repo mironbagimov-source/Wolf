@@ -31,7 +31,7 @@ const CONFIG := {
 	"survivor": {"speed": 3.3, "sprint_mul": 1.7, "hp": 110.0},
 	"cannibal": {"speed": 3.7, "sprint_mul": 1.45, "hp": 210.0,
 		"attack_range": 2.2, "attack_damage": 34.0, "attack_cd": 0.8,
-		"sense_radius": 14.0, "killer_aggro": 6.0},
+		"sense_radius": 16.0, "killer_aggro": 6.0},
 	"police": {"speed": 3.6, "sprint_mul": 1.5, "hp": 170.0,
 		"attack_range": 2.3, "attack_damage": 30.0, "attack_cd": 0.7},
 	"killer": {"speed": 3.5, "sprint_mul": 1.55, "hp": 220.0,

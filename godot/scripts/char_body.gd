@@ -88,6 +88,16 @@ var agony_t := 0.0
 var has_defib := false
 var is_maxtac := false
 
+# --- Мозги ботов: анти-застревание, кружение в клинче, шум выстрелов ---
+var last_pos := Vector3.ZERO
+var stuck_t := 0.0
+var unstick_t := 0.0
+var unstick_side := 1.0
+var circle_dir := 1.0      # в какую сторону обходить цель между ударами
+var investigate_t := 0.0   # психи бегут проверять источник шума
+var investigate_pos := Vector3.ZERO
+var exhausted := false     # гражданский выдохся — спринт закрыт, пока не отдышится
+
 var visual: Node3D = null
 var _anim: AnimationPlayer = null
 var _anim_current := ""

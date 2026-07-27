@@ -562,6 +562,7 @@ func _fire_gun(p: WolfChar) -> void:
 	p.ammo[p.weapon_slot] = int(p.ammo[p.weapon_slot]) - 1
 	p.cd_attack = float(gun["cd"])
 	p.gunshot_t = WolfCfg.GUNSHOT_NOISE_T
+	_alert_psychos(p.global_position)
 	_kick_viewmodel(false)
 	var space := get_world_3d().direct_space_state
 	for i in int(gun["pellets"]):
@@ -578,6 +579,16 @@ func _fire_gun(p: WolfChar) -> void:
 			_damage(col as WolfChar, float(gun["dmg"]), p)
 		elif col is WolfDoor and not (col as WolfDoor).is_broken:
 			(col as WolfDoor).damage(float(gun["dmg"]))
+
+
+## Выстрел слышен по округе: психи без цели побегут проверять точку.
+func _alert_psychos(pos: Vector3) -> void:
+	for e: WolfChar in entities:
+		if e.faction != "cannibal" or e.is_dead or e.is_player:
+			continue
+		if e.global_position.distance_to(pos) < WolfCfg.CONFIG["cannibal"]["sense_radius"] + WolfCfg.GUNSHOT_NOISE:
+			e.investigate_pos = pos
+			e.investigate_t = 9.0
 
 
 func _melee_range(e: WolfChar) -> float:
@@ -683,6 +694,7 @@ func _cancel_windup(e: WolfChar) -> void:
 func _resolve_bot_strike(e: WolfChar) -> void:
 	var charged := e.windup_charged
 	_cancel_windup(e)
+	e.circle_dir = 1.0 if randf() < 0.5 else -1.0
 	e.cd_attack = WolfCfg.CONFIG[e.faction]["attack_cd"] / e.weapon.get("speed", 1.0)
 	if _fatigued(e):
 		e.cd_attack *= WolfCfg.LOW_STAMINA_CD_MUL
@@ -803,6 +815,8 @@ func _kill(target: WolfChar) -> void:
 	target.downed = false
 	target.hp = 0.0
 	target.hide_telegraph()
+	_blood_burst(target.global_position + Vector3(0, 1.1, 0), 18, 3.0)
+	_blood_pool(target.global_position)
 	if target.is_player and bomb_carried:
 		bomb_carried = false
 		bomb_site = target.global_position
@@ -838,15 +852,98 @@ func _find_execute_target(e: WolfChar) -> WolfChar:
 	return best
 
 
+var _executions: Array = []
+var _blood_pools: Array = []
+
+
+## Брутальное добивание: жертва зафиксирована, палач бьёт дважды — первый
+## удар с брызгами, второй с фонтаном крови и лужей под телом.
 func _perform_execute(executor: WolfChar, victim: WolfChar) -> void:
-	executor.play_oneshot("AttackHeavy")
+	victim.being_executed = true
+	victim.move_input = Vector2.ZERO
+	executor.recover_t = 1.5
+	executor.desired_yaw = _yaw_toward(victim.global_position.x - executor.global_position.x,
+			victim.global_position.z - executor.global_position.z)
+	_executions.append({"executor": executor, "victim": victim, "t": 0.0, "phase": 0})
 	if victim.is_player:
-		victim.being_executed = true
-		executor.recover_t = WolfCfg.EXECUTE_CAM_TIME + 0.2
 		exec_cam = {"executor": executor, "victim": victim, "t": WolfCfg.EXECUTE_CAM_TIME}
 		ui.flash_damage()
-	else:
-		_damage(victim, 99999.0, executor)
+
+
+func _tick_executions(delta: float) -> void:
+	for i in range(_executions.size() - 1, -1, -1):
+		var ex: Dictionary = _executions[i]
+		var executor: WolfChar = ex["executor"]
+		var victim: WolfChar = ex["victim"]
+		if victim == null or victim.is_dead:
+			_executions.remove_at(i)
+			continue
+		ex["t"] += delta
+		var chest := victim.global_position + Vector3(0, 1.2, 0)
+		if ex["phase"] == 0 and ex["t"] >= 0.05:
+			ex["phase"] = 1
+			executor.play_oneshot("Attack")
+			victim.play_oneshot("Hit")
+			_blood_burst(chest, 14, 2.6)
+		elif ex["phase"] == 1 and ex["t"] >= 0.55:
+			ex["phase"] = 2
+			executor.play_oneshot("AttackHeavy")
+		elif ex["phase"] == 2 and ex["t"] >= 0.95:
+			_blood_burst(chest, 40, 4.5)
+			_blood_pool(victim.global_position)
+			victim.being_executed = false
+			_damage(victim, 99999.0, executor)
+			_executions.remove_at(i)
+
+
+## Брызги крови: одноразовый всплеск частиц, сам себя убирает.
+func _blood_burst(pos: Vector3, amount: int, speed: float) -> void:
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.amount = amount
+	p.lifetime = 0.55
+	p.direction = Vector3(0, 1, 0)
+	p.spread = 70.0
+	p.initial_velocity_min = speed * 0.5
+	p.initial_velocity_max = speed
+	p.gravity = Vector3(0, -14, 0)
+	p.scale_amount_min = 0.05
+	p.scale_amount_max = 0.14
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(0.09, 0.09)
+	p.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.55, 0.02, 0.04)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	p.mesh.surface_set_material(0, mat)
+	p.position = pos
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(1.6).timeout.connect(p.queue_free)
+
+
+## Тёмная лужа, растекающаяся под телом. Остаётся до конца матча.
+func _blood_pool(pos: Vector3) -> void:
+	var mi := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.12
+	disc.bottom_radius = 0.12
+	disc.height = 0.015
+	mi.mesh = disc
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.32, 0.01, 0.02)
+	mat.roughness = 0.25
+	mi.material_override = mat
+	mi.position = Vector3(pos.x, floorf(pos.y / WolfCfg.FLOOR_H + 0.5) * WolfCfg.FLOOR_H + 0.012, pos.z)
+	add_child(mi)
+	_blood_pools.append(mi)
+	if _blood_pools.size() > 24:
+		(_blood_pools.pop_front() as Node).queue_free()
+	var tw := create_tween()
+	var grow := randf_range(0.55, 0.85)
+	tw.tween_property(mi, "scale", Vector3(grow / 0.12, 1.0, grow / 0.12), 2.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 # ---------------------------------------------------------------------------
@@ -990,6 +1087,7 @@ func _spawn_squad(maxtac: bool) -> void:
 	for i in count:
 		var cop := _spawn_char("police", Vector3(-3.0 + i * 2.0, 0.2, -19.5), false, false)
 		cop.can_execute = true
+		cop.patrol_idx = i
 		if maxtac:
 			cop.is_maxtac = true
 			cop.hp = WolfCfg.MAXTAC_HP
@@ -1003,11 +1101,13 @@ func _spawn_squad(maxtac: bool) -> void:
 ## рубит вблизи. МАКС-ТАК — то же, но больнее и быстрее.
 func _bot_police(e: WolfChar, delta: float) -> void:
 	e.wants_execute = false
-	var psycho := _nearest_living("cannibal", e.global_position)
-	if psycho[0] == null:
+	var alive_psychos: Array = entities.filter(func(x: WolfChar) -> bool: return x.faction == "cannibal" and not x.is_dead and not x.being_executed)
+	if alive_psychos.is_empty():
 		_bot_goto(e, Vector3(0, 0, -14), delta)  # зачищено — к лобби
 		return
-	var target: WolfChar = psycho[0]
+	# Каждый коп берёт СВОЮ цель — отряд не душит одного психа толпой.
+	var target: WolfChar = alive_psychos[absi(e.patrol_idx) % alive_psychos.size()]
+	var psycho := [target, e.global_position.distance_to(target.global_position)]
 	e.sprinting = psycho[1] > 8.0
 	_bot_goto(e, target.global_position, delta)
 	var dp := target.global_position - e.global_position
@@ -1020,6 +1120,9 @@ func _bot_police(e: WolfChar, delta: float) -> void:
 	if flat <= _melee_range(e) and e.cd_attack <= 0.0:
 		e.desired_yaw = _yaw_toward(dp.x, dp.z)
 		_bot_begin_windup(e, randf() < 0.2)
+	elif flat <= _melee_range(e):
+		e.desired_yaw = _yaw_toward(dp.x, dp.z)
+		e.move_input = Vector2(e.circle_dir, 0.1)
 	elif flat > 3.0 and flat <= WolfCfg.POLICE_GUN_RANGE and e.cd_throw <= 0.0:
 		var from := e.global_position + Vector3(0, 1.5, 0)
 		var to := target.global_position + Vector3(0, 1.2, 0)
@@ -1028,6 +1131,7 @@ func _bot_police(e: WolfChar, delta: float) -> void:
 			e.desired_yaw = _yaw_toward(dp.x, dp.z)
 			e.cd_throw = WolfCfg.MAXTAC_GUN_CD if e.is_maxtac else WolfCfg.POLICE_GUN_CD
 			e.gunshot_t = 1.0
+			_alert_psychos(e.global_position)
 			e.play_oneshot("Attack")
 			_damage(target, WolfCfg.MAXTAC_GUN_DMG if e.is_maxtac else WolfCfg.POLICE_GUN_DMG, e)
 
@@ -1155,6 +1259,15 @@ func _bot_civilian(e: WolfChar, delta: float) -> void:
 			_bot_goto(e, best_cp, delta)
 			return
 
+	# Псих вплотную — сначала рвём дистанцию ОТ него, а не сквозь него.
+	if threat[0] != null and threat[1] < 7.0:
+		var away: Vector3 = e.global_position - (threat[0] as WolfChar).global_position
+		away.y = 0.0
+		if away.length() > 0.05:
+			e.sprinting = true
+			_bot_goto(e, e.global_position + away.normalized() * 9.0, delta)
+			return
+
 	# Head for the nearest safe room; sprint when hunted.
 	var best_zone := Vector3.ZERO
 	var best_d := INF
@@ -1188,8 +1301,21 @@ func _bot_psycho(e: WolfChar, delta: float) -> void:
 		prey = pol[0]
 		prey_d = pol[1]
 
+	# Никого не видит, но недавно слышал выстрел — бежит проверять.
+	if prey == null and e.investigate_t > 0.0:
+		e.investigate_t -= delta
+		e.sprinting = true
+		_bot_goto(e, e.investigate_pos, delta)
+		if e.global_position.distance_to(e.investigate_pos) < 2.5:
+			e.investigate_t = 0.0
+		return
+
 	if prey != null:
 		e.sprinting = true
+		# память: если жертва вырвется из радиуса слуха — псих добежит до
+		# места, где видел её в последний раз, а не забудет мгновенно
+		e.investigate_pos = prey.global_position
+		e.investigate_t = 6.0
 		_bot_goto(e, prey.global_position, delta)
 		var dp := prey.global_position - e.global_position
 		if absf(dp.y) <= WolfCfg.SAME_FLOOR_DY:
@@ -1200,6 +1326,10 @@ func _bot_psycho(e: WolfChar, delta: float) -> void:
 			if flat <= _melee_range(e) and e.cd_attack <= 0.0:
 				e.desired_yaw = _yaw_toward(dp.x, dp.z)
 				_bot_begin_windup(e, randf() < WolfCfg.BOT_CHARGED_CHANCE)
+			elif flat <= _melee_range(e):
+				# между ударами не стоим столбом — кружим вокруг жертвы
+				e.desired_yaw = _yaw_toward(dp.x, dp.z)
+				e.move_input = Vector2(e.circle_dir, 0.1 if flat > 1.6 else -0.2)
 			elif flat >= WolfCfg.LUNGE_MIN and flat <= WolfCfg.LUNGE_MAX and e.lunge_cd <= 0.0 and e.stamina >= WolfCfg.STAMINA_ATTACK_COST:
 				# Мантис-прыжок: рывок к жертве через полкомнаты.
 				e.lunge_cd = WolfCfg.LUNGE_CD
@@ -1239,6 +1369,9 @@ func _bot_merc(e: WolfChar, delta: float) -> void:
 			if flat <= _melee_range(e) and e.cd_attack <= 0.0:
 				e.desired_yaw = _yaw_toward(dp.x, dp.z)
 				_bot_begin_windup(e, randf() < WolfCfg.BOT_CHARGED_CHANCE)
+			elif flat <= _melee_range(e):
+				e.desired_yaw = _yaw_toward(dp.x, dp.z)
+				e.move_input = Vector2(e.circle_dir, 0.1)
 			elif e.knives > 0 and e.cd_throw <= 0.0 and flat >= WolfCfg.MERC_BOT_THROW_MIN and flat <= WolfCfg.MERC_BOT_THROW_MAX:
 				e.desired_yaw = _yaw_toward(dp.x, dp.z)
 				e.wants_throw = true
@@ -1310,6 +1443,19 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 
 	var stunned := not e.is_player and (e.stagger_t > 0.0 or e.recover_t > 0.0)
 
+	# Спринт гражданских жрёт стамину: жертву можно ЗАГНАТЬ. Выдохся —
+	# бежит шагом, пока не отдышится.
+	if e.faction == "survivor":
+		if e.sprinting and e.move_input.length() > 0.1 and not e.exhausted:
+			e.stamina -= 20.0 * delta
+			e.stamina_delay = 0.5
+			if e.stamina <= 1.0:
+				e.exhausted = true
+		if e.exhausted:
+			e.sprinting = false
+			if e.stamina > 45.0:
+				e.exhausted = false
+
 	var cfg: Dictionary = WolfCfg.CONFIG[e.faction]
 	var speed: float = cfg["speed"] * e.speed_mul
 	if e.faction != "survivor" and (e.is_blocking or e.bot_block_t > 0.0):
@@ -1334,6 +1480,26 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	if e.dash_t > 0.0:
 		e.dash_t = maxf(0.0, e.dash_t - delta)
 		wish = e.dash_dir * WolfCfg.DASH_SPEED
+
+	# Анти-застревание ботов: хочет идти, но не движется — боком в обход
+	# и принудительный перерасчёт пути.
+	if not e.is_player and not e.downed:
+		var moved := Vector2(e.global_position.x - e.last_pos.x, e.global_position.z - e.last_pos.z).length()
+		e.last_pos = e.global_position
+		if e.move_input.length() > 0.1 and moved < 0.012 and e.lift_t <= 0.0:
+			e.stuck_t += delta
+		else:
+			e.stuck_t = maxf(0.0, e.stuck_t - delta * 2.0)
+		if e.stuck_t > 0.9:
+			e.stuck_t = 0.0
+			e.unstick_t = 0.5
+			e.unstick_side = 1.0 if randf() < 0.5 else -1.0
+			_nav_paths.erase(e.get_instance_id())
+		if e.unstick_t > 0.0:
+			e.unstick_t -= delta
+			e.move_input = Vector2(e.unstick_side, 0.35)
+			var ulocal := Vector3(e.move_input.x, 0, -e.move_input.y).normalized()
+			wish = (e.basis * ulocal) * speed
 
 	e.velocity.x = wish.x
 	e.velocity.z = wish.z
@@ -1534,12 +1700,11 @@ func _physics_process(delta: float) -> void:
 		ui.set_flash_alpha(0.5 if int(exec_cam["t"] * 7.0) % 2 == 0 else 0.12)
 		if exec_cam["t"] <= 0.0:
 			ui.set_flash_alpha(0.0)
-			victim.being_executed = false
-			_damage(victim, 99999.0, executor)
 			player_cam.fov = 75.0
 			exec_cam = {}
 
 	_tick_call_system(delta)
+	_tick_executions(delta)
 	# Conditions like "merc stands in the evac zone" change without anyone
 	# dying, so the win check runs every tick, not only on kill events.
 	_check_win()
