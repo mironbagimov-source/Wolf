@@ -82,6 +82,12 @@ var weapon_slot := 3
 var ammo := {1: 0, 2: 0}
 var gunshot_t := 0.0    # недавно стрелял — психи слышат издалека
 
+# Агония гражданских: лежит с нулём HP, добиваем [F] или встаёт от дефиба.
+var downed := false
+var agony_t := 0.0
+var has_defib := false
+var is_maxtac := false
+
 var visual: Node3D = null
 var _anim: AnimationPlayer = null
 var _anim_current := ""
@@ -170,6 +176,7 @@ func apply_archetype(arche: Dictionary) -> void:
 		knives += int(arche.get("knives_add", 0))
 	if arche.has("accent"):
 		set_accent(arche["accent"])
+	has_defib = arche.get("defib", false)
 
 
 func _tint_color() -> Color:
@@ -248,6 +255,14 @@ func play_oneshot(anim: String) -> void:
 	_anim_current = anim
 	_anim_pending = ""
 	_oneshot_t = _anim.get_animation(anim).length * 0.9
+
+
+## Подъём из агонии (дефибриллятор сработал).
+func revive_anim() -> void:
+	_oneshot_t = 0.0
+	if _anim != null and _anim.has_animation("Idle"):
+		_anim.play("Idle", 0.3)
+		_anim_current = "Idle"
 
 
 ## Смерть: финальная поза остаётся до конца матча.
@@ -398,7 +413,7 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool, p_variant := 
 		soldier_scene.free()
 	elif ResourceLoader.exists("res://assets/characters/soldier.glb"):
 		var soldier: Node3D = (load("res://assets/characters/soldier.glb") as PackedScene).instantiate()
-		soldier.name = "Soldier"
+		soldier.name = "Body"  # единое имя: пост-обработка (UAL) находит тело
 		vis.add_child(soldier)
 		if p_is_leader:
 			soldier.scale = Vector3(1.28, 1.12, 1.28)

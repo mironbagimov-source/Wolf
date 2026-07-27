@@ -20,6 +20,7 @@ const CHAR_SCENE_PATHS := {
 	"leader": "res://scenes/chars/alpha.tscn",
 	"killer_a": "res://scenes/chars/merc.tscn",
 	"killer_b": "res://scenes/chars/merc_b.tscn",
+	"police_a": "res://scenes/chars/police.tscn",
 }
 var _char_scenes := {}
 
@@ -44,7 +45,14 @@ var bomb_carried := false          # игрок несёт взрывчатку
 var bomb_pickup: Node3D = null     # визуал брикетов
 var evac_pos := Vector3.ZERO
 var evac_half := Vector3.ONE
-var police_t := 0.0
+# Полицию ВЫЗЫВАЮТ с терминалов. 0 — тихо, 1 — полиция едет, 2 — полиция в
+# здании, 3 — отряд перебит (нужен МАКС-ТАК), 4 — МАКС-ТАК летит, 5 — внутри.
+var call_state := 0
+var call_timer := 0.0
+var call_points: Array = []
+var police_arrive := WolfCfg.POLICE_ARRIVE_TIME
+var _caller: WolfChar = null
+var _caller_delay := 0.0
 var bomb_progress := 0.0
 var bomb_planted := false
 var exec_cam := {}
@@ -67,7 +75,7 @@ var _test_yaw_before := 0.0
 
 const RESULT_COPY := {
 	"civs_dead": ["Психи победили", "В башне не осталось живых гражданских.", "cannibal"],
-	"police": ["Полиция прибыла", "Выжившие гражданские спасены.", "survivor"],
+	"police": ["Башня зачищена", "Отряд добил последнего психа. Выжившие спасены.", "survivor"],
 	"psychos_dead": ["Психи уничтожены", "Наёмники зачистили башню — гражданские спасены.", "killer"],
 	"merc_done": ["Контракт закрыт", "Бомба заложена, наёмники растворились до сирен.", "killer"],
 }
@@ -149,6 +157,11 @@ func _collect_layout() -> void:
 	if patrol != null:
 		for child in patrol.get_children():
 			patrol_points.append((child as Marker3D).global_position)
+	call_points.clear()
+	var calls := district.get_node_or_null("CallPoints")
+	if calls != null:
+		for child in calls.get_children():
+			call_points.append((child as Marker3D).global_position)
 	bomb_spots.clear()
 	var spots := district.get_node_or_null("BombSpots")
 	if spots != null:
@@ -195,7 +208,11 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, loadout 
 		bomb_pickup.global_position = bomb_site
 		bomb_pickup.visible = true
 	var override := OS.get_environment("WOLF_POLICE")
-	police_t = float(override) if override != "" else WolfCfg.POLICE_TIME
+	police_arrive = float(override) if override != "" else WolfCfg.POLICE_ARRIVE_TIME
+	call_state = 0
+	call_timer = 0.0
+	_caller = null
+	_caller_delay = 25.0
 	for d in doors:
 		if (d as WolfDoor).is_open and not (d as WolfDoor).is_broken:
 			(d as WolfDoor).toggle()  # matches start with doors closed
@@ -205,7 +222,9 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, loadout 
 	for i in 6:
 		var is_human := faction == "survivor" and i == 0
 		var v := arche_index % 2 if is_human else i % 3  # боты носят все три облика
-		_spawn_char("survivor", civ_spawns[i % civ_spawns.size()], is_human, false, v)
+		var cv := _spawn_char("survivor", civ_spawns[i % civ_spawns.size()], is_human, false, v)
+		if not is_human and _caller == null:
+			_caller = cv  # этот бот пойдёт звонить в полицию
 
 	var psycho_spawns := _spawn_positions("Cannibal")
 	for i in 4:
@@ -446,7 +465,7 @@ func _update_player_input(delta: float) -> void:
 	player_cam.rotation.x = _pitch
 	_look_delta = Vector2.ZERO
 
-	if p.is_dead:
+	if p.is_dead or p.downed:
 		p.move_input = Vector2.ZERO
 		return
 
@@ -584,11 +603,22 @@ func _try_dash(e: WolfChar, dir2: Vector2) -> void:
 	e.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
 
 
+func _hostile(a: WolfChar, b: WolfChar) -> bool:
+	if a.faction == b.faction:
+		return false
+	# Штурмовые отряды дерутся только с психами; граждан и наёмников не трогают.
+	if a.faction == "police":
+		return b.faction == "cannibal"
+	if b.faction == "police":
+		return a.faction == "cannibal"
+	return true
+
+
 func _acquire_melee_target(e: WolfChar) -> WolfChar:
 	var best: WolfChar = null
 	var best_d := INF
 	for t: WolfChar in entities:
-		if t == e or t.is_dead or t.faction == e.faction or t.being_executed:
+		if t == e or t.is_dead or t.being_executed or not _hostile(e, t):
 			continue
 		if t.dash_t > 0.0:
 			continue  # dodge i-frames: a dashing target can't be struck
@@ -750,23 +780,40 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
 			target.knockback = dir.normalized() * WolfCfg.STAGGER_KNOCKBACK
 	if target.is_player:
 		ui.flash_damage()
+	var finisher := dmg >= 9000.0  # добивание минует агонию
 	if target.hp <= 0.0 and not target.is_dead:
-		target.is_dead = true
-		target.hp = 0.0
-		target.hide_telegraph()
-		if target.is_player and bomb_carried:
-			bomb_carried = false
-			bomb_site = target.global_position
-			if bomb_pickup != null:
-				bomb_pickup.global_position = bomb_site
-				bomb_pickup.visible = true
-		if target._anim != null and target._anim.has_animation("Death"):
+		if target.faction == "survivor" and not finisher and not target.downed:
+			# Гражданский не умирает сразу: падает в АГОНИЮ. Добить [F] или
+			# ждать: с дефибриллятором встанет сам, без — истечёт кровью.
+			target.downed = true
+			target.hp = 0.0
+			target.agony_t = WolfCfg.AGONY_TIME
+			target.hide_telegraph()
 			target.play_death()
-		elif target.visual != null:
-			target.visual.rotation.x = -PI / 2.0  # запасной вариант без клипа
-		_check_win()
+			return
+		_kill(target)
+	elif target.downed and dmg > 3.0:
+		target.agony_t -= WolfCfg.AGONY_HIT_PENALTY  # добивают и руками
 	elif not target.is_player and dmg > 3.0:
 		target.play_oneshot("Hit")
+
+
+func _kill(target: WolfChar) -> void:
+	target.is_dead = true
+	target.downed = false
+	target.hp = 0.0
+	target.hide_telegraph()
+	if target.is_player and bomb_carried:
+		bomb_carried = false
+		bomb_site = target.global_position
+		if bomb_pickup != null:
+			bomb_pickup.global_position = bomb_site
+			bomb_pickup.visible = true
+	if target._anim != null and target._anim.has_animation("Death"):
+		target.play_death()
+	elif target.visual != null:
+		target.visual.rotation.x = -PI / 2.0  # запасной вариант без клипа
+	_check_win()
 
 
 func _find_execute_target(e: WolfChar) -> WolfChar:
@@ -792,6 +839,7 @@ func _find_execute_target(e: WolfChar) -> WolfChar:
 
 
 func _perform_execute(executor: WolfChar, victim: WolfChar) -> void:
+	executor.play_oneshot("AttackHeavy")
 	if victim.is_player:
 		victim.being_executed = true
 		executor.recover_t = WolfCfg.EXECUTE_CAM_TIME + 0.2
@@ -912,6 +960,78 @@ var _nav_paths := {}   # entity instance id -> {"points": PackedVector3Array, "i
 ## лифтом»: дойти до шахты, подождать (дольше — дальше ехать), выйти на
 ## этаже цели. Пока бот «в кабине», он неуязвим для смысла не имеет — он
 ## просто стоит у шахты с обнулённым вводом.
+func _tick_call_system(delta: float) -> void:
+	if mode != "playing":
+		return
+	if call_state == 1 or call_state == 4:
+		call_timer -= delta
+		if call_timer <= 0.0:
+			_spawn_squad(call_state == 4)
+			call_state = 2 if call_state == 1 else 5
+	elif call_state == 2 or call_state == 5:
+		if _alive("police") == 0 and _alive("cannibal") > 0:
+			call_state = 3  # отряд перебит — нужен МАКС-ТАК
+	if call_state == 0 or call_state == 3:
+		_caller_delay = maxf(0.0, _caller_delay - delta)
+
+
+func _trigger_call() -> void:
+	if call_state == 0:
+		call_state = 1
+		call_timer = police_arrive
+	elif call_state == 3:
+		call_state = 4
+		call_timer = police_arrive * 0.7  # МАКС-ТАК летит AV-ом, быстрее
+	_caller_delay = 20.0
+
+
+func _spawn_squad(maxtac: bool) -> void:
+	var count := WolfCfg.MAXTAC_COUNT if maxtac else WolfCfg.POLICE_COUNT
+	for i in count:
+		var cop := _spawn_char("police", Vector3(-3.0 + i * 2.0, 0.2, -19.5), false, false)
+		cop.can_execute = true
+		if maxtac:
+			cop.is_maxtac = true
+			cop.hp = WolfCfg.MAXTAC_HP
+			cop.max_hp = WolfCfg.MAXTAC_HP
+			cop.dmg_mul = WolfCfg.MAXTAC_DMG_MUL
+			if cop.visual != null:
+				cop.visual.scale *= 1.07
+
+
+## Штурмовик: знает, где психи (сканеры), едет лифтом, стреляет издали и
+## рубит вблизи. МАКС-ТАК — то же, но больнее и быстрее.
+func _bot_police(e: WolfChar, delta: float) -> void:
+	e.wants_execute = false
+	var psycho := _nearest_living("cannibal", e.global_position)
+	if psycho[0] == null:
+		_bot_goto(e, Vector3(0, 0, -14), delta)  # зачищено — к лобби
+		return
+	var target: WolfChar = psycho[0]
+	e.sprinting = psycho[1] > 8.0
+	_bot_goto(e, target.global_position, delta)
+	var dp := target.global_position - e.global_position
+	if absf(dp.y) > WolfCfg.SAME_FLOOR_DY:
+		return
+	var flat := Vector2(dp.x, dp.z).length()
+	if flat <= WolfCfg.EXECUTE_RANGE and target.hp <= target.max_hp * WolfCfg.EXECUTE_THRESHOLD and not target.being_executed:
+		e.wants_execute = true
+		return
+	if flat <= _melee_range(e) and e.cd_attack <= 0.0:
+		e.desired_yaw = _yaw_toward(dp.x, dp.z)
+		_bot_begin_windup(e, randf() < 0.2)
+	elif flat > 3.0 and flat <= WolfCfg.POLICE_GUN_RANGE and e.cd_throw <= 0.0:
+		var from := e.global_position + Vector3(0, 1.5, 0)
+		var to := target.global_position + Vector3(0, 1.2, 0)
+		var q := PhysicsRayQueryParameters3D.create(from, to, 1)
+		if get_world_3d().direct_space_state.intersect_ray(q).is_empty():
+			e.desired_yaw = _yaw_toward(dp.x, dp.z)
+			e.cd_throw = WolfCfg.MAXTAC_GUN_CD if e.is_maxtac else WolfCfg.POLICE_GUN_CD
+			e.gunshot_t = 1.0
+			e.play_oneshot("Attack")
+			_damage(target, WolfCfg.MAXTAC_GUN_DMG if e.is_maxtac else WolfCfg.POLICE_GUN_DMG, e)
+
+
 func _bot_goto(e: WolfChar, target: Vector3, delta: float) -> void:
 	if e.lift_t > 0.0:
 		e.lift_t -= delta
@@ -988,6 +1108,8 @@ func _bot_open_or_break_door(e: WolfChar) -> void:
 
 
 func _update_bot(e: WolfChar, delta: float) -> void:
+	if e.downed:
+		return
 	if e.winding:
 		e.move_input = Vector2.ZERO
 		return
@@ -998,6 +1120,8 @@ func _update_bot(e: WolfChar, delta: float) -> void:
 			_bot_psycho(e, delta)
 		"killer":
 			_bot_merc(e, delta)
+		"police":
+			_bot_police(e, delta)
 	_bot_open_or_break_door(e)
 
 
@@ -1012,6 +1136,24 @@ func _bot_civilian(e: WolfChar, delta: float) -> void:
 		e.crouching = true
 		return
 	e.crouching = false
+
+	# «Звонарь»: когда подмога не вызвана (или перебита), один бот идёт к
+	# ближайшему терминалу — психам есть кого перехватывать.
+	if e == _caller and (call_state == 0 or call_state == 3) and _caller_delay <= 0.0 \
+			and (threat[0] == null or threat[1] > 8.0) and not call_points.is_empty():
+		var best_cp := Vector3.ZERO
+		var best_cd := INF
+		for cp: Vector3 in call_points:
+			var d := cp.distance_to(e.global_position)
+			if d < best_cd:
+				best_cd = d
+				best_cp = cp
+		if best_cd < WolfCfg.CALL_RANGE:
+			_trigger_call()
+		else:
+			e.sprinting = false
+			_bot_goto(e, best_cp, delta)
+			return
 
 	# Head for the nearest safe room; sprint when hunted.
 	var best_zone := Vector3.ZERO
@@ -1040,6 +1182,11 @@ func _bot_psycho(e: WolfChar, delta: float) -> void:
 	if merc[0] != null and merc[1] <= _noise_radius(merc[0], cfg["killer_aggro"]) and merc[1] < prey_d:
 		prey = merc[0]
 		prey_d = merc[1]
+	# Штурмовики шумные — псих слышит их в полном радиусе.
+	var pol := _nearest_living("police", e.global_position)
+	if pol[0] != null and pol[1] <= cfg["sense_radius"] and pol[1] < prey_d:
+		prey = pol[0]
+		prey_d = pol[1]
 
 	if prey != null:
 		e.sprinting = true
@@ -1141,6 +1288,20 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 		e.move_input = Vector2.ZERO
 		return
 
+	# Агония: лежит и тикает таймер; дефибриллятор поднимает сам.
+	if e.downed:
+		e.move_input = Vector2.ZERO
+		e.agony_t -= delta
+		if e.agony_t <= 0.0:
+			if e.has_defib:
+				e.has_defib = false
+				e.downed = false
+				e.hp = e.max_hp * WolfCfg.DEFIB_REVIVE_FRAC
+				e.revive_anim()
+			else:
+				_kill(e)
+		return
+
 	# Bot wind-up ticks down and lands the strike.
 	if e.winding:
 		e.windup_t -= delta
@@ -1222,6 +1383,13 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 			door.toggle()
 			break
 
+	# Терминал вызова: гражданский зовёт полицию / МАКС-ТАК.
+	if e.faction == "survivor" and e.interact_pressed and (call_state == 0 or call_state == 3):
+		for cp: Vector3 in call_points:
+			if cp.distance_to(e.global_position) <= WolfCfg.CALL_RANGE:
+				_trigger_call()
+				break
+
 	# Взрывчатка: найти (подбор E), донести до грав-лифта, заложить (держать E).
 	if e.faction == "killer" and not bomb_planted:
 		if not bomb_carried:
@@ -1259,9 +1427,23 @@ func _prompt_for(p: WolfChar) -> String:
 	if p.charging:
 		return "ЗАРЯД удара… отпусти ЛКМ" if p.charge_t >= WolfCfg.CHARGE_MIN else "Удар…"
 	if p.faction == "survivor":
+		if p.downed:
+			if p.has_defib:
+				return "АГОНИЯ… дефибриллятор заряжается: %d" % int(ceil(p.agony_t))
+			return "АГОНИЯ — истекаешь кровью: %d" % int(ceil(p.agony_t))
+		for cp: Vector3 in call_points:
+			if cp.distance_to(p.global_position) <= WolfCfg.CALL_RANGE:
+				if call_state == 0:
+					return "[E] ВЫЗВАТЬ ПОЛИЦИЮ"
+				if call_state == 3:
+					return "[E] ВЫЗВАТЬ МАКС-ТАК"
+		if call_state == 0:
+			return "Вызови полицию: терминалы в лобби, на фудкорте и в офисах (10)"
+		if call_state == 3:
+			return "Полицию перебили! Вызови МАКС-ТАК с терминала"
 		if _in_safe_zone(p.global_position):
-			return "Вы в укрытии — ждите полицию"
-		return "Найди безопасную комнату (зелёная вывеска, 5–8 этажи) · лифт [E]"
+			return "Вы в укрытии — держитесь"
+		return "Прячься (безопасные комнаты: 5–8 этажи) — отряд работает"
 	if p.faction == "cannibal":
 		if p.can_execute and _find_execute_target(p) != null:
 			return "[F] ДОБИВАНИЕ"
@@ -1287,9 +1469,19 @@ func _update_hud() -> void:
 		return
 	ui.hp_fill.size.x = 180.0 * clampf(p.hp / p.max_hp, 0.0, 1.0)
 	ui.stamina_fill.size.x = 180.0 * clampf(p.stamina / WolfCfg.STAMINA_MAX, 0.0, 1.0)
-	var mins := int(police_t) / 60
-	var secs := int(police_t) % 60
-	ui.timer_label.text = "Полиция: %02d:%02d" % [mins, secs]
+	match call_state:
+		0:
+			ui.timer_label.text = "Психов: %d · полиция не вызвана" % _alive("cannibal")
+		1:
+			ui.timer_label.text = "Полиция едет: %d сек" % int(ceil(call_timer))
+		2:
+			ui.timer_label.text = "Полиция в здании: %d" % _alive("police")
+		3:
+			ui.timer_label.text = "ОТРЯД ПЕРЕБИТ — вызовите МАКС-ТАК!"
+		4:
+			ui.timer_label.text = "МАКС-ТАК летит: %d сек" % int(ceil(call_timer))
+		5:
+			ui.timer_label.text = "МАКС-ТАК в здании: %d" % _alive("police")
 	ui.nodes_label.text = "Граждане: %d · Психи: %d" % [_alive("survivor"), _alive("cannibal")]
 	var stance: Array = []
 	if p.char_name != "":
@@ -1347,9 +1539,7 @@ func _physics_process(delta: float) -> void:
 			player_cam.fov = 75.0
 			exec_cam = {}
 
-	police_t -= delta
-	if police_t <= 0.0 and mode == "playing":
-		_end_game("police")
+	_tick_call_system(delta)
 	# Conditions like "merc stands in the evac zone" change without anyone
 	# dying, so the win check runs every tick, not only on kill events.
 	_check_win()
@@ -1408,19 +1598,21 @@ func _run_test(delta: float) -> void:
 		"lift":
 			_test_lift(delta)
 		"civwin":
-			if _test_t > 0.5 and mode == "menu":
-				_start_match("survivor", 0, -1)
-			elif mode == "ended" and not _test_shot_taken:
-				_test_shot_taken = true
-				print("TEST RESULT: civwin ok ended=police")
-				get_tree().quit(0)
-			elif _test_t > 30.0:
-				print("TEST RESULT: civwin FAIL timeout")
-				get_tree().quit(1)
+			_test_civwin(delta)
+		"agony":
+			_test_agony(delta)
 		"bomb":
 			_test_bomb(delta)
 		"gun":
 			_test_gun(delta)
+		"loadout":
+			if _test_t > 0.6 and not _test_staged:
+				_test_staged = true
+				ui.open_charselect("killer")
+				ui.open_weaponselect("killer", 0)
+			elif _test_staged and _test_t > 1.2 and not _test_shot_taken:
+				_test_shot_taken = true
+				_finish_test("loadout ok")
 		"cast":
 			_test_cast(delta)
 		"parry":
@@ -1639,6 +1831,68 @@ var _cast_line: Array = []
 var _test_pos_before := Vector3.ZERO
 var _dash_step := 0
 var _meet_dbg_t := -1
+var _agony_phase := 0
+
+
+## Вызов полиции с терминала: копы штурмуют, зачистка = победа гражданских.
+func _test_civwin(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("survivor", 0, -1)
+	elif mode == "playing" and _test_t > 1.2 and not _test_staged:
+		_test_staged = true
+		player.global_position = call_points[0] + Vector3(0.3, 0.2, 0.3)
+	elif _test_staged and call_state == 0 and _test_t < 6.0:
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = fmod(_test_t, 0.4) < 0.2
+		Input.parse_input_event(ev)
+	elif _test_staged and call_state >= 2 and _alive("police") > 0 and not _test_shot_taken:
+		_test_shot_taken = true
+		for e: WolfChar in entities.duplicate():
+			if e.faction == "cannibal" and not e.is_dead:
+				_damage(e, 99999.0, null)
+		await get_tree().create_timer(0.4).timeout
+		print("TEST RESULT: civwin ok cops=%d mode=%s" % [_alive("police"), mode])
+		get_tree().quit(0 if mode == "ended" else 1)
+	elif _test_t > 40.0:
+		print("TEST RESULT: civwin FAIL state=%d cops=%d" % [call_state, _alive("police")])
+		get_tree().quit(1)
+
+
+## Агония: ноль HP валит гражданского, Медтех встаёт от дефибриллятора,
+## второй нокдаун без дефиба — смерть.
+func _test_agony(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("survivor", 1, -1)  # Медтех, с дефибриллятором
+	elif mode == "playing" and _test_t > 1.2 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-27, 0.2, -19)
+		_damage(player, 900.0, null)
+	elif _test_staged:
+		match _agony_phase:
+			0:
+				if player.is_dead:
+					print("TEST RESULT: agony FAIL умер сразу, без агонии")
+					get_tree().quit(1)
+				elif player.downed:
+					player.agony_t = 1.0
+					_agony_phase = 1
+			1:
+				if not player.downed and not player.is_dead and player.hp > 0.0:
+					_agony_phase = 2
+					_damage(player, 900.0, null)
+			2:
+				if player.downed:
+					player.agony_t = 1.0
+					_agony_phase = 3
+			3:
+				if player.is_dead:
+					print("TEST RESULT: agony ok — нокдаун, дефиб-подъём, смерть без дефиба")
+					get_tree().quit(0)
+		if _test_t > 25.0:
+			print("TEST RESULT: agony FAIL phase=%d downed=%s dead=%s hp=%.0f" % [_agony_phase, str(player.downed), str(player.is_dead), player.hp])
+			get_tree().quit(1)
 
 
 ## Parry check: raising the guard just before a bot's light strike lands must

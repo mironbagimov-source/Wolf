@@ -137,6 +137,19 @@ static func build_district(root: Node3D) -> void:
 	evac.set_meta("half", Vector3(4.0, 2.0, 1.8))
 	root.add_child(evac)
 
+	# Терминалы вызова полиции (и МАКС-ТАК). Светятся синим.
+	var calls := _group(root, "CallPoints")
+	var call_list := [Vector3(1.6, 0, -13.4), Vector3(-14, 3 * H, 16.2), Vector3(-8.5, 9 * H, 2.2)]
+	for i in call_list.size():
+		var m := Marker3D.new()
+		m.name = "Call%d" % i
+		m.position = call_list[i]
+		calls.add_child(m)
+	# видимые «телефоны»
+	_emissive(root.get_node("Geometry"), Vector3(1.6, 1.35, -13.7), Vector3(0.4, 0.55, 0.08), Color(0.35, 0.6, 1.0), 1.8, "CallPhone0")
+	_emissive(root.get_node("Geometry"), Vector3(-14, 3 * H + 1.5, 16.6), Vector3(0.4, 0.55, 0.08), Color(0.35, 0.6, 1.0), 1.8, "CallPhone1")
+	_emissive(root.get_node("Geometry"), Vector3(-8.5, 9 * H + 1.35, 2.6), Vector3(0.4, 0.55, 0.08), Color(0.35, 0.6, 1.0), 1.8, "CallPhone2")
+
 	# Кандидаты на спавн взрывчатки — по одной точке на характерное место.
 	var bomb_spots := _group(root, "BombSpots")
 	var spots := [

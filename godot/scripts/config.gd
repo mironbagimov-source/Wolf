@@ -23,14 +23,17 @@ const FACTION_COLOR := {
 	"cannibal": Color(1.0, 0.18, 0.42),
 	"leader": Color(0.75, 0.30, 1.0),
 	"killer": Color(0.50, 0.88, 0.51),
+	"police": Color(0.35, 0.6, 1.0),
 }
-const FACTION_NAME := {"survivor": "Гражданский", "cannibal": "Кибер-псих", "killer": "Наёмник"}
+const FACTION_NAME := {"survivor": "Гражданский", "cannibal": "Кибер-псих", "killer": "Наёмник", "police": "Полиция"}
 
 const CONFIG := {
 	"survivor": {"speed": 3.3, "sprint_mul": 1.7, "hp": 110.0},
 	"cannibal": {"speed": 3.7, "sprint_mul": 1.45, "hp": 210.0,
 		"attack_range": 2.2, "attack_damage": 34.0, "attack_cd": 0.8,
 		"sense_radius": 14.0, "killer_aggro": 6.0},
+	"police": {"speed": 3.6, "sprint_mul": 1.5, "hp": 170.0,
+		"attack_range": 2.3, "attack_damage": 30.0, "attack_cd": 0.7},
 	"killer": {"speed": 3.5, "sprint_mul": 1.55, "hp": 220.0,
 		"attack_range": 2.5, "attack_damage": 45.0, "attack_cd": 0.7,
 		"block_speed_mul": 0.55,
@@ -117,7 +120,25 @@ const GUNSHOT_NOISE := 26.0       # насколько выстрел разду
 const GUNSHOT_NOISE_T := 1.6
 
 # --- Objectives ----------------------------------------------------------
-const POLICE_TIME := 240.0        # seconds until police arrive (civilians' win clock)
+# --- Полиция вызывается с терминалов; если отряд перебили — MAX-TAC ------
+const POLICE_ARRIVE_TIME := 45.0  # ехать от вызова до штурма (WOLF_POLICE override)
+const POLICE_COUNT := 4
+const POLICE_GUN_DMG := 12.0
+const POLICE_GUN_CD := 1.1
+const POLICE_GUN_RANGE := 18.0
+const MAXTAC_COUNT := 3
+const MAXTAC_HP := 330.0
+const MAXTAC_DMG_MUL := 1.8
+const MAXTAC_GUN_DMG := 24.0
+const MAXTAC_GUN_CD := 0.7
+const CALL_RANGE := 2.4           # радиус нажатия E у терминала вызова
+
+# --- Агония гражданских ---------------------------------------------------
+# Ноль HP валит гражданского в агонию: он лежит, его можно ДОБИТЬ [F].
+# Если есть дефибриллятор (Медтех) — через AGONY_TIME он встаёт сам.
+const AGONY_TIME := 22.0
+const AGONY_HIT_PENALTY := 6.0    # удар по лежачему отнимает секунды агонии
+const DEFIB_REVIVE_FRAC := 0.45
 const BOMB_PLANT_TIME := 5.0      # seconds the merc holds E at the shaft
 const BOMB_PICKUP_RANGE := 2.6    # подобрать взрывчатку [E]
 const BOMB_PLANT_RANGE := 3.2     # радиус закладки от центра грав-шахты
@@ -159,7 +180,7 @@ const SAME_FLOOR_DY := 2.2
 const CHARACTERS := {
 	"survivor": [
 		{"id": "courier", "name": "Курьер", "tag": "скорость", "desc": "Быстрый и хрупкий. Живёт только за счёт ног.", "speed_mul": 1.12, "hp_mul": 0.85},
-		{"id": "medtech", "name": "Медтех", "tag": "живучесть", "desc": "Медленнее, зато держится под погоней дольше.", "speed_mul": 0.95, "hp_mul": 1.25},
+		{"id": "medtech", "name": "Медтех", "tag": "живучесть · дефибриллятор", "desc": "Медленнее, зато с дефибриллятором: из агонии встаёт сам (один раз).", "speed_mul": 0.95, "hp_mul": 1.25, "defib": true},
 	],
 	"cannibal": [
 		{"id": "butcher", "name": "Мясник", "tag": "танк · добивание", "desc": "Ломится напролом, бьёт тяжело. Добивает раненых [F].", "speed_mul": 0.92, "hp_mul": 1.15, "dmg_mul": 1.15, "can_execute": true},

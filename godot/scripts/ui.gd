@@ -9,6 +9,7 @@ var hud: Control
 var end_screen: Control
 var pause_hint: Label
 var _gfx_high := false
+var _ws_go: Button
 
 var hp_fill: ColorRect
 var stance_label: Label
@@ -205,15 +206,22 @@ func _build_weaponselect() -> void:
 
 	var box := VBoxContainer.new()
 	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	box.grow_vertical = Control.GROW_DIRECTION_BOTH
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", 18)
+	box.add_theme_constant_override("separation", 14)
 	weaponselect.add_child(box)
 
 	_ws_title = _label(box, "Выбор оружия", 40)
 	_ws_box = HBoxContainer.new()
 	_ws_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	_ws_box.add_theme_constant_override("separation", 16)
+	_ws_box.add_theme_constant_override("separation", 24)
 	box.add_child(_ws_box)
+	_ws_go = Button.new()
+	_ws_go.text = "  В БОЙ  "
+	_ws_go.add_theme_font_size_override("font_size", 24)
+	_ws_go.visible = false
+	box.add_child(_ws_go)
 	_label(box, "ЛКМ (тап) — быстрый удар. ЛКМ (зажать и отпустить) — ЗАРЯЖЕННЫЙ удар: больше урона, пробивает блок. Удар в спринте — выпад.\nПКМ — блок. Блок В ПОСЛЕДНИЙ МОМЕНТ — парирование: урон 0, враг открыт. Двойное WASD — дэш (i-кадры). Метка: жёлтая — замах, КРАСНАЯ — заряженный, блок не спасёт. На пустой стамине бьёшь слабее и медленнее.", 14, Color(0.45, 0.52, 0.66))
 
 
@@ -224,6 +232,9 @@ func open_weaponselect(faction: String, char_index: int) -> void:
 	_ws_title.add_theme_color_override("font_color", WolfCfg.FACTION_COLOR[faction])
 	for child in _ws_box.get_children():
 		child.queue_free()
+	_ws_go.visible = false
+	for c in _ws_go.pressed.get_connections():
+		_ws_go.pressed.disconnect(c["callable"])
 	if faction == "cannibal":
 		var weapons: Array = WolfCfg.WEAPONS[faction]
 		for i in weapons.size():
@@ -257,7 +268,8 @@ func open_weaponselect(faction: String, char_index: int) -> void:
 			b.text = ("► " if i == 0 else "   ") + str(w["name"])
 			b.tooltip_text = str(w.get("desc", ""))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.add_theme_font_size_override("font_size", 15)
+			b.add_theme_font_size_override("font_size", 16)
+			b.custom_minimum_size = Vector2(220, 0)
 			col.add_child(b)
 			btns.append(b)
 			var slot: String = g[1]
@@ -266,21 +278,8 @@ func open_weaponselect(faction: String, char_index: int) -> void:
 				sel[slot] = idx
 				for j in btns.size():
 					(btns[j] as Button).text = ("► " if j == idx else "   ") + str((opts[j] as Dictionary)["name"]))
-		var hint := Label.new()
-		hint.text = "\n".join((opts.map(func(w: Dictionary) -> String: return "%s — %s" % [w["name"], w.get("desc", "")])))
-		hint.add_theme_font_size_override("font_size", 11)
-		hint.add_theme_color_override("font_color", Color(0.45, 0.52, 0.66))
-		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		hint.custom_minimum_size = Vector2(240, 0)
-		col.add_child(hint)
-	var go_col := VBoxContainer.new()
-	go_col.alignment = BoxContainer.ALIGNMENT_CENTER
-	_ws_box.add_child(go_col)
-	var go := Button.new()
-	go.text = "  В БОЙ  "
-	go.add_theme_font_size_override("font_size", 22)
-	go_col.add_child(go)
-	go.pressed.connect(func() -> void:
+	_ws_go.visible = true
+	_ws_go.pressed.connect(func() -> void:
 		weapon_picked.emit(faction, char_index, sel["melee"],
 			{"primary": sel["primary"], "secondary": sel["secondary"]}))
 

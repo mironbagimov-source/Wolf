@@ -50,6 +50,7 @@ func _init() -> void:
 		["cannibal", true, 0, "res://scenes/chars/alpha.tscn"],
 		["killer", false, 0, "res://scenes/chars/merc.tscn"],
 		["killer", false, 1, "res://scenes/chars/merc_b.tscn"],
+		["police", false, 0, "res://scenes/chars/police.tscn"],
 	]
 	# UAL: одна библиотека анимаций на всех — ретаргетится на каждое тело.
 	var ual_ap: AnimationPlayer = null
@@ -80,9 +81,13 @@ func _apply_ual(char_root: Node3D, p_faction: String, p_is_leader: bool, p_varia
 	if vis == null:
 		return
 	var av := vis.get_node_or_null("Body") as Node3D
-	var ap := vis.get_node_or_null("AnimationPlayer") as AnimationPlayer
-	if av == null or ap == null:
+	if av == null:
 		return
+	var ap := vis.get_node_or_null("AnimationPlayer") as AnimationPlayer
+	if ap == null:
+		ap = AnimationPlayer.new()
+		ap.name = "AnimationPlayer"
+		vis.add_child(ap)
 	root.add_child(char_root)  # временно в дерево ради global_transform
 	var tgt_skel := WolfRetarget.find_skeleton(av)
 	if tgt_skel != null:
