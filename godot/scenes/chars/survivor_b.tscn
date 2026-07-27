@@ -1,93 +1,43 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=7 format=3]
 
-[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_3tj4h"]
-[ext_resource type="PackedScene" path="res://assets/characters/bodies/medea.fbx" id="2_gomlw"]
-[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_survivor_b.res" id="3_fm7hy"]
+[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_fqw4u"]
+[ext_resource type="PackedScene" path="res://assets/characters/bodies/ch45.fbx" id="2_ukvt6"]
+[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_survivor_b.res" id="3_20rdt"]
 
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_pyeah"]
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_utvpb"]
 radius = 0.4
 height = 1.8
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_djgn1"]
-albedo_color = Color(1, 0.2, 0.75, 1)
-metallic = 0.55
-roughness = 0.4
-emission_enabled = true
-emission = Color(1, 0.2, 0.75, 1)
-emission_energy_multiplier = 1.8
-
-[sub_resource type="BoxMesh" id="BoxMesh_qrtrp"]
-size = Vector3(0.03, 0.32, 0.03)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hos1x"]
-albedo_color = Color(0.1, 0.9, 1, 1)
-metallic = 0.55
-roughness = 0.4
-emission_enabled = true
-emission = Color(0.1, 0.9, 1, 1)
-emission_energy_multiplier = 1.8
-
-[sub_resource type="BoxMesh" id="BoxMesh_gitd3"]
-size = Vector3(0.03, 0.32, 0.03)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_nnmml"]
-albedo_color = Color(0.55, 0.3, 1, 1)
-metallic = 0.55
-roughness = 0.4
-emission_enabled = true
-emission = Color(0.55, 0.3, 1, 1)
-emission_energy_multiplier = 2.0
-
-[sub_resource type="BoxMesh" id="BoxMesh_rwhol"]
-size = Vector3(0.11, 0.09, 0.02)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_o224q"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_lrv4q"]
 albedo_color = Color(1, 1, 0, 1)
 emission_enabled = true
 emission = Color(1, 1, 0, 1)
 emission_energy_multiplier = 4.0
 
-[sub_resource type="BoxMesh" id="BoxMesh_spp56"]
+[sub_resource type="BoxMesh" id="BoxMesh_1tvhd"]
 size = Vector3(0.16, 0.16, 0.16)
 
 [node name="Survivor B" type="CharacterBody3D"]
-script = ExtResource("1_3tj4h")
+script = ExtResource("1_fqw4u")
 faction = "survivor"
 is_leader = false
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_pyeah")
+shape = SubResource("CapsuleShape3D_utvpb")
 
 [node name="Visual" type="Node3D" parent="."]
 
-[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_gomlw")]
-transform = Transform3D(-10.1738, 0, -8.8942e-07, 0, 10.1738, 0, 8.8942e-07, 0, -10.1738, 0, 0, 0)
+[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_ukvt6")]
+transform = Transform3D(-0.908239, 0, -7.94007e-08, 0, 0.908239, 0, 7.94007e-08, 0, -0.908239, 0, 0, 0)
 
 [node name="AnimationPlayer" type="AnimationPlayer" parent="Visual"]
 libraries = {
-"": ExtResource("3_fm7hy")
+"": ExtResource("3_20rdt")
 }
-
-[node name="CyberGear" type="Node3D" parent="Visual"]
-
-[node name="JacketTrimL" type="MeshInstance3D" parent="Visual/CyberGear"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.17, 1.16, -0.07)
-material_override = SubResource("StandardMaterial3D_djgn1")
-mesh = SubResource("BoxMesh_qrtrp")
-
-[node name="JacketTrimR" type="MeshInstance3D" parent="Visual/CyberGear"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.17, 1.16, -0.07)
-material_override = SubResource("StandardMaterial3D_hos1x")
-mesh = SubResource("BoxMesh_gitd3")
-
-[node name="BeltScreen" type="MeshInstance3D" parent="Visual/CyberGear"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.06, 1, -0.13)
-material_override = SubResource("StandardMaterial3D_nnmml")
-mesh = SubResource("BoxMesh_rwhol")
 
 [node name="Telegraph" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3, 0)
 visible = false
-material_override = SubResource("StandardMaterial3D_o224q")
-mesh = SubResource("BoxMesh_spp56")
+material_override = SubResource("StandardMaterial3D_lrv4q")
+mesh = SubResource("BoxMesh_1tvhd")

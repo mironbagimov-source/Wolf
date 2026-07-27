@@ -11,8 +11,12 @@ const ENTITY_RADIUS := 0.4
 const BOUND_X := 29.4
 const BOUND_Z := 21.4
 const FLOOR_H := 5.0
-const FLOORS := 8
-const ELEVATOR_SPEED := 4.0
+const FLOORS := 16
+const ELEVATOR_SPEED := 6.5
+## Боты между этажами ездят «грузовым лифтом»: подходят к шахте, ждут и
+## выходят на нужном этаже (сек на этаж пути + базовое ожидание).
+const BOT_LIFT_BASE := 1.6
+const BOT_LIFT_PER_FLOOR := 0.35
 
 const FACTION_COLOR := {
 	"survivor": Color(0.27, 0.84, 0.77),
@@ -97,7 +101,7 @@ const WEAPONS := {
 }
 
 # --- Objectives ----------------------------------------------------------
-const POLICE_TIME := 210.0        # seconds until police arrive (civilians' win clock)
+const POLICE_TIME := 240.0        # seconds until police arrive (civilians' win clock)
 const BOMB_PLANT_TIME := 5.0      # seconds the merc holds E at the bomb site
 const INTERACT_RANGE := 2.6
 const FLEE_RADIUS := 10.0

@@ -71,6 +71,8 @@ var hit_flash := 0.0
 var wander_dir := Vector3.FORWARD
 var wander_timer := 0.0
 var patrol_idx := -1  # persistent roam target — bots finish long descents
+var lift_t := 0.0     # >0: едет грузовым лифтом (см. main._bot_goto)
+var lift_target_y := 0.0
 
 var visual: Node3D = null
 var _anim: AnimationPlayer = null
@@ -121,27 +123,8 @@ func init_stats(p_is_player: bool) -> void:
 
 
 func set_weapon(w: Dictionary) -> void:
+	# Только статы — плавающих оружейных болванок у моделей больше нет.
 	weapon = w
-	if is_player or visual == null:
-		return
-	# Bots show their weapon: a simple blade/club by the right hand.
-	var old := visual.get_node_or_null("WeaponMesh")
-	if old != null:
-		old.queue_free()
-	var mi := MeshInstance3D.new()
-	mi.name = "WeaponMesh"
-	var box := BoxMesh.new()
-	var heavy: bool = w.get("dmg", 1.0) > 1.2
-	box.size = Vector3(0.09, 0.9, 0.09) if heavy else Vector3(0.05, 0.75, 0.02)
-	mi.mesh = box
-	mi.position = Vector3(0.34, 0.85, -0.1)
-	mi.rotation_degrees = Vector3(24, 0, -12)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.35, 0.38, 0.45) if heavy else Color(0.7, 0.75, 0.85)
-	mat.metallic = 0.85
-	mat.roughness = 0.3
-	mi.material_override = mat
-	visual.add_child(mi)
 
 
 ## Wind-up telegraph, readable by the defender: yellow = обычный удар (block
@@ -210,18 +193,13 @@ func _collect_and_tint(node: Node) -> void:
 		for i in mi.get_surface_override_material_count():
 			var mat := mi.get_active_material(i)
 			if mat is StandardMaterial3D:
-				# Scene materials are shared between instances — duplicate
-				# before editing so each character tints independently.
+				# Scene materials are shared between instances — duplicate so
+				# hit flashes are per-character. Bodies stay CLEAN: no aura,
+				# emission fires only on damage feedback (flash_materials).
 				var m := (mat as StandardMaterial3D).duplicate()
-				if not _avatar_mode:
-					# Fallback soldier body: near-black techwear so the
-					# faction reads through gear accents, not a paintjob.
-					var dark := 0.30 if faction != "cannibal" else 0.45
-					m.albedo_color = Color(m.albedo_color.r * dark, m.albedo_color.g * dark, m.albedo_color.b * dark)
-					m.albedo_color = m.albedo_color.lerp(_tint_color(), 0.08)
 				m.emission_enabled = true
-				m.emission = _tint_color()
-				m.emission_energy_multiplier = 0.07
+				m.emission = Color(1.0, 0.25, 0.2)
+				m.emission_energy_multiplier = 0.0
 				mi.set_surface_override_material(i, m)
 				_tint_meshes.append(mi)
 	for child in node.get_children():
@@ -262,10 +240,8 @@ func flash_materials(delta: float) -> void:
 	hit_flash = maxf(0.0, hit_flash - delta)
 	if _tint_meshes.is_empty():
 		return
-	# Grabbed victims pulse red so rescuers can read them at a distance.
-	# Baseline is faint: the reference art is black techwear — faction reads
-	# through the gear accents, not a glowing body.
-	var energy := 0.07
+	# No baseline aura — emission is pure damage/grab feedback.
+	var energy := 0.0
 	if hit_flash > 0.0:
 		energy = 2.5
 	elif is_grabbed:
@@ -286,9 +262,10 @@ func flash_materials(delta: float) -> void:
 ## bodies/LICENSE.md). Вариант "a" — первый архетип фракции, "b" — второй.
 const BODY_FILES := {
 	"survivor_a": "michelle.glb",     # Курьер — Michelle
-	"survivor_b": "medea.fbx",        # Медтех — Medea
-	"cannibal_a": "ch45.fbx",         # Мясник — Ch45
-	"cannibal_b": "xbot.fbx",         # Богомол — X Bot
+	"survivor_b": "ch45.fbx",         # Медтех — Ch45 (гражданский!)
+	"survivor_c": "medea.fbx",        # третий облик для толпы ботов
+	"cannibal_a": "xbot.fbx",         # Мясник — X Bot
+	"cannibal_b": "xbot.fbx",         # Богомол — X Bot (нужна своя модель — пришли)
 	"killer_a": "erika.fbx",          # Клинок — Erika
 	"killer_b": "heraklios.fbx",      # Броня — Heraklios
 	"leader": "pumpkinhulk.fbx",      # Альфа — Pumpkinhulk
@@ -330,7 +307,7 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool, p_variant := 
 	tele.visible = false
 	root.add_child(tele)
 
-	var role := "leader" if p_is_leader else "%s_%s" % [p_faction, "b" if p_variant == 1 else "a"]
+	var role := "leader" if p_is_leader else "%s_%s" % [p_faction, ["a", "b", "c"][clampi(p_variant, 0, 2)]]
 	var body_path: String = "res://assets/characters/bodies/" + BODY_FILES.get(role, "")
 	if ResourceLoader.exists(body_path):
 		# Downloaded 100Avatars body (see assets/characters/bodies/LICENSE.md);
@@ -386,7 +363,7 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool, p_variant := 
 		body.position = Vector3(0, 0.9, 0)
 		vis.add_child(body)
 
-	_bake_cyber_gear(vis, p_faction, p_is_leader, ResourceLoader.exists(body_path))
+	# Модели идут чистыми — без процедурного обвеса и «ауры» (запрос владельца).
 	return root
 
 

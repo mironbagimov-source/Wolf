@@ -14,6 +14,7 @@ const KnifeScene := preload("res://scripts/knife.gd")
 const CHAR_SCENE_PATHS := {
 	"survivor_a": "res://scenes/chars/survivor.tscn",
 	"survivor_b": "res://scenes/chars/survivor_b.tscn",
+	"survivor_c": "res://scenes/chars/survivor_c.tscn",
 	"cannibal_a": "res://scenes/chars/psycho.tscn",
 	"cannibal_b": "res://scenes/chars/psycho_b.tscn",
 	"leader": "res://scenes/chars/alpha.tscn",
@@ -191,7 +192,7 @@ func _start_match(faction: String, arche_index: int, weapon_index: int) -> void:
 	var civ_spawns := _spawn_positions("Survivor")
 	for i in 6:
 		var is_human := faction == "survivor" and i == 0
-		var v := arche_index % 2 if is_human else i % 2
+		var v := arche_index % 2 if is_human else i % 3  # боты носят все три облика
 		_spawn_char("survivor", civ_spawns[i % civ_spawns.size()], is_human, false, v)
 
 	var psycho_spawns := _spawn_positions("Cannibal")
@@ -238,7 +239,7 @@ func _spawn_positions(prefix: String) -> Array:
 
 
 func _spawn_char(faction: String, pos: Vector3, is_human: bool, is_lead: bool, variant := 0) -> WolfChar:
-	var key := "leader" if is_lead else "%s_%s" % [faction, "b" if variant == 1 else "a"]
+	var key := "leader" if is_lead else "%s_%s" % [faction, ["a", "b", "c"][clampi(variant, 0, 2)]]
 	if not _char_scenes.has(key):
 		_char_scenes[key] = load(CHAR_SCENE_PATHS[key])
 	var c: WolfChar = (_char_scenes[key] as PackedScene).instantiate()
@@ -378,8 +379,8 @@ func _mouse_pressed_once(btn: MouseButton) -> bool:
 
 
 func _store_prev_input() -> void:
-	for code in [KEY_E, KEY_F, KEY_Q, KEY_SPACE, KEY_C, KEY_W, KEY_A, KEY_S, KEY_D,
-			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8]:
+	for code in [KEY_E, KEY_F, KEY_Q, KEY_SPACE, KEY_C, KEY_W, KEY_A, KEY_S, KEY_D, KEY_X,
+			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0]:
 		_keys_prev[code] = Input.is_key_pressed(code)
 	for btn in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 		_mouse_prev[btn] = Input.is_mouse_button_pressed(btn)
@@ -434,11 +435,16 @@ func _update_player_input(delta: float) -> void:
 	p.interact_held = _key(KEY_E)
 	p.interact_pressed = _key_pressed_once(KEY_E)
 
-	# Elevator floor selection with the digit keys while riding.
+	# Elevator: digits 1-9,0 pick floors 1-10 while riding; X — вниз на этаж.
 	if elevator != null and elevator.is_riding(p):
-		for i in WolfCfg.FLOORS:
+		for i in 9:
 			if _key_pressed_once((KEY_1 + i) as Key):
 				elevator.request_floor(i)
+		if _key_pressed_once(KEY_0):
+			elevator.request_floor(9)
+		if _key_pressed_once(KEY_X):
+			var base := elevator.target_floor if elevator.moving else elevator.current_floor
+			elevator.request_floor(maxi(0, base - 1))
 
 	if p.faction == "survivor" and _key_pressed_once(KEY_F):
 		p.flashlight_on = not p.flashlight_on
@@ -799,10 +805,38 @@ func _nearest_threat(from_pos: Vector3) -> Array:
 
 
 # ---------------------------------------------------------------------------
-# bot ai — navmesh pathing across floors
+# bot ai — navmesh per floor + freight elevator between floors
 # ---------------------------------------------------------------------------
 
 var _nav_paths := {}   # entity instance id -> {"points": PackedVector3Array, "i": int, "t": float, "goal": Vector3}
+
+
+## Лестниц в башне нет — цель на другом этаже означает поездку «грузовым
+## лифтом»: дойти до шахты, подождать (дольше — дальше ехать), выйти на
+## этаже цели. Пока бот «в кабине», он неуязвим для смысла не имеет — он
+## просто стоит у шахты с обнулённым вводом.
+func _bot_goto(e: WolfChar, target: Vector3, delta: float) -> void:
+	if e.lift_t > 0.0:
+		e.lift_t -= delta
+		e.move_input = Vector2.ZERO
+		if e.lift_t <= 0.0:
+			e.global_position = Vector3(WolfLevel.LIFT_WAIT.x, e.lift_target_y + 0.2, WolfLevel.LIFT_WAIT.z)
+			_nav_paths.erase(e.get_instance_id())
+		return
+	var dy := target.y - e.global_position.y
+	if absf(dy) <= 2.6:
+		_nav_steer(e, target, delta)
+		return
+	var my_floor := clampi(int(round(e.global_position.y / WolfCfg.FLOOR_H)), 0, WolfCfg.FLOORS - 1)
+	var wait_pos := Vector3(WolfLevel.LIFT_WAIT.x, my_floor * WolfCfg.FLOOR_H, WolfLevel.LIFT_WAIT.z)
+	var dp := wait_pos - e.global_position
+	if Vector2(dp.x, dp.z).length() < 1.8:
+		var tf := clampi(int(round(target.y / WolfCfg.FLOOR_H)), 0, WolfCfg.FLOORS - 1)
+		e.lift_target_y = tf * WolfCfg.FLOOR_H
+		e.lift_t = WolfCfg.BOT_LIFT_BASE + WolfCfg.BOT_LIFT_PER_FLOOR * absf(tf - my_floor)
+		e.move_input = Vector2.ZERO
+	else:
+		_nav_steer(e, wait_pos, delta)
 
 
 func _nav_steer(e: WolfChar, target: Vector3, delta: float) -> float:
@@ -891,7 +925,7 @@ func _bot_civilian(e: WolfChar, delta: float) -> void:
 			best_d = d
 			best_zone = z["pos"]
 	e.sprinting = threat[0] != null and threat[1] < WolfCfg.FLEE_RADIUS
-	_nav_steer(e, best_zone, delta)
+	_bot_goto(e, best_zone, delta)
 
 
 func _bot_psycho(e: WolfChar, delta: float) -> void:
@@ -912,7 +946,7 @@ func _bot_psycho(e: WolfChar, delta: float) -> void:
 
 	if prey != null:
 		e.sprinting = true
-		_nav_steer(e, prey.global_position, delta)
+		_bot_goto(e, prey.global_position, delta)
 		var dp := prey.global_position - e.global_position
 		if absf(dp.y) <= WolfCfg.SAME_FLOOR_DY:
 			var flat := Vector2(dp.x, dp.z).length()
@@ -940,7 +974,7 @@ func _bot_psycho(e: WolfChar, delta: float) -> void:
 		if e.patrol_idx < 0 or e.wander_timer <= 0.0 or reached:
 			e.patrol_idx = randi() % patrol_points.size()
 			e.wander_timer = 35.0
-		_nav_steer(e, patrol_points[e.patrol_idx], delta)
+		_bot_goto(e, patrol_points[e.patrol_idx], delta)
 		e.sprinting = false
 
 
@@ -953,7 +987,7 @@ func _bot_merc(e: WolfChar, delta: float) -> void:
 	if psycho[0] != null and psycho[1] <= WolfCfg.MERC_BOT_SENSE * 0.6:
 		var target: WolfChar = psycho[0]
 		e.sprinting = psycho[1] > 6.0
-		_nav_steer(e, target.global_position, delta)
+		_bot_goto(e, target.global_position, delta)
 		var dp := target.global_position - e.global_position
 		if absf(dp.y) <= WolfCfg.SAME_FLOOR_DY:
 			var flat := Vector2(dp.x, dp.z).length()
@@ -971,11 +1005,11 @@ func _bot_merc(e: WolfChar, delta: float) -> void:
 		var dp := player.global_position - e.global_position
 		if Vector2(dp.x, dp.z).length() > 3.0 or absf(dp.y) > 2.2:
 			e.sprinting = Vector2(dp.x, dp.z).length() > 8.0
-			_nav_steer(e, player.global_position, delta)
+			_bot_goto(e, player.global_position, delta)
 		else:
 			e.move_input = Vector2.ZERO
 		return
-	_nav_steer(e, evac_pos if bomb_planted else bomb_site, delta)
+	_bot_goto(e, evac_pos if bomb_planted else bomb_site, delta)
 
 
 # ---------------------------------------------------------------------------
@@ -1071,6 +1105,16 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 			elevator.request_next()
 		return
 
+	# Кнопка вызова: E у дверей шахты пригоняет кабину на твой этаж.
+	if elevator != null and e.interact_pressed:
+		var shaft_xz := Vector2(9.5, 0.0)
+		var here := Vector2(e.global_position.x, e.global_position.z)
+		if here.distance_to(shaft_xz) < 4.0:
+			var my_floor := clampi(int(round(e.global_position.y / WolfCfg.FLOOR_H)), 0, WolfCfg.FLOORS - 1)
+			if elevator.current_floor != my_floor or elevator.moving:
+				elevator.request_floor(my_floor)
+				return
+
 	# Doors: toggle with E (psycho player breaks them with strikes instead).
 	if e.interact_pressed and e.faction != "cannibal":
 		var fwd := _fwd(e)
@@ -1108,14 +1152,14 @@ func _prompt_for(p: WolfChar) -> String:
 		return "Тебя добивают…"
 	if elevator != null and elevator.is_riding(p):
 		if elevator.moving:
-			return "Лифт едет… (этаж %d)" % (elevator.target_floor + 1)
-		return "[E] вверх · [1-8] выбрать этаж (сейчас %d)" % (elevator.current_floor + 1)
+			return "Лифт едет… (на этаж %d)" % (elevator.target_floor + 1)
+		return "[E] вверх · [X] вниз · [1-9,0] этажи 1-10 · сейчас %d" % (elevator.current_floor + 1)
 	if p.charging:
 		return "ЗАРЯД удара… отпусти ЛКМ" if p.charge_t >= WolfCfg.CHARGE_MIN else "Удар…"
 	if p.faction == "survivor":
 		if _in_safe_zone(p.global_position):
 			return "Вы в укрытии — ждите полицию"
-		return "Найди безопасную комнату (зелёная вывеска, 4–5 этажи)"
+		return "Найди безопасную комнату (зелёная вывеска, 5–8 этажи) · лифт [E]"
 	if p.faction == "cannibal":
 		if p.can_execute and _find_execute_target(p) != null:
 			return "[F] ДОБИВАНИЕ"
@@ -1127,7 +1171,7 @@ func _prompt_for(p: WolfChar) -> String:
 			return "Установка бомбы… %d%%" % int(bomb_progress / WolfCfg.BOMB_PLANT_TIME * 100.0)
 		if not bomb_planted:
 			var noise := " · психи рядом: %d" % _alive("cannibal") if _alive("cannibal") > 0 else ""
-			return "Контракт: бомба в «Облаках» (8 этаж) [E]%s" % noise
+			return "Контракт: бомба в «Облаках» (16 этаж) [E]%s" % noise
 		if not _in_zone(p.global_position, evac_pos, evac_half):
 			return "Бомба заложена — уходи через лобби!"
 		return ""
@@ -1241,7 +1285,7 @@ func _run_test(delta: float) -> void:
 			elif mode == "playing" and _test_t > 1.6 and not _test_staged:
 				_test_staged = true
 				if _test_mode == "rooms":
-					player.global_position = Vector3(-10, 3 * WolfCfg.FLOOR_H + 0.2, 12)
+					player.global_position = Vector3(-10, 4 * WolfCfg.FLOOR_H + 0.2, 12)
 			elif _test_staged and _test_t > 2.4 and not _test_shot_taken:
 				_test_shot_taken = true
 				_finish_test("%s ok: entities=%d floor_y=%.1f" % [_test_mode, entities.size(), player.global_position.y])

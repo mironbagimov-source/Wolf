@@ -1,18 +1,19 @@
 class_name WolfLevel
-## Megabuilding tower, v3 — «гигантская башня»: 60x44m footprint, EIGHT 5m
-## floors around a full-height atrium, glass elevator with floor selection,
-## two switchback stairwells, and city-window walls. Zones:
-##   L0 — лобби: вход/эвакуация, ресепшен, рамки досмотра
-##   L1 — торговая галерея: лавки и киоски
-##   L2 — фудкорт: стойки, столики, вендинги
-##   L3 — номера (безопасные комнаты с дверями)
-##   L4 — номера, второй ярус
-##   L5 — офисы: кубиклы, переговорка
-##   L6 — аркада-бар: автоматы, стойка
-##   L7 — клуб «ОБЛАКА»: танцпол, сцена, бар, бомб-сайт
-## Interiors are LIT; surfaces use embedded procedural PBR textures (albedo +
-## normal map) with world-triplanar mapping. Asset CDNs are blocked from this
-## environment, so everything is generated here.
+## Megabuilding tower, v4 — «Арасака-тауэр»: SIXTEEN 5m floors (80m of
+## building), 60x44m footprint, full-height atrium, and NO stairs — the glass
+## elevator is the only way between floors (bots ride a freight lift, see
+## main._bot_goto). Zones:
+##   L1      лобби: вход/эвакуация
+##   L2-L3   торговые галереи
+##   L4      фудкорт
+##   L5-L8   номера (безопасные комнаты на каждом)
+##   L9-L11  офисы
+##   L12     аркада-бар
+##   L13-L14 номера-люкс
+##   L15     офисы руководства
+##   L16     клуб «ОБЛАКА»: танцпол, сцена, бомб-сайт
+## (в коде этажи 0-15). Interiors are LIT; surfaces use embedded procedural
+## PBR textures (albedo + normal) with world-triplanar mapping.
 
 const NEON_CYAN := Color(0.0, 0.9, 1.0)
 const NEON_MAGENTA := Color(1.0, 0.18, 0.58)
@@ -26,14 +27,15 @@ const X1 := 30.0
 const Z0 := -22.0
 const Z1 := 22.0
 const H := WolfCfg.FLOOR_H       # 5.0
-const FLOORS := WolfCfg.FLOORS   # 8
+const FLOORS := WolfCfg.FLOORS   # 16
 const WALL := 0.4
 
-# Holes in every upper slab.
+# Holes in every upper slab: the atrium and the elevator shaft. No stairs.
 const ATRIUM := [-6.0, 6.0, -4.0, 4.0]        # x0,x1,z0,z1
 const ELEV := [8.0, 11.0, -1.5, 1.5]
-const STAIR_W := [-30.0, -23.0, -21.0, -15.0] # west stairwell footprint
-const STAIR_E := [23.0, 30.0, 15.0, 21.0]     # east stairwell footprint
+
+## Где боты ждут грузовой лифт (перед южной дверью шахты), per-floor y.
+const LIFT_WAIT := Vector3(9.5, 0.0, -3.0)
 
 
 static func build_environment(root: Node3D) -> void:
@@ -50,7 +52,6 @@ static func build_environment(root: Node3D) -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 
-	# Bright, neutral interior baseline — "тут не нужна темнота".
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.62, 0.62, 0.67)
 	env.ambient_light_energy = 1.15
@@ -61,15 +62,6 @@ static func build_environment(root: Node3D) -> void:
 	env.glow_intensity = 0.6
 	env.glow_bloom = 0.1
 	env.glow_hdr_threshold = 1.05
-
-	# These only run on the Forward+ renderer (the shipped build); the
-	# compatibility fallback ignores them gracefully. main.gd enables SDFGI
-	# at runtime when a RenderingDevice is present.
-	env.ssao_enabled = true
-	env.ssao_intensity = 2.0
-	env.ssao_radius = 2.0
-	env.ssr_enabled = true
-	env.ssr_max_steps = 32
 
 	var we := WorldEnvironment.new()
 	we.name = "WorldEnvironment"
@@ -88,28 +80,35 @@ static func build_district(root: Node3D) -> void:
 	var geometry := _group(root, "Geometry")
 	_shell(geometry)
 	_slabs_and_railings(geometry)
-	_stairwell(geometry, STAIR_W, false)
-	_stairwell(geometry, STAIR_E, true)
 	_elevator_shaft(geometry)
 	_city_windows(geometry)
+
 	_floor_lobby(geometry)
-	_floor_shops(geometry)
-	_floor_foodcourt(geometry)
-	_floor_rooms(root, geometry, 3, 2, 5)
-	_floor_rooms(root, geometry, 4, 5, 2)
-	_floor_offices(geometry)
-	_floor_arcade(geometry)
-	_floor_club(root, geometry)
+	_floor_shops(geometry, 1)
+	_floor_shops(geometry, 2)
+	_floor_foodcourt(geometry, 3)
+	_floor_rooms(root, geometry, 4, 2, -1)
+	_floor_rooms(root, geometry, 5, -1, 3)
+	_floor_rooms(root, geometry, 6, 4, -1)
+	_floor_rooms(root, geometry, 7, -1, 1)
+	_floor_offices(geometry, 8)
+	_floor_offices(geometry, 9)
+	_floor_offices(geometry, 10)
+	_floor_arcade(geometry, 11)
+	_floor_rooms(root, geometry, 12, -1, -1)
+	_floor_rooms(root, geometry, 13, -1, -1)
+	_floor_offices(geometry, 14)
+	_floor_club(root, geometry, 15)
 	_lights(geometry)
 
 	root.add_child(WolfElevator.build())
 
 	var spawns := _group(root, "Spawns")
 	var spawn_sets := {
-		"Killer": [Vector3(-2, 0, -19), Vector3(0, 0, -19), Vector3(2, 0, -19), Vector3(4, 0, -19)],
-		"Survivor": [Vector3(-15, H, 18), Vector3(15, H, -18), Vector3(0, 2 * H, 14),
-			Vector3(-20, 3 * H, 10), Vector3(18, 4 * H, -10), Vector3(-15, 5 * H, 0)],
-		"Cannibal": [Vector3(-15, 7 * H, 0), Vector3(4, 7 * H, 10), Vector3(-4, 7 * H, -10), Vector3(15, 6 * H, 0)],
+		"Killer": [Vector3(-2, 0, -19), Vector3(2, 0, -19)],
+		"Survivor": [Vector3(-15, H, 18), Vector3(15, 2 * H, -18), Vector3(0, 3 * H, 14),
+			Vector3(-20, 4 * H, 10), Vector3(18, 5 * H, -10), Vector3(-15, 6 * H, 0)],
+		"Cannibal": [Vector3(-15, 15 * H, 0), Vector3(4, 15 * H, 10), Vector3(-4, 15 * H, -10), Vector3(15, 14 * H, 0)],
 	}
 	for prefix: String in spawn_sets:
 		var list: Array = spawn_sets[prefix]
@@ -119,12 +118,12 @@ static func build_district(root: Node3D) -> void:
 			m.position = list[i]
 			spawns.add_child(m)
 
-	# Idle-роуминг ботов по всей башне — гарантирует, что стороны пересекаются.
+	# Роуминг ботов по всей башне (между этажами — грузовым лифтом).
 	var patrol := _group(root, "PatrolPoints")
 	var idx := 0
 	for f in FLOORS:
 		var flip := 1.0 if f % 2 == 0 else -1.0
-		for p: Vector3 in [Vector3(-20, H * f, 10 * flip), Vector3(20, H * f, -10 * flip), Vector3(0, H * f, 13 * flip)]:
+		for p: Vector3 in [Vector3(-18, H * f, 10 * flip), Vector3(18, H * f, -12 * flip)]:
 			var m := Marker3D.new()
 			m.name = "P%d" % idx
 			m.position = p
@@ -145,7 +144,6 @@ static func build_district(root: Node3D) -> void:
 static func _shell(parent: Node3D) -> void:
 	var total_h := H * FLOORS
 	_solid(parent, Vector3(0, -0.2, 0), Vector3(X1 - X0 + 2, 0.4, Z1 - Z0 + 2), _mat_floor_tile(), "GroundSlab")
-	# South wall with the lobby entrance cut (x -4..4).
 	_solid(parent, Vector3((X0 - 4.0) / 2, total_h / 2, Z0 - WALL / 2), Vector3(X1 - 4.0, total_h, WALL), _mat_concrete(), "WallS_W")
 	_solid(parent, Vector3((X1 + 4.0) / 2, total_h / 2, Z0 - WALL / 2), Vector3(X1 - 4.0, total_h, WALL), _mat_concrete(), "WallS_E")
 	_solid(parent, Vector3(0, (total_h + 3.2) / 2, Z0 - WALL / 2), Vector3(8.0, total_h - 3.2, WALL), _mat_concrete(), "WallS_Lintel")
@@ -157,11 +155,8 @@ static func _shell(parent: Node3D) -> void:
 	_solid(parent, Vector3(0, total_h + 0.2, 0), Vector3(X1 - X0 + 2, 0.4, Z1 - Z0 + 2), _mat_concrete(), "Roof")
 
 
-## Generic slab cutter: splits the floor plate into rectangles around the
-## holes (atrium, elevator, stairwells). Bands are split at every hole edge,
-## so inside a band a hole either fully covers it or misses it.
 static func _slab_rects() -> Array:
-	var holes := [ATRIUM, ELEV, STAIR_W, STAIR_E]
+	var holes := [ATRIUM, ELEV]
 	var zs: Array = [Z0, Z1]
 	for h: Array in holes:
 		for z in [h[2], h[3]]:
@@ -187,6 +182,14 @@ static func _slab_rects() -> Array:
 	return rects
 
 
+static func _floor_mat_for(f: int) -> StandardMaterial3D:
+	if f in [4, 5, 6, 7, 12, 13]:
+		return _mat_carpet()
+	if f in [11, 15]:
+		return _mat_club_floor()
+	return _mat_floor_tile()
+
+
 static func _slabs_and_railings(parent: Node3D) -> void:
 	var rects := _slab_rects()
 	for f in range(1, FLOORS):
@@ -195,57 +198,10 @@ static func _slabs_and_railings(parent: Node3D) -> void:
 		for i in rects.size():
 			var r: Array = rects[i]
 			_solid(parent, Vector3((r[0] + r[1]) / 2, y - 0.15, (r[2] + r[3]) / 2), Vector3(r[1] - r[0], 0.3, r[3] - r[2]), mat, "Slab%d_%d" % [f, i])
-
-		# Atrium railings — see across, don't fall in.
 		_solid(parent, Vector3(0, y + 0.55, ATRIUM[2] - 0.15), Vector3(12.6, 1.1, 0.15), _mat_metal(), "RailA")
 		_solid(parent, Vector3(0, y + 0.55, ATRIUM[3] + 0.15), Vector3(12.6, 1.1, 0.15), _mat_metal(), "RailB")
 		_solid(parent, Vector3(ATRIUM[0] - 0.15, y + 0.55, 0), Vector3(0.15, 1.1, 8.0), _mat_metal(), "RailC")
 		_solid(parent, Vector3(ATRIUM[1] + 0.15, y + 0.55, 0), Vector3(0.15, 1.1, 8.6), _mat_metal(), "RailD")
-
-
-static func _floor_mat_for(f: int) -> StandardMaterial3D:
-	match f:
-		3, 4:
-			return _mat_carpet()
-		6, 7:
-			return _mat_club_floor()
-		_:
-			return _mat_floor_tile()
-
-
-## Switchback stairwell: two flights along X with a wide landing, repeated
-## for every floor. Flight B tops out EXACTLY at the next slab edge — the
-## cross-floor "factions meet" test walks these.
-static func _stairwell(parent: Node3D, fp: Array, mirrored: bool) -> void:
-	var x_in: float = fp[1] if not mirrored else fp[0]
-	var x_far: float = fp[0] + 1.5 if not mirrored else fp[1] - 1.5
-	var z_a: float = (fp[2] + fp[2] + 2.8) / 2.0
-	var z_b: float = (fp[3] - 2.8 + fp[3]) / 2.0
-	if mirrored:
-		var tmp := z_a
-		z_a = z_b
-		z_b = tmp
-
-	for f in range(FLOORS - 1):
-		var y: float = H * f
-		_ramp(parent, x_in, x_far, z_a, y, y + 2.5, "StairA%d" % f)
-		_ramp(parent, x_far, x_in, z_b, y + 2.5, y + 5.0, "StairB%d" % f)
-		var land_x: float = x_far + (-1.0 if not mirrored else 1.0)
-		_solid(parent, Vector3(land_x, y + 2.35, (fp[2] + fp[3]) / 2), Vector3(2.0, 0.3, fp[3] - fp[2]), _mat_floor_tile(), "StairLand%d" % f)
-	# Enclosing wall on the inner side (full height), entrance stays open.
-	var wall_z: float = fp[3] if not mirrored else fp[2]
-	_solid(parent, Vector3((fp[0] + fp[1]) / 2, H * FLOORS / 2.0, wall_z + (0.2 if not mirrored else -0.2)), Vector3(fp[1] - fp[0], H * FLOORS, 0.4), _mat_concrete(), "StairWall")
-	# Floor number stripe at each landing entrance.
-	for f in range(1, FLOORS):
-		_emissive(parent, Vector3(x_in + (0.4 if not mirrored else -0.4), H * f + 2.2, (fp[2] + fp[3]) / 2), Vector3(0.15, 0.4, 1.2), NEON_CYAN, 1.4, "StairFloorSign")
-
-
-static func _ramp(parent: Node3D, x_from: float, x_to: float, z_c: float, y_from: float, y_to: float, p_name: String) -> void:
-	var run := x_to - x_from
-	var rise := y_to - y_from
-	var length := sqrt(run * run + rise * rise)
-	var body := _solid(parent, Vector3((x_from + x_to) / 2, (y_from + y_to) / 2 - 0.12, z_c), Vector3(length, 0.25, 2.8), _mat_floor_tile(), p_name)
-	body.rotation.z = atan2(rise, run) * (1.0 if run > 0 else -1.0) * signf(run)
 
 
 static func _elevator_shaft(parent: Node3D) -> void:
@@ -259,22 +215,22 @@ static func _elevator_shaft(parent: Node3D) -> void:
 		var y_top: float = H * f + 2.8
 		var seg_h: float = H - 2.8
 		_solid(parent, Vector3(cx, y_top + seg_h / 2, ELEV[2] - 0.1), Vector3(3.2, seg_h, 0.2), glass, "ShaftS%d" % f)
+		# Номер этажа у двери лифта.
+		_emissive(parent, Vector3(cx - 2.0, H * f + 2.4, ELEV[2] - 0.3), Vector3(0.5, 0.35, 0.1), NEON_CYAN, 1.5, "FloorSign%d" % f)
 	_emissive(parent, Vector3(cx, total_h - 0.3, ELEV[2] - 0.25), Vector3(2.6, 0.3, 0.1), NEON_CYAN, 2.0, "LiftSign")
 
 
-## Night-city window panels on the exterior walls: the tower feels like it
-## stands over a glowing metropolis.
 static func _city_windows(parent: Node3D) -> void:
 	var mat := _mat_city()
 	for f in FLOORS:
 		var y: float = H * f + 2.6
-		for x in [-25.0, -15.0, -5.0, 5.0, 15.0]:
-			_panel(parent, Vector3(x, y, Z1 - 0.25), Vector3(6.0, 2.2, 0.12), mat, "CityN")
+		for x in [-20.0, -5.0, 10.0]:
+			_panel(parent, Vector3(x, y, Z1 - 0.25), Vector3(7.0, 2.2, 0.12), mat, "CityN")
 			if f >= 1:
-				_panel(parent, Vector3(x, y, Z0 + 0.25), Vector3(6.0, 2.2, 0.12), mat, "CityS")
-		for z in [-10.0, 0.0, 10.0]:
-			_panel(parent, Vector3(X0 + 0.25, y, z), Vector3(0.12, 2.2, 6.0), mat, "CityW")
-			_panel(parent, Vector3(X1 - 0.25, y, z), Vector3(0.12, 2.2, 6.0), mat, "CityE")
+				_panel(parent, Vector3(x, y, Z0 + 0.25), Vector3(7.0, 2.2, 0.12), mat, "CityS")
+		for z in [-11.0, 8.0]:
+			_panel(parent, Vector3(X0 + 0.25, y, z), Vector3(0.12, 2.2, 7.0), mat, "CityW")
+			_panel(parent, Vector3(X1 - 0.25, y, z), Vector3(0.12, 2.2, 7.0), mat, "CityE")
 
 
 # ---------------------------------------------------------------------------
@@ -286,27 +242,23 @@ static func _floor_lobby(parent: Node3D) -> void:
 	_emissive(parent, Vector3(0, 1.2, -14), Vector3(7.1, 0.1, 1.5), NEON_CYAN, 1.4)
 	for x in [-20.0, 20.0]:
 		_solid(parent, Vector3(x, H / 2, -14), Vector3(1.0, H, 1.0), _mat_concrete(), "Pillar")
-	# Security gates by the entrance.
 	for gx in [-2.4, 0.0, 2.4]:
 		_solid(parent, Vector3(gx - 0.55, 1.1, -18.5), Vector3(0.18, 2.2, 0.5), _mat_metal(), "GatePost")
 		_solid(parent, Vector3(gx + 0.55, 1.1, -18.5), Vector3(0.18, 2.2, 0.5), _mat_metal(), "GatePost")
 		_emissive(parent, Vector3(gx, 2.25, -18.5), Vector3(1.2, 0.12, 0.4), NEON_CYAN, 1.6, "GateTop")
 	for pos: Array in [[-24.0, 4.0], [24.0, 4.0], [-24.0, -4.0], [24.0, -4.0]]:
 		_solid(parent, Vector3(pos[0], 0.35, pos[1]), Vector3(2.4, 0.7, 1.0), _mat_carpet(), "Bench")
-	for pos: Array in [[-10.0, 7.0], [10.0, 7.0]]:
-		_solid(parent, Vector3(pos[0], 0.5, pos[1]), Vector3(1.1, 1.0, 1.1), _mat_metal(), "PlanterBox")
-		_solid(parent, Vector3(pos[0], 1.45, pos[1]), Vector3(0.9, 0.9, 0.9), _mat_plants(), "Plant")
 	_emissive(parent, Vector3(0, 4.2, -19.5), Vector3(9.0, 0.7, 0.15), NEON_MAGENTA, 2.4, "SignMega")
 
 
-static func _floor_shops(parent: Node3D) -> void:
-	var y: float = H
+static func _floor_shops(parent: Node3D, f: int) -> void:
+	var y: float = H * f
 	var stalls := [
-		[-22.0, 18.0, NEON_CYAN], [-12.0, 18.0, NEON_YELLOW], [0.0, 18.0, NEON_MAGENTA], [14.0, 18.0, NEON_VIOLET],
-		[-22.0, -18.0, NEON_MAGENTA], [-12.0, -18.0, NEON_CYAN], [0.0, -18.0, NEON_VIOLET], [16.0, -18.0, NEON_YELLOW],
+		[-22.0, 18.0, NEON_CYAN], [-10.0, 18.0, NEON_YELLOW], [2.0, 18.0, NEON_MAGENTA], [16.0, 18.0, NEON_VIOLET],
+		[-22.0, -18.0, NEON_MAGENTA], [-10.0, -18.0, NEON_CYAN], [2.0, -18.0, NEON_VIOLET], [16.0, -18.0, NEON_YELLOW],
 	]
 	for s in stalls:
-		var sx: float = s[0]
+		var sx: float = s[0] + (2.0 if f % 2 == 0 else 0.0)
 		var sz: float = s[1]
 		_solid(parent, Vector3(sx, y + 0.55, sz), Vector3(4.5, 1.1, 1.6), _mat_metal(), "Stall")
 		_solid(parent, Vector3(sx, y + 2.9, sz + (0.9 if sz < 0 else -0.9)), Vector3(4.7, 0.5, 0.12), _mat_metal(), "StallSignBack")
@@ -316,18 +268,15 @@ static func _floor_shops(parent: Node3D) -> void:
 		_emissive(parent, Vector3(kx + (1.8 if kx < 0 else -1.8), y + 2.7, 0), Vector3(0.1, 0.35, 2.6), NEON_CYAN, 2.0)
 
 
-static func _floor_foodcourt(parent: Node3D) -> void:
-	var y: float = 2.0 * H
-	# Counters along the north side.
+static func _floor_foodcourt(parent: Node3D, f: int) -> void:
+	var y: float = H * f
 	_solid(parent, Vector3(-14, y + 0.55, 18), Vector3(10, 1.1, 1.5), _mat_metal(), "FoodCounter")
 	_emissive(parent, Vector3(-14, y + 2.8, 19.6), Vector3(9.0, 0.5, 0.12), NEON_YELLOW, 2.2, "FoodSign")
 	_solid(parent, Vector3(8, y + 0.55, 18), Vector3(8, 1.1, 1.5), _mat_metal(), "NoodleBar")
 	_emissive(parent, Vector3(8, y + 2.8, 19.6), Vector3(7.0, 0.5, 0.12), NEON_MAGENTA, 2.2, "NoodleSign")
-	# Vending machines south (kept out of the west stairwell shaft).
 	for vx in range(-18, 19, 6):
 		_solid(parent, Vector3(vx, y + 1.1, -19.2), Vector3(1.6, 2.2, 1.0), _mat_metal(), "Vending")
 		_emissive(parent, Vector3(vx, y + 1.3, -18.6), Vector3(1.1, 1.5, 0.06), [NEON_CYAN, NEON_MAGENTA, NEON_YELLOW][absi(vx) % 3], 1.4, "VendingFace")
-	# Tables.
 	for tx in range(-24, 25, 8):
 		for tz in [-10.0, 10.0]:
 			if absf(tx) < 8.0 and absf(tz) < 6.0:
@@ -335,6 +284,7 @@ static func _floor_foodcourt(parent: Node3D) -> void:
 			_solid(parent, Vector3(tx, y + 0.5, tz), Vector3(1.3, 1.0, 1.3), _mat_metal(), "Table")
 
 
+## safe_n / safe_s: индекс безопасной комнаты в северном/южном ряду (-1 — нет).
 static func _floor_rooms(root: Node3D, parent: Node3D, floor_i: int, safe_n: int, safe_s: int) -> void:
 	var y: float = floor_i * H
 	var safe_zones := root.get_node_or_null("SafeZones") as Node3D
@@ -344,9 +294,6 @@ static func _floor_rooms(root: Node3D, parent: Node3D, floor_i: int, safe_n: int
 	if doors == null:
 		doors = _group(root, "Doors")
 
-	# Rows stay clear of the stairwell shafts (W: x<-23 @ z<-15, E: x>23 @
-	# z>15) — v3 regression: rooms across the shaft walled the stairs off and
-	# disconnected the tower's lower half.
 	var configs := [
 		{"front_z": 17.0, "back_z": 21.6, "x0": -22.0, "count": 6, "safe_idx": safe_n, "side": 1},
 		{"front_z": -17.0, "back_z": -21.6, "x0": -20.0, "count": 6, "safe_idx": safe_s, "side": -1},
@@ -381,24 +328,23 @@ static func _floor_rooms(root: Node3D, parent: Node3D, floor_i: int, safe_n: int
 		_solid(parent, Vector3(far_x, y + H / 2, (fz + bz) / 2), Vector3(0.25, H, absf(bz - fz)), _mat_plaster(), "RoomDivEnd")
 
 
-static func _floor_offices(parent: Node3D) -> void:
-	var y: float = 5.0 * H
+static func _floor_offices(parent: Node3D, f: int) -> void:
+	var y: float = H * f
 	for ox in [-22.0, -14.0, 14.0, 22.0]:
 		for oz in [-12.0, -4.0, 6.0, 14.0]:
 			_solid(parent, Vector3(ox, y + 0.55, oz), Vector3(2.2, 1.1, 1.1), _mat_metal(), "Desk")
 			_solid(parent, Vector3(ox, y + 1.25, oz + 0.35), Vector3(1.2, 0.5, 0.08), _mat_metal(), "MonitorBack")
 			_emissive(parent, Vector3(ox, y + 1.25, oz + 0.3), Vector3(1.1, 0.42, 0.03), Color(0.35, 0.75, 1.0), 1.1, "Monitor")
-	# Glass meeting room by the west atrium side.
 	var glass := _mat_glass()
 	_solid(parent, Vector3(-9, y + H / 2, 8.0), Vector3(6.0, H, 0.15), glass, "MeetN")
-	_solid(parent, Vector3(-9, y + H / 2, -0.0), Vector3(6.0, H, 0.15), glass, "MeetS")
+	_solid(parent, Vector3(-9, y + H / 2, 0.0), Vector3(6.0, H, 0.15), glass, "MeetS")
 	_solid(parent, Vector3(-12, y + H / 2, 4.0), Vector3(0.15, H, 8.0), glass, "MeetW")
 	_solid(parent, Vector3(-8.5, y + 0.5, 4.0), Vector3(3.6, 1.0, 1.6), _mat_metal(), "MeetTable")
 	_emissive(parent, Vector3(-20, y + 3.6, 19.6), Vector3(7.0, 0.5, 0.12), NEON_CYAN, 1.8, "OfficeSign")
 
 
-static func _floor_arcade(parent: Node3D) -> void:
-	var y: float = 6.0 * H
+static func _floor_arcade(parent: Node3D, f: int) -> void:
+	var y: float = H * f
 	var cols := [NEON_CYAN, NEON_MAGENTA, NEON_YELLOW, NEON_VIOLET]
 	var ci := 0
 	for ax in range(-24, 25, 4):
@@ -412,8 +358,8 @@ static func _floor_arcade(parent: Node3D) -> void:
 		_solid(parent, Vector3(px, y + 0.45, 4), Vector3(2.6, 0.9, 1.5), _mat_pool(), "PoolTable")
 
 
-static func _floor_club(root: Node3D, parent: Node3D) -> void:
-	var y: float = 7.0 * H
+static func _floor_club(root: Node3D, parent: Node3D, f: int) -> void:
+	var y: float = H * f
 	_emissive(parent, Vector3(-12, y + 4.0, 8.0), Vector3(10.0, 1.0, 0.15), NEON_MAGENTA, 3.0, "SignOblaka")
 	var tile_colors := [NEON_CYAN, NEON_MAGENTA, NEON_YELLOW, NEON_VIOLET]
 	for ix in 6:
@@ -437,22 +383,19 @@ static func _floor_club(root: Node3D, parent: Node3D) -> void:
 
 
 static func _lights(parent: Node3D) -> void:
-	# Warm white ceiling grid on every floor — the tower reads BRIGHT.
-	# Four strong lamps per floor, not nine: the light count was the main
-	# FPS sink (and the GL fallback caps renderable lights).
+	# Три мощные лампы на этаж (лимит совместимого рендера и FPS).
 	for f in FLOORS:
 		var y: float = H * f + H - 0.5
-		for lx in [-16.0, 16.0]:
-			for lz in [-11.0, 11.0]:
-				_emissive(parent, Vector3(lx, y + 0.3, lz), Vector3(3.0, 0.08, 0.7), WARM_WHITE, 1.6)
-				var l := OmniLight3D.new()
-				l.position = Vector3(lx, y, lz)
-				l.light_color = WARM_WHITE
-				l.light_energy = 3.2
-				l.omni_range = 22.0
-				parent.add_child(l)
-	# Atrium accent shafts.
-	for f in range(1, FLOORS):
+		for pos: Array in [[-16.0, -11.0], [16.0, -11.0], [0.0, 12.0]]:
+			_emissive(parent, Vector3(pos[0], y + 0.3, pos[1]), Vector3(3.0, 0.08, 0.7), WARM_WHITE, 1.6)
+			var l := OmniLight3D.new()
+			l.position = Vector3(pos[0], y, pos[1])
+			l.light_color = WARM_WHITE
+			l.light_energy = 3.4
+			l.omni_range = 24.0
+			parent.add_child(l)
+	# Атриумные акценты — каждый четвёртый этаж.
+	for f in range(3, FLOORS, 4):
 		var l := OmniLight3D.new()
 		l.position = Vector3(0, H * f + 2.0, 0)
 		l.light_color = Color(0.6, 0.85, 1.0)
@@ -492,7 +435,6 @@ static func _solid(parent: Node3D, pos: Vector3, size: Vector3, mat: Material, p
 	return body
 
 
-## Visual-only panel (no collision) — city windows, decals.
 static func _panel(parent: Node3D, pos: Vector3, size: Vector3, mat: Material, p_name := "Panel") -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = p_name
@@ -522,9 +464,7 @@ static func _emissive(parent: Node3D, pos: Vector3, size: Vector3, color: Color,
 	return mi
 
 
-# --- Embedded procedural PBR textures (albedo + normal map), serialized into
-# the scene — no imports, no downloads; asset CDNs are blocked from this
-# environment. World-space triplanar keeps them seamless on every box.
+# --- Embedded procedural PBR textures (albedo + normal), see v3 notes. ---
 
 static var _tex_cache := {}
 
@@ -541,8 +481,6 @@ static func _texture(key: String, size: int, shade: Callable) -> ImageTexture:
 	return tex
 
 
-## Tangent-space normal map derived from a height function (central
-## differences) — this is what makes flat boxes read as real material.
 static func _normal_tex(key: String, size: int, height: Callable, strength: float) -> ImageTexture:
 	var nkey := key + "_n"
 	if _tex_cache.has(nkey):
@@ -597,7 +535,6 @@ static func _mat_plaster() -> StandardMaterial3D:
 	return _std(tex, _normal_tex("plaster", 160, h, 1.6), Color.WHITE, 0.85)
 
 
-## Exterior/structural concrete: horizontal pour seams + panel joints + grime.
 static func _mat_concrete() -> StandardMaterial3D:
 	var h := func(u: float, v: float) -> float:
 		var seam := 0.0
@@ -631,7 +568,6 @@ static func _mat_floor_tile() -> StandardMaterial3D:
 		var gz := absf(fmod(v * 4.0, 1.0) - 0.5)
 		var grout := 0.30 if (gx > 0.46 or gz > 0.46) else 0.0
 		var g := 0.5 + _noise2(u, v, 13.0, 8.1) * 0.08 - grout
-		# subtle per-tile value variation
 		var tvar := _hash2(floor(u * 4.0), floor(v * 4.0), 5.0) * 0.06
 		return Color(g + tvar, g + tvar, (g + tvar) * 1.02))
 	return _std(tex, _normal_tex("tile", 160, h, 1.8), Color.WHITE, 0.35, 0.05, 0.5)
@@ -658,7 +594,6 @@ static func _mat_club_floor() -> StandardMaterial3D:
 	return _std(tex, _normal_tex("club", 160, h, 0.5), Color.WHITE, 0.25, 0.25)
 
 
-## Brushed metal panels with seams and rivets.
 static func _mat_metal() -> StandardMaterial3D:
 	var h := func(u: float, v: float) -> float:
 		var seam := -0.8 if absf(fmod(u * 3.0, 1.0) - 0.5) > 0.47 else 0.0
@@ -675,8 +610,6 @@ static func _mat_metal() -> StandardMaterial3D:
 		if absf(fmod(u * 3.0, 1.0) - 0.5) > 0.47:
 			g -= 0.12
 		return Color(g * 0.95, g, g * 1.06))
-	# Modest metallic: the compatibility fallback has no reflections and
-	# fully-metallic surfaces would collapse to black there.
 	return _std(tex, _normal_tex("metal", 160, h, 1.6), Color.WHITE, 0.32, 0.55, 0.6)
 
 
@@ -688,13 +621,6 @@ static func _mat_wood() -> StandardMaterial3D:
 		var n := _noise2(u, v, 23.0, 4.4) * 0.06
 		return Color(0.34 + ring * 0.14 + n, 0.2 + ring * 0.09 + n, 0.1 + ring * 0.05))
 	return _std(tex, _normal_tex("wood", 160, h, 1.0), Color.WHITE, 0.55)
-
-
-static func _mat_plants() -> StandardMaterial3D:
-	var tex := _texture("plants", 96, func(u: float, v: float) -> Color:
-		var n := _noise2(u, v, 19.0, 6.6)
-		return Color(0.1 + n * 0.12, 0.3 + n * 0.25, 0.12 + n * 0.1))
-	return _std(tex, null, Color.WHITE, 0.9)
 
 
 static func _mat_pool() -> StandardMaterial3D:
@@ -713,8 +639,6 @@ static func _mat_glass() -> StandardMaterial3D:
 	return mat
 
 
-## Night-city windows: a dark glass grid where random windows burn warm or
-## cool — the megabuilding stands over a live metropolis.
 static func _mat_city() -> StandardMaterial3D:
 	var key := "city"
 	var tex := _texture(key, 256, func(u: float, v: float) -> Color:
