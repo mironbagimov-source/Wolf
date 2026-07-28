@@ -7,6 +7,10 @@ namespace Wolf.Utils
     /// whether it comes from hardware (human) or an AI brain (bot). This is
     /// what lets BotMatch reuse the exact same movement/attack/interact code
     /// as a human-controlled player.
+    ///
+    /// The verbs are deliberately generic — Primary/Secondary/Power1/Power2 —
+    /// because what they mean is the difference between the three killers, and
+    /// that belongs in their controllers, not in the input layer.
     /// </summary>
     public interface IInputProvider
     {
@@ -14,10 +18,17 @@ namespace Wolf.Utils
         Vector2 Look { get; }      // x = yaw delta, y = pitch delta, frame-rate independent
         bool Sprint { get; }
         bool Crouch { get; }
-        bool InteractPressed { get; }
-        bool PrimaryPressed { get; }   // attack
-        bool SecondaryHeld { get; }    // block
-        bool AbilityPressed { get; }   // faction special: Cannibal grab, etc.
-        bool FlashlightPressed { get; }
+
+        bool InteractPressed { get; }   // E, tapped
+        bool InteractHeld { get; }      // E, held — repairing, lifting, growing
+
+        bool PrimaryPressed { get; }    // LMB: knife / lash / maul
+        bool SecondaryPressed { get; }  // RMB: scythe / ivy / snatch
+        bool Power1Pressed { get; }     // Q: hook shot / thicket / charge
+        bool Power2Pressed { get; }     // F: doubles (Trickster only)
+
+        bool DropPressed { get; }       // G: put the carried guest down
+        bool StrugglePressed { get; }   // Space: wriggle out of a grip
+        bool FlashlightPressed { get; } // F, guest side
     }
 }

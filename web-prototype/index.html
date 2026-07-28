@@ -3,22 +3,22 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Турбаза «Волк»</title>
+<title>Считалка — мёртвый квартал</title>
 <style>
   /* Deliberately single-theme: this is a fixed nocturnal horror scene,
      the same way a neon arcade cabinet doesn't get a "daytime" mode. */
   :root {
-    --void: #0b0d0a;
-    --panel: #16150f;
-    --line: #332c1e;
-    --ink: #cfc2a0;
-    --ink-dim: #8c8367;
+    --void: #07080a;
+    --panel: #12131a;
+    --line: #2a2b36;
+    --ink: #c8c3b8;
+    --ink-dim: #7f7c75;
     --blood: #9a2732;
     --ember: #c9862f;
-    --survivor: #5ec26a;
-    --cannibal: #c23b3b;
-    --killer: #4f8fd1;
-    --leader: #b23fb0;
+    --guest: #d8c08a;
+    --trickster: #d0405a;
+    --witch: #57a35d;
+    --roger: #8f98a6;
 
     --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', 'Times New Roman', serif;
     --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -64,10 +64,11 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 18px;
+    gap: 16px;
     padding: 24px;
     text-align: center;
-    background: radial-gradient(ellipse at 50% 40%, rgba(20,18,12,0.94) 0%, rgba(6,6,4,0.98) 75%);
+    overflow-y: auto;
+    background: radial-gradient(ellipse at 50% 40%, rgba(14,14,18,0.94) 0%, rgba(4,4,6,0.98) 75%);
   }
   .overlay.hidden { display: none; }
   .hidden { display: none !important; }
@@ -75,7 +76,7 @@
   .overlay h1 {
     font-family: var(--font-display);
     font-size: clamp(26px, 5vw, 44px);
-    letter-spacing: 0.05em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     position: relative;
   }
@@ -86,7 +87,7 @@
     left: 50%; top: 50%;
     width: 340px; height: 180px;
     transform: translate(-50%, -50%);
-    background: radial-gradient(ellipse, rgba(201,134,47,0.20) 0%, rgba(201,134,47,0) 70%);
+    background: radial-gradient(ellipse, rgba(201,134,47,0.18) 0%, rgba(201,134,47,0) 70%);
     z-index: -1;
     pointer-events: none;
   }
@@ -102,23 +103,32 @@
   }
 
   .lede {
-    max-width: 46ch;
+    max-width: 52ch;
     color: var(--ink-dim);
     font-size: 15px;
-    line-height: 1.5;
+    line-height: 1.55;
+  }
+  .lede em { color: var(--ink); font-style: normal; }
+
+  .side-label {
+    font-family: var(--font-display);
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
   }
 
   .totems {
     display: flex;
     flex-wrap: wrap;
-    gap: 14px;
+    gap: 12px;
     justify-content: center;
   }
 
   .totem {
-    width: 220px;
-    padding: 18px 16px;
-    background: linear-gradient(180deg, #1c1a13, #131209);
+    width: 216px;
+    padding: 16px 15px;
+    background: linear-gradient(180deg, #16171e, #0d0e12);
     border: 1px solid var(--line);
     border-radius: 3px;
     color: var(--ink);
@@ -126,26 +136,36 @@
     font-family: inherit;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 7px;
     text-align: left;
     transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
   }
   .totem:hover, .totem:focus-visible {
     border-color: var(--ember);
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(201,134,47,0.15);
+    box-shadow: 0 8px 24px rgba(201,134,47,0.14);
     outline: none;
   }
   .totem-role {
     font-family: var(--font-display);
-    font-size: 18px;
+    font-size: 17px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
-  .totem[data-faction="survivor"] .totem-role { color: var(--survivor); }
-  .totem[data-faction="cannibal"] .totem-role { color: var(--cannibal); }
-  .totem[data-faction="killer"] .totem-role { color: var(--killer); }
-  .totem-desc { font-size: 13px; color: var(--ink-dim); line-height: 1.4; }
+  .totem[data-side="guest"] .totem-role { color: var(--guest); }
+  .totem[data-kind="trickster"] .totem-role { color: var(--trickster); }
+  .totem[data-kind="witch"] .totem-role { color: var(--witch); }
+  .totem[data-kind="roger"] .totem-role { color: var(--roger); }
+  .totem-desc { font-size: 12.5px; color: var(--ink-dim); line-height: 1.45; }
+  .totem-kit {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-dim);
+    line-height: 1.6;
+    border-top: 1px solid var(--line);
+    padding-top: 7px;
+  }
+  .totem-kit b { color: var(--ink); font-weight: 500; }
 
   .totem-restart {
     width: auto;
@@ -158,7 +178,8 @@
     font-size: 12px;
     color: var(--ink-dim);
     letter-spacing: 0.02em;
-    max-width: 60ch;
+    max-width: 76ch;
+    line-height: 1.6;
   }
 
   #hud {
@@ -173,7 +194,7 @@
   }
   #hud.hidden { display: none; }
 
-  .hud-row { display: flex; justify-content: space-between; align-items: flex-start; }
+  .hud-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
 
   .hud-left, .hud-right { display: flex; flex-direction: column; gap: 4px; }
   .hud-label {
@@ -183,26 +204,49 @@
     color: var(--ink-dim);
   }
   .hud-bar {
-    width: 140px;
+    width: 150px;
     height: 8px;
     background: rgba(0,0,0,0.55);
     border: 1px solid var(--line);
   }
+  .hud-bar.slim { height: 5px; width: 110px; }
   .hud-bar-fill {
     height: 100%;
     width: 100%;
     background: var(--blood);
     transition: width 0.15s linear;
   }
+  #hud-stamina-fill { background: #6f8ba8; }
+  #hud-blood-fill { background: linear-gradient(90deg, #5c1018, #e0384c); }
   .hud-value {
     font-size: 16px;
     color: var(--ink);
     font-variant-numeric: tabular-nums;
   }
+  .hud-state { font-size: 12px; letter-spacing: 0.06em; }
   .hud-right { align-items: flex-end; text-align: right; }
 
+  /* Little bone-white figurines, one per guest — the counting rhyme made
+     visible. A broken one goes dark and tips over. */
+  .figurines { display: flex; gap: 6px; margin-top: 2px; }
+  .fig {
+    width: 9px; height: 18px;
+    background: #d9d2c2;
+    border-radius: 4px 4px 1px 1px;
+    box-shadow: 0 0 6px rgba(217,210,194,0.35);
+    transition: transform 0.4s ease, background 0.4s ease, box-shadow 0.4s ease;
+  }
+  .fig.broken {
+    background: #3a3a3a;
+    box-shadow: none;
+    transform: rotate(74deg) translateY(4px);
+  }
+  .fig.gone { background: #6f8ba8; box-shadow: 0 0 6px rgba(111,139,168,0.5); }
+
+  .hud-bottom { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+  #hud-prompt:empty { display: none; }
   #hud-prompt {
-    align-self: center;
     color: var(--ember);
     font-family: var(--font-body);
     font-size: 14px;
@@ -210,7 +254,48 @@
     padding: 6px 14px;
     border-radius: 3px;
     min-height: 1.4em;
+    text-align: center;
   }
+
+  #hud-progress {
+    width: 220px;
+    height: 6px;
+    background: rgba(0,0,0,0.6);
+    border: 1px solid var(--line);
+  }
+  #hud-progress.hidden { visibility: hidden; }
+  #hud-progress-fill { height: 100%; width: 0%; background: var(--ember); }
+
+  /* Killer power slots — one row of keycaps that dim while on cooldown. */
+  #hud-powers {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+  }
+  .slot {
+    min-width: 96px;
+    padding: 5px 8px;
+    background: rgba(0,0,0,0.55);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: relative;
+    overflow: hidden;
+  }
+  .slot b { font-size: 10px; letter-spacing: 0.1em; color: var(--ember); font-weight: 600; }
+  .slot span { font-size: 11px; color: var(--ink); }
+  .slot i {
+    position: absolute;
+    left: 0; bottom: 0;
+    height: 100%;
+    width: 0%;
+    background: rgba(0,0,0,0.62);
+    pointer-events: none;
+  }
+  .slot.ready b { color: var(--ember); }
+  .slot.cold b { color: var(--ink-dim); }
 
   #crosshair {
     position: absolute;
@@ -240,20 +325,50 @@
   }
   #damage-flash.show { opacity: 1; transition: none; }
 
+  /* Trickster's frenzy paints the whole frame — you are not yourself. */
+  #frenzy-tint {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(ellipse at center, rgba(200,20,40,0.10) 20%, rgba(120,0,16,0.52) 100%);
+    transition: opacity 0.25s ease;
+  }
+  #frenzy-tint.show { opacity: 1; }
+
   /* Always-on cinematic vignette — darkens the frame edges the way a horror
      game's post-processing does, so the lit centre reads as a pool of light. */
   #vignette {
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,0.55) 100%);
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,0.58) 100%);
     mix-blend-mode: multiply;
   }
+
+  /* The rhyme line that lands each time a guest is taken off the board. */
+  #rhyme {
+    position: absolute;
+    left: 50%;
+    top: 22%;
+    transform: translateX(-50%);
+    max-width: 44ch;
+    text-align: center;
+    pointer-events: none;
+    font-family: var(--font-display);
+    font-size: clamp(15px, 2.2vw, 21px);
+    line-height: 1.5;
+    color: #e6ddc8;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.95);
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  #rhyme.show { opacity: 1; }
 
   #look-hint {
     position: absolute;
     left: 50%;
-    bottom: 46px;
+    bottom: 104px;
     transform: translateX(-50%);
     pointer-events: none;
     font-size: 12px;
@@ -274,7 +389,7 @@
     display: none;
     align-items: center;
     justify-content: center;
-    background: rgba(6,7,5,0.55);
+    background: rgba(5,5,7,0.55);
     cursor: pointer;
     z-index: 5;
   }
@@ -307,9 +422,9 @@
   .menu-note {
     color: var(--ink-dim);
     font-size: 12px;
-    max-width: 60ch;
+    max-width: 68ch;
     text-align: center;
-    margin-top: 6px;
+    margin-top: 2px;
   }
 </style>
 </head>
@@ -319,50 +434,87 @@
     <canvas id="game" tabindex="0"></canvas>
     <div id="crosshair" class="hidden"></div>
     <div id="damage-flash"></div>
+    <div id="frenzy-tint"></div>
     <div id="vignette"></div>
+    <div id="rhyme"></div>
     <div id="look-hint" class="hidden">Двигай мышь в сторону — камера поворачивается · в центр — стоп</div>
     <div id="pause-overlay"><div class="pause-card">Курсор свободен<span>Нажми, чтобы вернуться в игру · ESC — снова освободить</span></div></div>
 
     <div id="hud" class="hidden">
       <div class="hud-row">
         <div class="hud-left">
-          <div class="hud-label">Здоровье</div>
+          <div class="hud-label" id="hud-health-label">Состояние</div>
           <div class="hud-bar"><div id="hud-health-fill" class="hud-bar-fill"></div></div>
+          <div class="hud-state" id="hud-state"></div>
+          <div id="hud-stamina-wrap">
+            <div class="hud-label">Дыхание</div>
+            <div class="hud-bar slim"><div id="hud-stamina-fill" class="hud-bar-fill"></div></div>
+          </div>
+          <div id="hud-blood-wrap" class="hidden">
+            <div class="hud-label">Кровь</div>
+            <div class="hud-bar slim"><div id="hud-blood-fill" class="hud-bar-fill"></div></div>
+          </div>
         </div>
         <div class="hud-right">
-          <div class="hud-label">Генераторы</div>
-          <div id="hud-gen-count" class="hud-value">0/3</div>
+          <div class="hud-label">Щиты</div>
+          <div id="hud-gen-count" class="hud-value">0/4</div>
+          <div class="hud-label">Гости</div>
+          <div class="figurines" id="hud-figurines"></div>
         </div>
       </div>
-      <div id="hud-prompt"></div>
+      <div class="hud-bottom">
+        <div id="hud-progress" class="hidden"><div id="hud-progress-fill"></div></div>
+        <div id="hud-prompt"></div>
+        <div id="hud-powers"></div>
+      </div>
     </div>
 
     <div id="menu" class="overlay">
-      <h1>Турбаза «Волк»</h1>
-      <p class="lede">Секта каннибалов захватила базу этой ночью. Выбери, за кого играть.</p>
+      <h1>Считалка</h1>
+      <p class="lede">Мёртвый квартал заперт. Внутри — четверо гостей, каждый из которых
+        когда-то сделал очень плохую вещь и сумел выйти сухим. Сегодня за каждым из них
+        пришёл <em>тот самый</em>. Выйти можно только через пролом в северной стене —
+        и только если в квартале снова дадут свет.</p>
+
+      <p class="side-label">Сторона гостей</p>
       <div class="totems">
-        <button class="totem" data-faction="survivor">
-          <span class="totem-role">Выживший</span>
-          <span class="totem-desc">Почини три генератора и уйди по дороге, пока тебя не поймали.</span>
-        </button>
-        <button class="totem" data-faction="cannibal">
-          <span class="totem-role">Секта</span>
-          <span class="totem-desc">Ты — Вожак. Лови туристов и приноси их в жертву на алтаре.</span>
-        </button>
-        <button class="totem" data-faction="killer">
-          <span class="totem-role">Охотник</span>
-          <span class="totem-desc">Пробейся через культистов и убей их Вожака.</span>
+        <button class="totem" data-side="guest">
+          <span class="totem-role">Гость</span>
+          <span class="totem-desc">Включи 4 щита из 5, дойди до пролома. Оружия нет — только тишина, бег и напарники.</span>
+          <span class="totem-kit"><b>E</b> — чинить, поднимать, снимать с крюка<br><b>Shift</b> — бег · <b>Ctrl</b> — красться<br><b>F</b> — фонарь (видно далеко, слышно всем)</span>
         </button>
       </div>
-      <p class="controls">Мышь — осмотреться · WASD — движение · Shift — бег · ЛКМ — атака/захват · ПКМ — блок (охотник) / захват (секта) · E — взаимодействие · F — фонарь (выживший)</p>
-      <p class="menu-note">Браузерный прототип от первого лица, параллельно с Unity-проектом. Персонажи — риг Soldier из примеров three.js, перекрашен по фракциям.</p>
+
+      <p class="side-label">Сторона обиженных</p>
+      <div class="totems">
+        <button class="totem" data-side="killer" data-kind="trickster">
+          <span class="totem-role">Трикстер</span>
+          <span class="totem-desc">Циркач в смеющейся маске. Чем больше прольёт крови — тем ближе срыв.</span>
+          <span class="totem-kit"><b>ЛКМ</b> — нож (быстро)<br><b>ПКМ</b> — серп (широко, больно)<br><b>Q</b> — крюк: подтянуть к себе<br><b>F</b> — двойники<br><b>Пассивка</b> — режим психа</span>
+        </button>
+        <button class="totem" data-side="killer" data-kind="witch">
+          <span class="totem-role">Ведьма</span>
+          <span class="totem-desc">Травница с окраины. Квартал прорастает там, где она прошла.</span>
+          <span class="totem-kit"><b>ЛКМ</b> — удар лозой<br><b>ПКМ</b> — плющ: обездвижить<br><b>Q</b> — ядовитая поросль в проём<br><b>E</b> — казнь прорастанием</span>
+        </button>
+        <button class="totem" data-side="killer" data-kind="roger">
+          <span class="totem-role">Весёлый Роджер</span>
+          <span class="totem-desc">Туша в парусине и якорной цепи. Стены для него — не препятствие, а дверь.</span>
+          <span class="totem-kit"><b>ЛКМ</b> — тяжёлый удар<br><b>ПКМ</b> — захват прямо на ходу<br><b>Q</b> — таран сквозь стену<br><b>E</b> — вздёрнуть на крюк</span>
+        </button>
+      </div>
+
+      <p class="controls">Мышь — осмотреться · WASD — движение · ESC — освободить курсор</p>
+      <p class="menu-note">Браузерный прототип от первого лица, параллельно с Unity-проектом.
+        Персонажи — риг Soldier из примеров three.js, перекрашен по ролям.</p>
     </div>
 
     <div id="end" class="overlay hidden">
       <h1 id="end-title"></h1>
       <p id="end-sub" class="lede"></p>
+      <p id="end-rhyme" class="lede"></p>
       <button id="restart-btn" class="totem totem-restart">
-        <span class="totem-role">Играть снова</span>
+        <span class="totem-role">Ещё раз</span>
       </button>
     </div>
   </div>
@@ -4530,53 +4682,105 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   // config
   // ---------------------------------------------------------------------
 
-  const BOUNDS = { minX: -28, maxX: 28, minZ: -18, maxZ: 18 };
+  const BOUNDS = { minX: -34, maxX: 34, minZ: -26, maxZ: 26 };
   const ENTITY_RADIUS = 0.4;
   const EYE_HEIGHT = 1.62;
 
-  const FACTION_COLOR = {
-    survivor: 0x5ec26a,
-    cannibal: 0xc23b3b,
-    leader: 0xb23fb0,
-    killer: 0x4f8fd1,
+  const WALL_H = 3.3;          // ruined storey height
+  const WALL_T = 0.55;         // wall thickness
+  const DOOR_HALF = 1.35;      // half-width of a doorway gap
+  const PERIM_T = 0.9;
+
+  const COLOR = {
+    guest: 0xd8c08a,
+    trickster: 0xd0405a,
+    witch: 0x57a35d,
+    roger: 0x8f98a6,
   };
 
-  // One real rigged model (Soldier) stands in for all three factions, told
-  // apart by tint + scale. A second model (Xbot) was tried for Survivors —
-  // dropped after THREE.SkeletonUtils.clone() produced a corrupted skin on
-  // it specifically (confirmed by hiding meshes one at a time in testing);
-  // Soldier clones correctly, so every faction uses it rather than risk the
-  // same corruption recurring.
-  const MODEL_FOR_FACTION = { survivor: 'soldier', cannibal: 'soldier', killer: 'soldier' };
-  const MODEL_SCALE = { soldier: 1 }; // native scale already composes to real-world size — measured via THREE.Box3, not assumed
-  const MODEL_YAW_OFFSET = { soldier: Math.PI };
-  const ANIM_NAMES = {
-    soldier: { idle: 'Idle', walk: 'Walk', run: 'Run', captive: 'Idle' },
-  };
-
-  const CONFIG = {
-    survivor: { speed: 3.3, sprintMul: 1.7, hp: 60, visionLight: 0.55, visionRange: 7 },
-    cannibal: { speed: 3.7, sprintMul: 1.45, hp: 100, visionLight: 0.8, visionRange: 10,
-      attackRange: 2.2, attackDamage: 28, attackCooldown: 0.8,
-      grabRange: 2.0, grabCooldown: 3.5, senseRadius: 15 },
-    killer: { speed: 3.5, sprintMul: 1.55, hp: 150, visionLight: 0.8, visionRange: 10,
-      attackRange: 2.5, attackDamage: 45, attackCooldown: 0.7,
-      blockSpeedMul: 0.4, blockDamageMul: 0.25 },
-  };
-
-  const GENERATORS_REQUIRED = 3;
-  const SACRIFICE_TIME = 9;
-  const INTERACT_RANGE = 2.6;
-  const FLASHLIGHT_RANGE = 22;
-  const FLASHLIGHT_HALF_ANGLE = 0.36;
-  const FLEE_RADIUS = 11;
-  const FLASHLIGHT_NOISE_BONUS = 4;
-  const SPRINT_NOISE_BONUS = 3;
-
-  const BUILDINGS = [
-    { minX: -13, maxX: -7, minZ: 1, maxZ: 7 },
-    { minX: 7, maxX: 13, minZ: -7, maxZ: -1 },
+  // The four guests. Every one of them walked away from something once; the
+  // quarter is where the bill comes due. Names/sins surface on the HUD and on
+  // the end screen, so the roster is data, not flavour text in a comment.
+  const GUEST_ROSTER = [
+    { name: 'Марго Ланд',  sin: 'сдала своих, чтобы уйти от срока' },
+    { name: 'Костя Вьюн',  sin: 'подписал брата на чужой долг' },
+    { name: 'Илья Тарн',   sin: 'спрятал свою ошибку в чужой могиле' },
+    { name: 'Нина Верес',  sin: 'подожгла дом вместе с бумагами' },
   ];
+
+  // The counting rhyme. One line lands each time a guest leaves the board —
+  // the "ten little" structure the whole match is built around.
+  const RHYME = [
+    'Четверо гостей вошли в пустой квартал. Один остался в подворотне — и стало трое.',
+    'Трое гостей искали свет в окне. Один нашёл его слишком близко — и стало двое.',
+    'Двое гостей бежали на пролом. Один не добежал — и остался один.',
+    'Один гость стоял в тишине совсем один. И не осталось никого.',
+  ];
+
+  const GUEST = {
+    speed: 3.45, sprintMul: 1.55, crouchMul: 0.52, hp: 100,
+    visionLight: 0.5, visionRange: 7,
+    staminaMax: 5.0, staminaDrain: 1.0, staminaRegen: 0.7,
+    bleedout: 48,        // seconds on the ground before it's over
+    reviveTime: 6,       // teammate lifting you up
+    reviveHp: 45,
+    unhookHp: 40,
+    breakPlantTime: 3.2, // tearing a poisoned doorway open by hand
+  };
+
+  // Every killer is a different verb. Speed/HP are the frame; the kit is the
+  // character.
+  const KILLERS = {
+    trickster: {
+      name: 'Трикстер', color: COLOR.trickster, scale: 1.0,
+      speed: 3.8, sprintMul: 1.28, hp: 240,
+      primary:   { label: 'Нож',  range: 2.4, dmg: 26, cd: 0.5,  arc: Math.PI / 2.2 },
+      secondary: { label: 'Серп', range: 3.0, dmg: 52, cd: 1.15, arc: Math.PI / 1.7 },
+      power1:    { label: 'Крюк', range: 15, cd: 11, arc: 0.34, stun: 1.3 },
+      power2:    { label: 'Двойники', cd: 26, life: 11, count: 2 },
+      bloodPerHit: 16,
+      frenzy: { time: 12, speedMul: 1.34, cdMul: 0.5, dmgMul: 1.55 },
+      canCarry: true,
+    },
+    witch: {
+      name: 'Ведьма', color: COLOR.witch, scale: 1.02,
+      speed: 3.5, sprintMul: 1.22, hp: 210,
+      primary:   { label: 'Лоза', range: 2.7, dmg: 40, cd: 0.9, arc: Math.PI / 2.2 },
+      secondary: { label: 'Плющ', range: 13, cd: 9, arc: 0.30, root: 3.2 },
+      power1:    { label: 'Поросль', cd: 9, range: 8, life: 50, max: 3, dmg: 16 },
+      execute:   { time: 3.4 },
+      rootSense: 9,   // she feels footsteps near her own plants
+      canCarry: false,
+    },
+    roger: {
+      name: 'Весёлый Роджер', color: COLOR.roger, scale: 1.24,
+      speed: 3.05, sprintMul: 1.1, hp: 460,
+      primary:   { label: 'Удар',  range: 3.1, dmg: 55, cd: 1.25, arc: Math.PI / 2.1 },
+      secondary: { label: 'Захват', range: 2.7, cd: 7 },
+      power1:    { label: 'Таран', cd: 9, speed: 9.4, maxTime: 2.4, dmg: 46, stun: 1.6 },
+      canCarry: true,
+    },
+  };
+
+  const KILLER_ORDER = ['trickster', 'witch', 'roger'];
+
+  const BREAKERS_REQUIRED = 4;
+  const BREAKER_WORK = 14;      // seconds of solo repair per breaker
+  const HOOK_TIME = 26;         // hanging → gone
+  const INTERACT_RANGE = 2.6;
+  const FLASHLIGHT_RANGE = 24;
+  const FLASHLIGHT_HALF_ANGLE = 0.34;
+  const FLEE_RADIUS = 13;
+  const SENSE_BASE = 18;        // killer bot hearing, in metres
+  const FLASHLIGHT_NOISE_BONUS = 6;
+  const SPRINT_NOISE_BONUS = 5;
+  const CROUCH_NOISE_MALUS = -7;
+  const CARRY_STRUGGLE_GAIN = 0.055;
+  const CARRY_STRUGGLE_DECAY = 0.075;
+
+  const MODEL_SCALE = { soldier: 1 };
+  const MODEL_YAW_OFFSET = { soldier: Math.PI };
+  const ANIM_NAMES = { soldier: { idle: 'Idle', walk: 'Walk', run: 'Run', captive: 'Idle' } };
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function normalizeAngle(a) {
@@ -4588,23 +4792,310 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   function yawToward(dx, dz) { return Math.atan2(-dx, -dz); }
   function forwardVector(yaw) { return { x: -Math.sin(yaw), z: -Math.cos(yaw) }; }
   function rightVector(yaw) { return { x: Math.cos(yaw), z: -Math.sin(yaw) }; }
+  function dist(ax, az, bx, bz) { return Math.hypot(ax - bx, az - bz); }
 
-  function collidesAt(x, z) {
-    const r = ENTITY_RADIUS;
-    for (const b of BUILDINGS) {
-      if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ) return true;
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // the quarter: walls, doorways, hooks, breakers
+  //
+  // The map is data, not geometry — collision, the Witch's doorway-blocking
+  // and Roger's wall-smashing all read the same arrays, and the meshes are
+  // built from them afterwards.
+  // ---------------------------------------------------------------------
+
+  const WALLS = [];      // { minX, maxX, minZ, maxZ, h, breakable, alive, mesh }
+  const DOORWAYS = [];   // { x, z, axis, plant }
+  const HOOKS = [];      // { x, z, captive, timer, mesh }
+  const BREAKERS = [];   // { x, z, progress, done }
+
+  function addWallBox(minX, minZ, maxX, maxZ, opts) {
+    opts = opts || {};
+    if (maxX - minX < 0.05 || maxZ - minZ < 0.05) return null;
+    const w = { minX, minZ, maxX, maxZ, h: opts.h || WALL_H, breakable: !!opts.breakable, alive: true, mesh: null };
+    WALLS.push(w);
+    return w;
+  }
+
+  // One side of a shell. `axis` is the direction the wall runs along.
+  // spec: { open: skip it entirely (a collapsed side), door: cut a gap,
+  //         doorAt: gap centre, breakable: Roger can shoulder through it }
+  function addSide(axis, fixed, from, to, spec) {
+    spec = spec || {};
+    if (spec.open) return;
+    const half = (spec.thick || WALL_T) / 2;
+    const h = spec.h || WALL_H;
+    const segments = [];
+    if (spec.door) {
+      const at = spec.doorAt !== undefined ? spec.doorAt : (from + to) / 2;
+      segments.push([from, at - DOOR_HALF], [at + DOOR_HALF, to]);
+      DOORWAYS.push({ x: axis === 'x' ? at : fixed, z: axis === 'x' ? fixed : at, axis, plant: null });
+    } else {
+      segments.push([from, to]);
     }
+    for (const [a, b] of segments) {
+      if (b - a < 0.05) continue;
+      if (axis === 'x') addWallBox(a, fixed - half, b, fixed + half, { breakable: spec.breakable, h });
+      else addWallBox(fixed - half, a, fixed + half, b, { breakable: spec.breakable, h });
+    }
+  }
+
+  // A ruined building shell: four sides, each of which may be solid, doored
+  // or collapsed. Guests loop around these; that's the whole chase geometry.
+  function addShell(cx, cz, w, d, sides) {
+    const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2;
+    addSide('x', z0, x0, x1, sides.n);
+    addSide('x', z1, x0, x1, sides.s);
+    addSide('z', x0, z0, z1, sides.w);
+    addSide('z', x1, z0, z1, sides.e);
+  }
+
+  function buildQuarter() {
+    // Perimeter — the quarter is sealed except for one breach in the north.
+    addSide('x', BOUNDS.minZ, BOUNDS.minX, BOUNDS.maxX, { thick: PERIM_T, h: 5.0 });
+    addSide('z', BOUNDS.minX, BOUNDS.minZ, BOUNDS.maxZ, { thick: PERIM_T, h: 5.0 });
+    addSide('z', BOUNDS.maxX, BOUNDS.minZ, BOUNDS.maxZ, { thick: PERIM_T, h: 5.0 });
+    // The breach itself: a 7m gap, too wide to be a doorway the Witch can seal.
+    addWallBox(BOUNDS.minX, BOUNDS.maxZ - PERIM_T / 2, -3.5, BOUNDS.maxZ + PERIM_T / 2, { h: 5.0 });
+    addWallBox(3.5, BOUNDS.maxZ - PERIM_T / 2, BOUNDS.maxX, BOUNDS.maxZ + PERIM_T / 2, { h: 5.0 });
+
+    addShell(-21, -15, 16, 13, {
+      n: { open: true },
+      s: { door: true, doorAt: -21, breakable: true },
+      w: { breakable: true },
+      e: { door: true, doorAt: -15 },
+    });
+    addShell(20, -15, 15, 13, {
+      n: { door: true, doorAt: 20 },
+      s: { breakable: true },
+      w: { door: true, doorAt: -15 },
+      e: { open: true },
+    });
+    addShell(-20, 13, 16, 14, {
+      n: { door: true, doorAt: -20 },
+      s: { door: true, doorAt: -24, breakable: true },
+      w: { breakable: true },
+      e: { door: true, doorAt: 13 },
+    });
+    addShell(21, 13, 15, 14, {
+      n: { door: true, doorAt: 21, breakable: true },
+      s: { door: true, doorAt: 25 },
+      w: { door: true, doorAt: 13 },
+      e: { open: true },
+    });
+    addShell(0, -21, 12, 6, {
+      n: { open: true },
+      s: { door: true, doorAt: 0, breakable: true },
+      w: { door: true, doorAt: -21 },
+      e: { door: true, doorAt: -21 },
+    });
+
+    // Interior divider in the big north-west shell — one more loop, one more
+    // doorway to poison.
+    addSide('x', 13, -28, -12, { door: true, doorAt: -20, breakable: true });
+
+    // Free-standing fragments around the plaza: the pocket where the plinth
+    // stands, and the first place a chase goes wrong.
+    addSide('x', 5, -7, 7, { door: true, doorAt: 0, breakable: true });
+    addSide('z', -8, -3, 7, { door: true, doorAt: 2 });
+    addSide('z', 8, -3, 7, { door: true, doorAt: 2, breakable: true });
+
+    // Burnt-out cars: solid, waist-high, good for breaking line of sight.
+    for (const [cx, cz, w, d] of [[-8, -6, 4.4, 2.0], [9, -9, 2.0, 4.4], [-4, 18, 4.4, 2.0], [12, 3, 4.4, 2.0]]) {
+      addWallBox(cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, { h: 1.5 });
+    }
+
+    for (const [x, z] of [[-13, -6], [13, -7], [-12, 9], [12, 10], [0, 17]]) {
+      HOOKS.push({ x, z, captive: null, timer: 0, mesh: null });
+    }
+
+    for (const [x, z] of [[-21, -15], [20, -15], [-20, 17], [21, 13], [0, -8]]) {
+      BREAKERS.push({ x, z, progress: 0, done: false });
+    }
+  }
+
+  buildQuarter();
+
+  const PLAZA = { x: 0, z: 0 };
+  const BREACH = { x: 0, z: BOUNDS.maxZ - 1.5, halfW: 3.5 };
+
+  function blockingWall(x, z, r) {
+    r = r === undefined ? ENTITY_RADIUS : r;
+    for (const w of WALLS) {
+      if (!w.alive) continue;
+      if (x + r > w.minX && x - r < w.maxX && z + r > w.minZ && z - r < w.maxZ) return w;
+    }
+    return null;
+  }
+
+  function plantBoxAt(d) {
+    return d.axis === 'x'
+      ? { minX: d.x - DOOR_HALF, maxX: d.x + DOOR_HALF, minZ: d.z - 0.55, maxZ: d.z + 0.55 }
+      : { minX: d.x - 0.55, maxX: d.x + 0.55, minZ: d.z - DOOR_HALF, maxZ: d.z + DOOR_HALF };
+  }
+
+  function blockingPlant(x, z, r) {
+    r = r === undefined ? ENTITY_RADIUS : r;
+    for (const p of state.plants) {
+      const b = p.box;
+      if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ) return p;
+    }
+    return null;
+  }
+
+  // Guests are stopped by the poisoned doorways; the killers walk through
+  // their own quarter as if it were empty.
+  function collidesAt(e, x, z) {
+    if (blockingWall(x, z)) return true;
+    if (e && e.faction === 'guest' && blockingPlant(x, z)) return true;
     return false;
   }
+
   function moveWithCollision(e, dx, dz) {
     const oldX = e.x, oldZ = e.z;
-    let x = oldX + dx, z = oldZ + dz;
-    if (!collidesAt(x, z)) { e.x = x; e.z = z; }
-    else if (!collidesAt(oldX + dx, oldZ)) { e.x = oldX + dx; }
-    else if (!collidesAt(oldX, oldZ + dz)) { e.z = oldZ + dz; }
-    e.x = clamp(e.x, BOUNDS.minX + ENTITY_RADIUS, BOUNDS.maxX - ENTITY_RADIUS);
-    e.z = clamp(e.z, BOUNDS.minZ + ENTITY_RADIUS, BOUNDS.maxZ - ENTITY_RADIUS);
+    const x = oldX + dx, z = oldZ + dz;
+    if (!collidesAt(e, x, z)) { e.x = x; e.z = z; }
+    else if (!collidesAt(e, oldX + dx, oldZ)) { e.x = oldX + dx; }
+    else if (!collidesAt(e, oldX, oldZ + dz)) { e.z = oldZ + dz; }
+    e.x = clamp(e.x, BOUNDS.minX + 1.2, BOUNDS.maxX - 1.2);
+    e.z = clamp(e.z, BOUNDS.minZ + 1.2, BOUNDS.maxZ + 2.5);
   }
+
+  // Coarse line of sight — sampled, not swept. Good enough to stop powers
+  // reaching through a brick wall, cheap enough to run per bot per frame.
+  function hasLineOfSight(ax, az, bx, bz) {
+    const d = dist(ax, az, bx, bz);
+    const steps = Math.ceil(d / 0.6);
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      if (blockingWall(ax + (bx - ax) * t, az + (bz - az) * t, 0.05)) return false;
+    }
+    return true;
+  }
+
+  // ---------------------------------------------------------------------
+  // navigation
+  //
+  // Straight-line steering was fine on an open campsite; a quarter built out
+  // of shells and doorways needs real pathing, or bots grind into brick until
+  // the match times out. A 1m grid plus a BFS distance field per target: cheap
+  // to build, and it survives Roger punching new holes (rebaked on the spot).
+  // ---------------------------------------------------------------------
+
+  const NAV = {
+    cell: 1.0,
+    x0: BOUNDS.minX - 1, z0: BOUNDS.minZ - 1,
+    w: 0, h: 0, solid: null, fields: new Map(),
+  };
+
+  function navBake() {
+    NAV.w = Math.ceil((BOUNDS.maxX + 1 - NAV.x0) / NAV.cell);
+    NAV.h = Math.ceil((BOUNDS.maxZ + 4 - NAV.z0) / NAV.cell);
+    NAV.solid = new Uint8Array(NAV.w * NAV.h);
+    for (let j = 0; j < NAV.h; j++) {
+      for (let i = 0; i < NAV.w; i++) {
+        NAV.solid[j * NAV.w + i] = blockingWall(navCentreX(i), navCentreZ(j), 0.42) ? 1 : 0;
+      }
+    }
+    NAV.fields.clear();
+  }
+
+  function navCellX(x) { return clamp(Math.floor((x - NAV.x0) / NAV.cell), 0, NAV.w - 1); }
+  function navCellZ(z) { return clamp(Math.floor((z - NAV.z0) / NAV.cell), 0, NAV.h - 1); }
+  function navCentreX(i) { return NAV.x0 + (i + 0.5) * NAV.cell; }
+  function navCentreZ(j) { return NAV.z0 + (j + 0.5) * NAV.cell; }
+
+  // Objectives sit against walls, and bodies end up wedged in corners; both
+  // ends of a path have to snap to something walkable first.
+  function navNearestFree(i, j) {
+    if (!NAV.solid[j * NAV.w + i]) return j * NAV.w + i;
+    for (let r = 1; r <= 4; r++) {
+      for (let dj = -r; dj <= r; dj++) {
+        for (let di = -r; di <= r; di++) {
+          const ni = i + di, nj = j + dj;
+          if (ni < 0 || nj < 0 || ni >= NAV.w || nj >= NAV.h) continue;
+          if (!NAV.solid[nj * NAV.w + ni]) return nj * NAV.w + ni;
+        }
+      }
+    }
+    return -1;
+  }
+
+  function navField(tx, tz) {
+    const key = navCellX(tx) + ':' + navCellZ(tz);
+    const cached = NAV.fields.get(key);
+    if (cached) return cached;
+
+    const n = NAV.w * NAV.h;
+    const field = new Int32Array(n).fill(-1);
+    const start = navNearestFree(navCellX(tx), navCellZ(tz));
+    if (start >= 0) {
+      const queue = new Int32Array(n);
+      let head = 0, tail = 0;
+      queue[tail++] = start;
+      field[start] = 0;
+      while (head < tail) {
+        const cur = queue[head++];
+        const ci = cur % NAV.w, cj = (cur / NAV.w) | 0;
+        const d = field[cur] + 1;
+        for (let k = 0; k < 4; k++) {
+          const ni = ci + (k === 0 ? 1 : k === 1 ? -1 : 0);
+          const nj = cj + (k === 2 ? 1 : k === 3 ? -1 : 0);
+          if (ni < 0 || nj < 0 || ni >= NAV.w || nj >= NAV.h) continue;
+          const idx = nj * NAV.w + ni;
+          if (NAV.solid[idx] || field[idx] >= 0) continue;
+          field[idx] = d;
+          queue[tail++] = idx;
+        }
+      }
+    }
+    if (NAV.fields.size > 48) NAV.fields.clear();
+    NAV.fields.set(key, field);
+    return field;
+  }
+
+  // A walkable straight shot, probed at body width — unlike line of sight,
+  // which is a hairline ray and will happily "see" through a gap nobody fits.
+  function hasClearPath(ax, az, bx, bz) {
+    const d = dist(ax, az, bx, bz);
+    const steps = Math.ceil(d / 0.45);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      if (blockingWall(ax + (bx - ax) * t, az + (bz - az) * t, 0.45)) return false;
+    }
+    return true;
+  }
+
+  function navNextPoint(e, tx, tz) {
+    const field = navField(tx, tz);
+    const startIdx = navNearestFree(navCellX(e.x), navCellZ(e.z));
+    if (startIdx < 0) return null;
+    const si = startIdx % NAV.w, sj = (startIdx / NAV.w) | 0;
+    let best = -1, bestD = field[startIdx] < 0 ? Infinity : field[startIdx];
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        if (!di && !dj) continue;
+        const ni = si + di, nj = sj + dj;
+        if (ni < 0 || nj < 0 || ni >= NAV.w || nj >= NAV.h) continue;
+        const idx = nj * NAV.w + ni;
+        if (NAV.solid[idx] || field[idx] < 0) continue;
+        // Never cut a diagonal through a corner the body can't fit past.
+        if (di && dj && (NAV.solid[sj * NAV.w + ni] || NAV.solid[nj * NAV.w + si])) continue;
+        if (field[idx] < bestD) { bestD = field[idx]; best = idx; }
+      }
+    }
+    if (best < 0) return null;
+    return { x: navCentreX(best % NAV.w), z: navCentreZ((best / NAV.w) | 0) };
+  }
+
+  navBake();
 
   // ---------------------------------------------------------------------
   // dom
@@ -4616,12 +5107,25 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   const endOverlay = document.getElementById('end');
   const hudOverlay = document.getElementById('hud');
   const hudHealthFill = document.getElementById('hud-health-fill');
+  const hudHealthLabel = document.getElementById('hud-health-label');
+  const hudState = document.getElementById('hud-state');
+  const hudStaminaWrap = document.getElementById('hud-stamina-wrap');
+  const hudStaminaFill = document.getElementById('hud-stamina-fill');
+  const hudBloodWrap = document.getElementById('hud-blood-wrap');
+  const hudBloodFill = document.getElementById('hud-blood-fill');
   const hudGenCount = document.getElementById('hud-gen-count');
+  const hudFigurines = document.getElementById('hud-figurines');
   const hudPrompt = document.getElementById('hud-prompt');
+  const hudProgress = document.getElementById('hud-progress');
+  const hudProgressFill = document.getElementById('hud-progress-fill');
+  const hudPowers = document.getElementById('hud-powers');
   const endTitle = document.getElementById('end-title');
   const endSub = document.getElementById('end-sub');
+  const endRhyme = document.getElementById('end-rhyme');
   const crosshair = document.getElementById('crosshair');
   const damageFlash = document.getElementById('damage-flash');
+  const frenzyTint = document.getElementById('frenzy-tint');
+  const rhymeBanner = document.getElementById('rhyme');
   const lookHint = document.getElementById('look-hint');
   const pauseOverlay = document.getElementById('pause-overlay');
   pauseOverlay.addEventListener('mousedown', e => { e.preventDefault(); requestCapture(); });
@@ -4642,33 +5146,31 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x04060a);
-  // Exponential fog reads more like real volumetric night haze than linear, and
-  // hides the far treeline in murk so the world feels bigger and more menacing.
-  scene.fog = new THREE.FogExp2(0x05070c, 0.038);
+  scene.background = new THREE.Color(0x05060a);
+  // Exponential fog reads more like real night haze than linear, and buries
+  // the far end of the quarter in murk so the map feels bigger than it is.
+  scene.fog = new THREE.FogExp2(0x06070c, 0.031);
 
-  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 80);
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 120);
   camera.position.set(0, EYE_HEIGHT, 0);
 
   const rig = new THREE.Object3D();
   rig.add(camera);
   scene.add(rig);
 
-  // Very low cold ambient — the night is genuinely dark; the light you carry
-  // and the campfire are what you see by.
-  scene.add(new THREE.AmbientLight(0x1a2436, 0.32));
-  const moon = new THREE.DirectionalLight(0x4a5b7a, 0.28);
-  moon.position.set(-16, 26, -10);
+  scene.add(new THREE.AmbientLight(0x1b2130, 0.34));
+  const moon = new THREE.DirectionalLight(0x53607e, 0.3);
+  moon.position.set(-18, 30, -12);
   scene.add(moon);
 
-  // Moon disc + hazy halo, high in the -Z sky, so looking up reads as night.
+  // Moon disc + hazy halo, high in the sky, so looking up reads as night.
   {
-    const halo = new THREE.Mesh(new THREE.CircleGeometry(7, 40), new THREE.MeshBasicMaterial({ color: 0x6a7ba0, transparent: true, opacity: 0.10, fog: false }));
-    halo.position.set(-30, 34, -60);
+    const halo = new THREE.Mesh(new THREE.CircleGeometry(8, 40), new THREE.MeshBasicMaterial({ color: 0x6a7ba0, transparent: true, opacity: 0.09, fog: false }));
+    halo.position.set(-38, 42, -74);
     halo.lookAt(0, EYE_HEIGHT, 0);
     scene.add(halo);
-    const moonDisc = new THREE.Mesh(new THREE.CircleGeometry(3.4, 40), new THREE.MeshBasicMaterial({ color: 0xcdd6e6, fog: false }));
-    moonDisc.position.set(-30, 34, -59.5);
+    const moonDisc = new THREE.Mesh(new THREE.CircleGeometry(3.6, 40), new THREE.MeshBasicMaterial({ color: 0xc9d2e4, fog: false }));
+    moonDisc.position.set(-38, 42, -73.5);
     moonDisc.lookAt(0, EYE_HEIGHT, 0);
     scene.add(moonDisc);
   }
@@ -4685,7 +5187,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   window.addEventListener('resize', resize);
 
   // ---------------------------------------------------------------------
-  // vendored character models
+  // vendored character model
   // ---------------------------------------------------------------------
 
   const ASSETS = { soldier: null };
@@ -4713,190 +5215,162 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     }
   }
 
-  // ground
+  // ---------------------------------------------------------------------
+  // world meshes (built once from the map data)
+  // ---------------------------------------------------------------------
+
+  const MAT = {
+    ground: new THREE.MeshStandardMaterial({ color: 0x101216, roughness: 1 }),
+    wall: new THREE.MeshStandardMaterial({ color: 0x2b2b31, roughness: 0.95 }),
+    // Cracked walls are visibly different — a player as Roger has to be able
+    // to read at a glance which stretch of brick will give.
+    wallCracked: new THREE.MeshStandardMaterial({ color: 0x3a3129, roughness: 1 }),
+    rubble: new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 1 }),
+    metal: new THREE.MeshStandardMaterial({ color: 0x4a4d55, roughness: 0.5, metalness: 0.7 }),
+    bone: new THREE.MeshStandardMaterial({ color: 0xcfc7b4, roughness: 0.7 }),
+    plantMat: new THREE.MeshStandardMaterial({ color: 0x2f6b34, emissive: 0x123a16, emissiveIntensity: 0.8, roughness: 0.9 }),
+  };
+
   {
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(BOUNDS.maxX - BOUNDS.minX + 6, BOUNDS.maxZ - BOUNDS.minZ + 6),
-      new THREE.MeshStandardMaterial({ color: 0x141a10, roughness: 1 })
+      new THREE.PlaneGeometry(BOUNDS.maxX - BOUNDS.minX + 20, BOUNDS.maxZ - BOUNDS.minZ + 20),
+      MAT.ground
     );
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
   }
 
-  // buildings
-  for (const b of BUILDINGS) {
-    const w = b.maxX - b.minX, d = b.maxZ - b.minZ;
-    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a2013, roughness: 0.9 });
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 2.6, d), wallMat);
-    wall.position.set(cx, 1.3, cz);
-    scene.add(wall);
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.72, 1.4, 4), new THREE.MeshStandardMaterial({ color: 0x1c150c, roughness: 1 }));
-    roof.position.set(cx, 2.6 + 0.7, cz);
-    roof.rotation.y = Math.PI / 4;
-    scene.add(roof);
-  }
-
-  // treeline
-  {
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x1c150e, roughness: 1 });
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x111d12, roughness: 1 });
-    const rng = mulberry32(1337);
-    for (let i = 0; i < 46; i++) {
-      const edge = Math.floor(rng() * 4);
-      let x, z;
-      if (edge === 0) { x = BOUNDS.minX - 1 + rng() * 3; z = BOUNDS.minZ + rng() * (BOUNDS.maxZ - BOUNDS.minZ); }
-      else if (edge === 1) { x = BOUNDS.maxX + 1 - rng() * 3; z = BOUNDS.minZ + rng() * (BOUNDS.maxZ - BOUNDS.minZ); }
-      else if (edge === 2) { z = BOUNDS.minZ - 1 + rng() * 3; x = BOUNDS.minX + rng() * (BOUNDS.maxX - BOUNDS.minX); }
-      else { z = BOUNDS.maxZ + 1 - rng() * 3; x = BOUNDS.minX + rng() * (BOUNDS.maxX - BOUNDS.minX); }
-      if (Math.abs(x) < 5 && z > BOUNDS.maxZ - 4) continue; // keep the gate clear
-      const h = 3 + rng() * 3;
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, h * 0.4, 6), trunkMat);
-      trunk.position.set(x, h * 0.2, z);
-      scene.add(trunk);
-      const leaf = new THREE.Mesh(new THREE.ConeGeometry(1.1, h, 7), leafMat);
-      leaf.position.set(x, h * 0.4 + h * 0.5, z);
-      scene.add(leaf);
-    }
-  }
-
-  // campfire — the one warm light on the base, and an animated one (flicker)
-  let campfireLight = null, campfireCore = null;
-  {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.18, 6, 18), new THREE.MeshStandardMaterial({ color: 0x241812, roughness: 1 }));
-    ring.rotation.x = Math.PI / 2;
-    ring.position.set(-6, 0.18, 10);
-    scene.add(ring);
-    // charred logs
-    for (let i = 0; i < 4; i++) {
-      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.3, 6), new THREE.MeshStandardMaterial({ color: 0x160f0a, roughness: 1 }));
-      log.position.set(-6, 0.2, 10);
-      log.rotation.z = Math.PI / 2;
-      log.rotation.y = (i / 4) * Math.PI;
-      scene.add(log);
-    }
-    campfireCore = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.0, 8), new THREE.MeshBasicMaterial({ color: 0xff7a1e, transparent: true, opacity: 0.9, fog: false }));
-    campfireCore.position.set(-6, 0.7, 10);
-    scene.add(campfireCore);
-    campfireLight = new THREE.PointLight(0xff8a3a, 2.4, 16, 2);
-    campfireLight.position.set(-6, 1.1, 10);
-    scene.add(campfireLight);
-  }
-
-  // scattered props: barrels and crates, so the camp reads as lived-in
-  {
-    const rng = mulberry32(99);
-    const barrelMat = new THREE.MeshStandardMaterial({ color: 0x33260f, roughness: 0.85 });
-    const crateMat = new THREE.MeshStandardMaterial({ color: 0x2a2214, roughness: 0.95 });
-    const spots = [[-4, 12], [3, 11], [12, 8], [-12, -3], [10, -9], [-9, 5], [5, -12], [15, 2]];
-    for (const [x, z] of spots) {
-      if (rng() < 0.5) {
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.1, 12), barrelMat);
-        barrel.position.set(x, 0.55, z);
-        scene.add(barrel);
-      } else {
-        const s = 0.8 + rng() * 0.5;
-        const crate = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), crateMat);
-        crate.position.set(x, s / 2, z);
-        crate.rotation.y = rng() * Math.PI;
-        scene.add(crate);
-      }
-    }
-  }
-
-  // fence posts around the perimeter — a thin sense of enclosure
-  {
-    const postMat = new THREE.MeshStandardMaterial({ color: 0x1e160d, roughness: 1 });
-    const step = 4;
-    for (let x = BOUNDS.minX; x <= BOUNDS.maxX; x += step) {
-      for (const z of [BOUNDS.minZ, BOUNDS.maxZ]) {
-        if (z === BOUNDS.maxZ && Math.abs(x) < 5) continue; // gate gap
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.4, 0.2), postMat);
-        post.position.set(x, 0.7, z);
-        scene.add(post);
-      }
-    }
-    for (let z = BOUNDS.minZ; z <= BOUNDS.maxZ; z += step) {
-      for (const x of [BOUNDS.minX, BOUNDS.maxX]) {
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.4, 0.2), postMat);
-        post.position.set(x, 0.7, z);
-        scene.add(post);
-      }
-    }
-  }
-
-  function mulberry32(a) {
-    return function () {
-      a |= 0; a = (a + 0x6D2B79F5) | 0;
-      let t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  // objectives (meshes rebuilt per match so state can just be array data)
-  const objectiveMeshes = { generators: [], altar: null, gatePosts: [], gateGlow: null };
-
-  function buildObjectiveMeshes(state) {
-    for (const g of objectiveMeshes.generators) scene.remove(g.mesh, g.ring);
-    objectiveMeshes.generators = [];
-    for (const g of state.generators) {
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(1.1, 1.2, 0.8),
-        new THREE.MeshStandardMaterial({ color: 0x2c2716, emissive: 0x000000, roughness: 0.7 })
-      );
-      mesh.position.set(g.x, 0.6, g.z);
-      scene.add(mesh);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.9, 0.05, 6, 20), new THREE.MeshBasicMaterial({ color: 0xc9862f }));
-      ring.rotation.x = Math.PI / 2;
-      ring.position.set(g.x, 0.05, g.z);
-      scene.add(ring);
-      objectiveMeshes.generators.push({ mesh, ring, ref: g });
-    }
-
-    if (objectiveMeshes.altar) scene.remove(objectiveMeshes.altar.base, objectiveMeshes.altar.spike, objectiveMeshes.altar.glow);
-    {
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.4, 0.6, 16), new THREE.MeshStandardMaterial({ color: 0x2a1418, roughness: 0.9 }));
-      base.position.set(state.altar.x, 0.3, state.altar.z);
-      scene.add(base);
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.22, 1.6, 6), new THREE.MeshStandardMaterial({ color: 0x1a0d10 }));
-      spike.position.set(state.altar.x, 1.4, state.altar.z);
-      scene.add(spike);
-      const glow = new THREE.PointLight(0x9a2732, 0.5, 6, 2);
-      glow.position.set(state.altar.x, 1.0, state.altar.z);
-      scene.add(glow);
-      objectiveMeshes.altar = { base, spike, glow, ref: state.altar };
-    }
-
-    for (const p of objectiveMeshes.gatePosts) scene.remove(p);
-    objectiveMeshes.gatePosts = [];
-    const gate = state.gate;
-    const postMat = new THREE.MeshStandardMaterial({ color: 0x241d10, roughness: 0.8 });
-    for (const side of [-1, 1]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 0.5), postMat);
-      post.position.set(gate.x + side * gate.halfW, 1.5, gate.z);
-      scene.add(post);
-      objectiveMeshes.gatePosts.push(post);
-    }
-    if (objectiveMeshes.gateGlow) scene.remove(objectiveMeshes.gateGlow);
-    const glowPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(gate.halfW * 2, 3),
-      new THREE.MeshBasicMaterial({ color: 0xcfc2a0, transparent: true, opacity: 0.08, side: THREE.DoubleSide })
+  function buildWallMesh(w) {
+    const width = w.maxX - w.minX, depth = w.maxZ - w.minZ;
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(width, w.h, depth),
+      w.breakable ? MAT.wallCracked : MAT.wall
     );
-    glowPlane.position.set(gate.x, 1.5, gate.z);
-    scene.add(glowPlane);
-    objectiveMeshes.gateGlow = glowPlane;
+    mesh.position.set((w.minX + w.maxX) / 2, w.h / 2, (w.minZ + w.maxZ) / 2);
+    scene.add(mesh);
+    w.mesh = mesh;
+  }
+  for (const w of WALLS) buildWallMesh(w);
+
+  // Rubble, so the ruins read as ruins rather than as level-editor boxes.
+  {
+    const rng = mulberry32(4242);
+    for (let i = 0; i < 90; i++) {
+      const x = BOUNDS.minX + rng() * (BOUNDS.maxX - BOUNDS.minX);
+      const z = BOUNDS.minZ + rng() * (BOUNDS.maxZ - BOUNDS.minZ);
+      if (blockingWall(x, z, 0.6)) continue;
+      const s = 0.3 + rng() * 0.9;
+      const chunk = new THREE.Mesh(new THREE.BoxGeometry(s, s * 0.5, s * (0.6 + rng())), MAT.rubble);
+      chunk.position.set(x, s * 0.25, z);
+      chunk.rotation.set(rng() * 0.4, rng() * Math.PI, rng() * 0.4);
+      scene.add(chunk);
+    }
   }
 
-  function syncObjectiveVisuals(state) {
-    for (const g of objectiveMeshes.generators) {
-      g.mesh.material.emissive.setHex(g.ref.done ? 0x1a3d1e : (g.ref.progress > 0 ? 0x3a2a10 : 0x000000));
-      g.ring.material.color.setHex(g.ref.done ? 0x5ec26a : 0xc9862f);
-      g.ring.scale.setScalar(0.4 + Math.min(1, g.ref.progress / g.ref.required) * 0.6);
+  // Streetlamps — a handful still work, and the ones that do flicker.
+  const lamps = [];
+  for (const [x, z, working] of [[-14, 0, true], [14, 0, false], [0, -12, true], [0, 12, false], [-26, 4, true], [26, -4, false]]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.15, 6, 7), MAT.metal);
+    post.position.set(x, 3, z);
+    scene.add(post);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.25, 0.4), MAT.metal);
+    head.position.set(x, 6, z);
+    scene.add(head);
+    if (working) {
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffe7b0, fog: false }));
+      bulb.position.set(x, 5.85, z);
+      scene.add(bulb);
+      const light = new THREE.PointLight(0xffd9a0, 1.5, 15, 2);
+      light.position.set(x, 5.7, z);
+      scene.add(light);
+      lamps.push({ light, bulb, phase: Math.random() * 10 });
     }
-    const open = state.generatorsDone >= GENERATORS_REQUIRED;
-    objectiveMeshes.gateGlow.material.opacity = open ? 0.28 : 0.06;
-    objectiveMeshes.altar.glow.intensity = state.altar.captive ? 1.6 : 0.5;
+  }
+
+  // The plinth in the plaza: four figurines, one per guest. Each death tips
+  // one over — the counting rhyme, standing in the middle of the map.
+  const figurineMeshes = [];
+  let barrelLight = null, barrelCore = null;
+  {
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 1.0, 12), new THREE.MeshStandardMaterial({ color: 0x24242a, roughness: 1 }));
+    base.position.set(PLAZA.x, 0.5, PLAZA.z);
+    scene.add(base);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      const fx = PLAZA.x + Math.cos(a) * 0.8, fz = PLAZA.z + Math.sin(a) * 0.8;
+      const fig = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.42, 7), MAT.bone.clone());
+      body.position.y = 0.21;
+      fig.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), body.material);
+      head.position.y = 0.52;
+      fig.add(head);
+      fig.position.set(fx, 1.0, fz);
+      scene.add(fig);
+      figurineMeshes.push({ group: fig, mat: body.material });
+    }
+
+    // A barrel fire next to the plinth — the one warm light in the quarter.
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.5, 1.1, 12), new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 1 }));
+    barrel.position.set(4.5, 0.55, 3);
+    scene.add(barrel);
+    barrelCore = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.1, 8), new THREE.MeshBasicMaterial({ color: 0xff7a1e, transparent: true, opacity: 0.9, fog: false }));
+    barrelCore.position.set(4.5, 1.5, 3);
+    scene.add(barrelCore);
+    barrelLight = new THREE.PointLight(0xff8a3a, 2.2, 14, 2);
+    barrelLight.position.set(4.5, 1.6, 3);
+    scene.add(barrelLight);
+  }
+
+  // Hooks: rusted meat hooks on concrete stumps. Roger calls them anchors;
+  // the mechanic is the same, and so is the mesh.
+  for (const h of HOOKS) {
+    const g = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.18, 2.6, 7), MAT.metal);
+    post.position.y = 1.3;
+    g.add(post);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.1, 0.1), MAT.metal);
+    arm.position.set(0.3, 2.5, 0);
+    g.add(arm);
+    const hookCurve = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.05, 6, 12, Math.PI * 1.4), MAT.metal);
+    hookCurve.position.set(0.62, 2.28, 0);
+    hookCurve.rotation.y = Math.PI / 2;
+    g.add(hookCurve);
+    g.position.set(h.x, 0, h.z);
+    scene.add(g);
+    h.mesh = g;
+  }
+
+  // Breaker boxes: the objective. Dead grey until worked on, amber while
+  // being repaired, cold green when live.
+  const breakerMeshes = [];
+  for (const b of BREAKERS) {
+    const g = new THREE.Group();
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.2, 0.5), new THREE.MeshStandardMaterial({ color: 0x2e3138, emissive: 0x000000, roughness: 0.7, metalness: 0.4 }));
+    box.position.y = 1.1;
+    g.add(box);
+    const stand = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.6, 0.16), MAT.metal);
+    stand.position.y = 0.3;
+    g.add(stand);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.045, 6, 22), new THREE.MeshBasicMaterial({ color: 0xc9862f }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.06;
+    g.add(ring);
+    g.position.set(b.x, 0, b.z);
+    scene.add(g);
+    breakerMeshes.push({ ref: b, box, ring });
+  }
+
+  // The breach: a hole in the north wall, dark until the power is back.
+  let breachGlow = null;
+  {
+    const plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(BREACH.halfW * 2, 5),
+      new THREE.MeshBasicMaterial({ color: 0xbfd0e0, transparent: true, opacity: 0.05, side: THREE.DoubleSide })
+    );
+    plane.position.set(BREACH.x, 2.5, BOUNDS.maxZ);
+    scene.add(plane);
+    breachGlow = plane;
   }
 
   // ---------------------------------------------------------------------
@@ -4933,11 +5407,10 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       AUDIO.master.connect(AUDIO.ctx.destination);
       AUDIO.noise = makeNoiseBuffer(AUDIO.ctx, 2);
 
-      // wind bed
       const src = AUDIO.ctx.createBufferSource();
       src.buffer = AUDIO.noise; src.loop = true;
       const lp = AUDIO.ctx.createBiquadFilter();
-      lp.type = 'lowpass'; lp.frequency.value = 380;
+      lp.type = 'lowpass'; lp.frequency.value = 360;
       const wg = AUDIO.ctx.createGain(); wg.gain.value = 0.14;
       src.connect(lp); lp.connect(wg); wg.connect(AUDIO.master);
       src.start();
@@ -4957,9 +5430,10 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     src.start(); src.stop(c.currentTime + dur + 0.02);
   }
 
-  function tone(freq, dur, gain, type) {
+  function tone(freq, dur, gain, type, slideTo) {
     const c = AUDIO.ctx; if (!c) return;
     const o = c.createOscillator(); o.type = type || 'sine'; o.frequency.value = freq;
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, c.currentTime + dur);
     const g = c.createGain();
     g.gain.setValueAtTime(gain, c.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0008, c.currentTime + dur);
@@ -4968,7 +5442,7 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   }
 
   function sfxFootstep() { noiseBurst(0.12, 150 + Math.random() * 70, 1.3, 0.12); }
-  function sfxAttack() { noiseBurst(0.14, 320, 0.8, 0.22); tone(140, 0.16, 0.18, 'square'); }
+  function sfxSwing() { noiseBurst(0.14, 340, 0.8, 0.2); tone(150, 0.14, 0.15, 'square'); }
   function sfxHit() { noiseBurst(0.2, 220, 0.7, 0.28); tone(90, 0.24, 0.22, 'sawtooth'); }
   function sfxHeartbeat(intensity) {
     const c = AUDIO.ctx; if (!c) return;
@@ -4976,13 +5450,24 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     tone(58, 0.16, g, 'sine');
     setTimeout(() => tone(46, 0.2, g * 0.9, 'sine'), 150);
   }
+  function sfxChain() { noiseBurst(0.35, 2400, 3.5, 0.16, 'bandpass'); }
+  function sfxGrowth() { noiseBurst(0.5, 700, 1.2, 0.2); tone(80, 0.5, 0.1, 'sawtooth', 200); }
+  function sfxFrenzy() { tone(70, 0.8, 0.3, 'sawtooth', 190); noiseBurst(0.7, 500, 0.6, 0.22); }
+  function sfxSmash() { noiseBurst(0.5, 130, 0.5, 0.4); tone(55, 0.5, 0.3, 'square'); }
+  function sfxScream() { tone(420, 0.5, 0.22, 'sawtooth', 130); noiseBurst(0.4, 900, 1.6, 0.14); }
+  function sfxBell() { tone(880, 1.2, 0.18, 'sine'); tone(1320, 1.0, 0.08, 'sine'); }
 
   // ---------------------------------------------------------------------
   // input
   // ---------------------------------------------------------------------
 
-  let keys = new Set(), keysPrev = new Set();
-  let mouseButtons = new Set(), mouseButtonsPrev = new Set();
+  // Held state is polled; presses are buffered. Diffing "held now vs held last
+  // frame" silently eats any tap shorter than one frame — which is a real loss
+  // on a heavy frame, and murder on a slow machine. Every keydown/mousedown
+  // lands in a buffer instead, and the buffer is cleared once per frame after
+  // the simulation has read it.
+  const keys = new Set(), keyPresses = new Set();
+  const mouseButtons = new Set(), mousePresses = new Set();
 
   // Mouse capture, FPS-style. Clicking the game captures the mouse: the cursor
   // hides and moving the mouse turns the camera. Pressing ESC releases it and
@@ -5001,21 +5486,17 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   // why plain delta-look dies after a quarter turn. So instead the cursor's
   // distance from centre sets a turn *speed*: the further off-centre, the
   // faster the view turns; centre the mouse to stop.
-  //
-  // STEER_RANGE is the key to not losing the cursor: max turn speed is reached
-  // at only 45% of the way to an edge, and it's clamped past that. So you never
-  // need to shove the cursor into a window edge (which, with no real lock, would
-  // let it escape the iframe — that was the "looking up frees the mouse" bug).
-  // Everything happens inside the central ~half of the screen.
   const STEER_DEADZONE = 0.06;
   const STEER_RANGE = 0.45;       // offset from centre at which turn speed maxes out
-  const STEER_YAW_SPEED = 2.1;    // rad/s at full deflection (was 3.4 — toned down)
+  const STEER_YAW_SPEED = 2.1;    // rad/s at full deflection
   const STEER_PITCH_SPEED = 1.5;  // rad/s at full deflection
 
-  const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE', 'KeyF', 'ShiftLeft', 'ShiftRight', 'Space'];
+  const trackedKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'KeyE', 'KeyF', 'KeyQ', 'KeyG', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'Space'];
   window.addEventListener('keydown', e => {
     if (e.code === 'Escape') { releaseCapture(); return; }
     if (trackedKeys.includes(e.code)) e.preventDefault();
+    if (!keys.has(e.code)) keyPresses.add(e.code);   // ignore auto-repeat
     keys.add(e.code);
   });
   window.addEventListener('keyup', e => keys.delete(e.code));
@@ -5024,7 +5505,10 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     captured = on;
     canvas.classList.toggle('playing', on);                 // cursor:none only while captured
     pauseOverlay.classList.toggle('show', state.mode === 'playing' && !on);
-    if (!on) { steerX = 0; steerY = 0; lookYawDelta = 0; lookPitchDelta = 0; }  // no residual turn when released
+    if (!on) {
+      steerX = 0; steerY = 0; lookYawDelta = 0; lookPitchDelta = 0;   // no residual turn when released
+      mouseButtons.clear(); mousePresses.clear();
+    }
     updateLookHint();
   }
 
@@ -5046,10 +5530,14 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     setCaptured(false);
   }
 
+  // Only a lock we actually held counts as one we can lose. A browser that
+  // fires pointerlockchange for a request it never granted must not tear down
+  // the hidden-cursor fallback — that fallback is the whole point of it.
+  let hadRealLock = false;
   document.addEventListener('pointerlockchange', () => {
     pointerLocked = document.pointerLockElement === canvas;
-    // Losing a real lock (the native ESC) means the mouse is free again.
-    if (!pointerLocked && captured) setCaptured(false);
+    if (pointerLocked) { hadRealLock = true; return; }
+    if (hadRealLock && captured) { hadRealLock = false; setCaptured(false); }  // native ESC
   });
 
   canvas.addEventListener('mousedown', e => {
@@ -5057,29 +5545,22 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     canvas.focus();
     if (!captured) { if (e.button === 0) requestCapture(); return; }  // first click just re-captures
     mouseButtons.add(e.button);
+    mousePresses.add(e.button);
   });
   window.addEventListener('mouseup', e => mouseButtons.delete(e.button));
 
-  // Pointer-Lock mode: accumulate raw deltas from document (true 1:1 look).
   document.addEventListener('mousemove', e => {
     if (captured && pointerLocked) { lookYawDelta += e.movementX || 0; lookPitchDelta += e.movementY || 0; }
   });
-  // Fallback mode: track the cursor's offset from the canvas centre. The turn
-  // itself is applied per-frame in updatePlayerInput, so the view keeps turning
-  // even when the pinned cursor stops sending events at the edge.
   canvas.addEventListener('mousemove', e => {
     if (pointerLocked) return;
     const r = canvas.getBoundingClientRect();
     steerX = clamp(((e.clientX - r.left) / r.width) * 2 - 1, -1, 1);
     steerY = clamp(((e.clientY - r.top) / r.height) * 2 - 1, -1, 1);
   });
-  // If the cursor slips out of the canvas anyway, stop turning (don't let the
-  // view spin off) — moving back in resumes steering.
   canvas.addEventListener('mouseleave', () => { steerX = 0; steerY = 0; });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-  // Deadzone, then ramp to full speed by STEER_RANGE (well before the edge),
-  // eased so it's gentle and precise near centre.
   function steerResponse(v) {
     const a = Math.abs(v);
     if (a < STEER_DEADZONE) return 0;
@@ -5088,117 +5569,303 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   }
 
   function keyHeld(code) { return keys.has(code); }
-  function keyPressed(code) { return keys.has(code) && !keysPrev.has(code); }
+  function keyPressed(code) { return keyPresses.has(code); }
   function mouseHeld(btn) { return mouseButtons.has(btn); }
-  function mousePressed(btn) { return mouseButtons.has(btn) && !mouseButtonsPrev.has(btn); }
+  function mousePressed(btn) { return mousePresses.has(btn); }
 
   // ---------------------------------------------------------------------
   // entities / state
   // ---------------------------------------------------------------------
 
   let nextId = 1;
-  function makeEntity(faction, x, z, opts) {
+
+  function makeEntity(faction, kind, x, z, opts) {
     opts = opts || {};
-    const cfg = CONFIG[faction];
+    const cfg = faction === 'guest' ? GUEST : KILLERS[kind];
     return {
-      id: nextId++, faction,
-      isPlayer: !!opts.isPlayer, isLeader: !!opts.isLeader,
+      id: nextId++, faction, kind: kind || null,
+      isPlayer: !!opts.isPlayer,
+      name: opts.name || (cfg.name || 'Гость'), sin: opts.sin || '',
       x, z, yaw: 0,
       hp: cfg.hp, maxHp: cfg.hp,
       isDead: false, escaped: false,
-      isGrabbed: false, grabbedBy: null, carrying: null,
-      isBlocking: false, flashlightOn: false, sprinting: false,
+      downed: false, bleed: 0,
+      hooked: null, carriedBy: null, carrying: null, carryStruggle: 0,
+      rooted: 0, stunned: 0,
+      stamina: GUEST.staminaMax, exhausted: false,
+      flashlightOn: false, sprinting: false, crouching: false,
       moveX: 0, moveZ: 0,
-      wantsAttack: false, wantsGrab: false,
-      interactHeld: false, interactPressed: false,
-      cdAttack: 0, cdGrab: 0,
+      wantsPrimary: false, wantsSecondary: false, wantsPower1: false, wantsPower2: false,
+      interactHeld: false, interactPressed: false, dropPressed: false, strugglePressed: false,
+      cdPrimary: 0, cdSecondary: 0, cdPower1: 0, cdPower2: 0,
+      blood: 0, frenzy: 0, charge: null, lastWeapon: 'primary',
+      channel: null,           // { kind, t, need, target }
       wanderYaw: Math.random() * Math.PI * 2, wanderTimer: 0,
-      hitFlash: 0,
-      mesh: null,
+      sidestep: 0, sidestepDir: 1, stuckTimer: 0, prevX: x, prevZ: z,
+      markTimer: 0, hitFlash: 0, mesh: null,
     };
   }
 
   const state = {
-    mode: 'menu', result: null, playerFaction: null,
-    entities: [], player: null, leader: null,
-    generators: [], altar: null, gate: null,
-    generatorsDone: 0, survivorsEscaped: 0, requiredEscape: 1,
+    mode: 'menu', result: null,
+    playerSide: null, playerKind: null,
+    entities: [], guests: [], player: null, killer: null,
+    plants: [], doubles: [], marks: [],
+    breakersDone: 0, escaped: 0, deaths: 0,
+    progressUi: 0, rhymeTimer: 0,
   };
 
-  function setupLevel() {
-    state.generators = [
-      { x: -18, z: 14, progress: 0, required: 6, done: false },
-      { x: 18, z: 14, progress: 0, required: 6, done: false },
-      { x: 0, z: -14, progress: 0, required: 6, done: false },
-    ];
-    state.altar = { x: 0, z: 0, r: 2.6, captive: null, timer: 0 };
-    state.gate = { x: 0, z: 17.5, halfW: 4 };
-    state.generatorsDone = 0;
-    state.survivorsEscaped = 0;
-    buildObjectiveMeshes(state);
+  function livingGuests() {
+    return state.guests.filter(g => !g.isDead && !g.escaped);
   }
 
-  function clearEntityMeshes() {
-    for (const e of state.entities) if (e.mesh) scene.remove(e.mesh.group);
+  // Everything a guest should be afraid of — the killer, and anything wearing
+  // his face. Trickster's doubles are indistinguishable on purpose.
+  function threatPoints() {
+    const out = [];
+    if (state.killer && !state.killer.isDead) out.push({ x: state.killer.x, z: state.killer.z, real: true });
+    for (const d of state.doubles) out.push({ x: d.x, z: d.z, real: false });
+    return out;
   }
 
-  function buildEntityMesh(e) {
-    const modelKey = MODEL_FOR_FACTION[e.faction];
-    const src = ASSETS[modelKey];
+  function nearestThreat(x, z) {
+    let best = null, bestD = Infinity;
+    for (const t of threatPoints()) {
+      const d = dist(x, z, t.x, t.z);
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    return { threat: best, dist: bestD };
+  }
+
+  // ---------------------------------------------------------------------
+  // scratch marks — the killer's only real tracking tool. Running guests scuff
+  // the asphalt; bleeding ones drip. Rendered only when the player is a killer,
+  // because that's the only viewer they exist for.
+  // ---------------------------------------------------------------------
+
+  const MARK_LIFE = 7;
+
+  function addMark(x, z, injured) {
+    if (state.playerSide !== 'killer' || state.marks.length > 130) return;
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(injured ? 0.22 : 0.4, injured ? 0.22 : 0.12),
+      new THREE.MeshBasicMaterial({ color: injured ? 0x8e1520 : 0xd05a4a, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.rotation.z = Math.random() * Math.PI;
+    mesh.position.set(x + (Math.random() - 0.5) * 0.4, 0.03, z + (Math.random() - 0.5) * 0.4);
+    scene.add(mesh);
+    state.marks.push({ mesh, life: MARK_LIFE });
+  }
+
+  function updateMarks(dt) {
+    for (let i = state.marks.length - 1; i >= 0; i--) {
+      const m = state.marks[i];
+      m.life -= dt;
+      if (m.life <= 0) { scene.remove(m.mesh); state.marks.splice(i, 1); continue; }
+      m.mesh.material.opacity = 0.85 * clamp(m.life / MARK_LIFE, 0, 1);
+    }
+  }
+
+  function clearMarks() {
+    for (const m of state.marks) scene.remove(m.mesh);
+    state.marks = [];
+  }
+
+  // ---------------------------------------------------------------------
+  // the Witch's thickets
+  // ---------------------------------------------------------------------
+
+  function buildPlantMesh(d) {
+    const g = new THREE.Group();
+    const wall = new THREE.Mesh(
+      new THREE.BoxGeometry(d.axis === 'x' ? DOOR_HALF * 2 : 0.7, 2.6, d.axis === 'x' ? 0.7 : DOOR_HALF * 2),
+      new THREE.MeshStandardMaterial({ color: 0x1f4a24, emissive: 0x0d2a12, emissiveIntensity: 0.7, roughness: 1, transparent: true, opacity: 0.92 })
+    );
+    wall.position.y = 1.3;
+    g.add(wall);
+    const rng = mulberry32(Math.floor(d.x * 31 + d.z * 17) | 0);
+    for (let i = 0; i < 14; i++) {
+      const thorn = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.5 + rng() * 0.5, 5), MAT.plantMat);
+      const along = (rng() - 0.5) * DOOR_HALF * 1.9;
+      thorn.position.set(d.axis === 'x' ? along : (rng() - 0.5) * 0.6, 0.3 + rng() * 2.2, d.axis === 'x' ? (rng() - 0.5) * 0.6 : along);
+      thorn.rotation.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI);
+      g.add(thorn);
+    }
+    const glow = new THREE.PointLight(0x3fbf55, 0.55, 5, 2);
+    glow.position.y = 1.4;
+    g.add(glow);
+    g.position.set(d.x, 0, d.z);
+    scene.add(g);
+    return g;
+  }
+
+  function plantThicket(e) {
+    const cfg = KILLERS.witch.power1;
+    if (state.plants.length >= cfg.max) return false;
+    let best = null, bestD = Infinity;
+    for (const d of DOORWAYS) {
+      if (d.plant) continue;
+      const dd = dist(e.x, e.z, d.x, d.z);
+      if (dd < bestD && dd <= cfg.range) { bestD = dd; best = d; }
+    }
+    if (!best) return false;
+    const plant = { door: best, box: plantBoxAt(best), life: cfg.life, hp: GUEST.breakPlantTime, mesh: buildPlantMesh(best) };
+    best.plant = plant;
+    state.plants.push(plant);
+    sfxGrowth();
+    return true;
+  }
+
+  function removePlant(p) {
+    const i = state.plants.indexOf(p);
+    if (i >= 0) state.plants.splice(i, 1);
+    if (p.door) p.door.plant = null;
+    if (p.mesh) scene.remove(p.mesh);
+  }
+
+  function clearPlants() {
+    for (const p of state.plants.slice()) removePlant(p);
+  }
+
+  function updatePlants(dt) {
+    for (const p of state.plants.slice()) {
+      p.life -= dt;
+      if (p.life <= 0) { removePlant(p); continue; }
+      // Standing in the thorns hurts; that's what makes a blocked doorway a
+      // real wall rather than a speed bump.
+      for (const g of livingGuests()) {
+        if (g.downed || g.carriedBy || g.hooked) continue;
+        const b = p.box;
+        if (g.x + 0.9 > b.minX && g.x - 0.9 < b.maxX && g.z + 0.9 > b.minZ && g.z - 0.9 < b.maxZ) {
+          damageGuest(g, KILLERS.witch.power1.dmg * dt, null, true);
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // the Trickster's doubles
+  // ---------------------------------------------------------------------
+
+  function spawnDoubles(e) {
+    const cfg = KILLERS.trickster.power2;
+    for (let i = 0; i < cfg.count; i++) {
+      const yaw = e.yaw + (i === 0 ? 1.1 : -1.1) + (Math.random() - 0.5) * 0.4;
+      const mesh = buildBodyMesh('killer', 'trickster', false);
+      const d = { x: e.x, z: e.z, yaw, life: cfg.life, mesh, mixer: mesh.mixer, animT: 0 };
+      state.doubles.push(d);
+    }
+    sfxScream();
+  }
+
+  function updateDoubles(dt) {
+    for (let i = state.doubles.length - 1; i >= 0; i--) {
+      const d = state.doubles[i];
+      d.life -= dt;
+      if (d.life <= 0) {
+        scene.remove(d.mesh.group);
+        state.doubles.splice(i, 1);
+        continue;
+      }
+      const f = forwardVector(d.yaw);
+      const nx = d.x + f.x * 3.2 * dt, nz = d.z + f.z * 3.2 * dt;
+      if (blockingWall(nx, nz) || nx < BOUNDS.minX + 1.5 || nx > BOUNDS.maxX - 1.5 || nz < BOUNDS.minZ + 1.5 || nz > BOUNDS.maxZ - 1.5) {
+        d.yaw += 1.8 + Math.random();       // bounce off and keep walking
+      } else {
+        d.x = nx; d.z = nz;
+      }
+      d.mesh.group.position.set(d.x, 0, d.z);
+      d.mesh.group.rotation.set(0, d.yaw, 0);
+      if (d.mesh.mixer) { fadeToAction(d.mesh, 'run', 0.2); d.mesh.mixer.update(dt); }
+      // Doubles fade as they expire, so the tell is late and cheap.
+      for (const m of d.mesh.materials) { m.transparent = true; m.opacity = clamp(d.life / 2, 0.25, 1); }
+    }
+  }
+
+  function clearDoubles() {
+    for (const d of state.doubles) scene.remove(d.mesh.group);
+    state.doubles = [];
+  }
+
+  // ---------------------------------------------------------------------
+  // meshes for bodies
+  // ---------------------------------------------------------------------
+
+  function buildBodyMesh(faction, kind, withHealthBar) {
+    const src = ASSETS.soldier;
     const group = new THREE.Group();
-    const tintColor = e.isLeader ? FACTION_COLOR.leader : FACTION_COLOR[e.faction];
+    const tint = faction === 'guest' ? COLOR.guest : KILLERS[kind].color;
+    const scale = faction === 'guest' ? 1 : KILLERS[kind].scale;
     const materials = [];
+    let mixer = null;
+    const actions = {};
 
     // The rig is a progressive enhancement: if the glTF loaded, use it; if it
     // didn't (slow load, or a sandbox that blocks the parse), fall back to a
-    // capsule so a body still exists and the match is always playable. Side
-    // selection must never depend on an asset finishing.
-    let mixer = null, actions = {};
+    // capsule so a body still exists and the match is always playable.
     if (src) {
       const charRig = THREE.SkeletonUtils.clone(src.scene);
-      charRig.scale.setScalar(MODEL_SCALE[modelKey]);
-      charRig.rotation.y = MODEL_YAW_OFFSET[modelKey];
-      if (e.isLeader) charRig.scale.multiplyScalar(1.12); // the boss reads as bigger, not just differently colored
-
+      charRig.scale.setScalar(MODEL_SCALE.soldier * scale);
+      charRig.rotation.y = MODEL_YAW_OFFSET.soldier;
       charRig.traverse(node => {
         if (node.isMesh) {
           node.material = node.material.clone();
-          node.material.emissive = new THREE.Color(tintColor);
-          node.material.emissiveIntensity = 0.18;
-          node.material.color.lerp(new THREE.Color(tintColor), 0.16);
+          node.material.emissive = new THREE.Color(tint);
+          node.material.emissiveIntensity = faction === 'guest' ? 0.14 : 0.24;
+          node.material.color.lerp(new THREE.Color(tint), faction === 'guest' ? 0.14 : 0.34);
           node.frustumCulled = false;
           materials.push(node.material);
         }
       });
       group.add(charRig);
-
       mixer = new THREE.AnimationMixer(charRig);
       for (const clip of src.animations) actions[clip.name] = mixer.clipAction(clip);
     } else {
-      const bodyMat = new THREE.MeshStandardMaterial({ color: tintColor, emissive: tintColor, emissiveIntensity: 0.18, roughness: 0.85 });
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.42, 1.4, 10), bodyMat);
-      body.position.y = 0.7;
+      const bodyMat = new THREE.MeshStandardMaterial({ color: tint, emissive: tint, emissiveIntensity: 0.2, roughness: 0.85 });
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35 * scale, 0.42 * scale, 1.4 * scale, 10), bodyMat);
+      body.position.y = 0.7 * scale;
       group.add(body);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 8), bodyMat);
-      head.position.y = 1.6;
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.27 * scale, 12, 8), bodyMat);
+      head.position.y = 1.6 * scale;
       group.add(head);
       materials.push(bodyMat);
     }
 
-    if (e.isLeader) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.04, 6, 24), new THREE.MeshBasicMaterial({ color: FACTION_COLOR.leader }));
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = 2.15;
-      group.add(ring);
+    // Silhouette tells, so the three killers are readable at fog distance even
+    // sharing one rig: a grinning mask, a crown of thorns, a hunched bulk.
+    if (faction === 'killer') {
+      if (kind === 'trickster') {
+        const mask = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), new THREE.MeshStandardMaterial({ color: 0xe8e2d4, emissive: 0xd0405a, emissiveIntensity: 0.35, roughness: 0.5 }));
+        mask.position.set(0, 1.66, -0.16);
+        mask.scale.set(1, 1.15, 0.6);
+        group.add(mask);
+      } else if (kind === 'witch') {
+        for (let i = 0; i < 6; i++) {
+          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.5, 5), MAT.plantMat);
+          const a = (i / 6) * Math.PI * 2;
+          spike.position.set(Math.cos(a) * 0.22, 1.8, Math.sin(a) * 0.22);
+          spike.rotation.set(Math.cos(a) * 0.5, 0, -Math.sin(a) * 0.5);
+          group.add(spike);
+        }
+      } else {
+        const chain = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.06, 6, 16), MAT.metal);
+        chain.position.y = 1.35;
+        chain.rotation.x = Math.PI / 2.4;
+        group.add(chain);
+      }
     }
 
-    const healthBar = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xff5050, transparent: true }));
-    healthBar.position.y = 2.05;
-    healthBar.scale.set(0.7, 0.09, 1);
-    group.add(healthBar);
+    let healthBar = null;
+    if (withHealthBar) {
+      healthBar = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xff5050, transparent: true }));
+      healthBar.position.y = 2.05 * scale;
+      healthBar.scale.set(0.7, 0.09, 1);
+      group.add(healthBar);
+    }
 
     scene.add(group);
-    e.mesh = { group, materials, mixer, actions, modelKey, currentAnimName: null, healthBar };
+    return { group, materials, mixer, actions, modelKey: 'soldier', currentAnimName: null, healthBar };
   }
 
   function fadeToAction(mesh, animName, duration) {
@@ -5213,63 +5880,95 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     if (prevAction && prevAction !== nextAction) nextAction.crossFadeFrom(prevAction, duration, true);
   }
 
-  function spawnMatch(faction) {
-    clearEntityMeshes();
+  // ---------------------------------------------------------------------
+  // match setup
+  // ---------------------------------------------------------------------
+
+  function resetWorld() {
+    for (const w of WALLS) {
+      w.alive = true;
+      if (w.mesh) {
+        // Roger's holes get bricked back up between matches.
+        w.mesh.visible = true;
+        w.mesh.scale.y = 1;
+        w.mesh.position.y = w.h / 2;
+        w.mesh.material = w.breakable ? MAT.wallCracked : MAT.wall;
+      }
+    }
+    for (const b of BREAKERS) { b.progress = 0; b.done = false; }
+    for (const h of HOOKS) { h.captive = null; h.timer = 0; }
+    for (const f of figurineMeshes) {
+      f.group.rotation.set(0, 0, 0);
+      f.group.position.y = 1.0;
+      f.mat.color.setHex(0xcfc7b4);
+      f.mat.emissive.setHex(0x000000);
+    }
+    navBake();
+    clearPlants();
+    clearDoubles();
+    clearMarks();
+    state.breakersDone = 0;
+    state.escaped = 0;
+    state.deaths = 0;
+    state.progressUi = 0;
+    hideRhyme();
+  }
+
+  function clearBodies() {
+    for (const e of state.entities) if (e.mesh) scene.remove(e.mesh.group);
+  }
+
+  function spawnMatch(side, kind) {
+    clearBodies();
+    resetWorld();
+
     state.entities = [];
+    state.guests = [];
     state.player = null;
-    state.leader = null;
-    state.playerFaction = faction;
-    setupLevel();
+    state.killer = null;
+    state.playerSide = side;
+    state.playerKind = side === 'killer' ? kind : null;
 
-    const survivorSpawns = [[-24, -10], [-24, 0], [-24, 10]];
-    const cannibalSpawns = [[24, -10], [24, 0], [24, 10]];
-    const killerSpawn = [0, -16];
-
-    for (let i = 0; i < 3; i++) {
-      const isHuman = faction === 'survivor' && i === 0;
-      const [sx, sz] = survivorSpawns[i];
-      const e = makeEntity('survivor', sx, sz, { isPlayer: isHuman });
-      e.yaw = yawToward(24 - sx, 0 - sz);
-      if (!isHuman) buildEntityMesh(e);
-      state.entities.push(e);
-      if (isHuman) state.player = e;
+    const guestSpawns = [[-16, -23], [-9, -23], [9, -23], [16, -23]];
+    for (let i = 0; i < GUEST_ROSTER.length; i++) {
+      const isHuman = side === 'guest' && i === 0;
+      const [gx, gz] = guestSpawns[i];
+      const g = makeEntity('guest', null, gx, gz, { isPlayer: isHuman, name: GUEST_ROSTER[i].name, sin: GUEST_ROSTER[i].sin });
+      g.yaw = yawToward(0 - gx, 0 - gz);
+      if (!isHuman) g.mesh = buildBodyMesh('guest', null, true);
+      state.entities.push(g);
+      state.guests.push(g);
+      if (isHuman) state.player = g;
     }
 
-    for (let i = 0; i < 3; i++) {
-      const isHuman = faction === 'cannibal' && i === 0;
-      const isLeader = i === 0;
-      const [cx, cz] = cannibalSpawns[i];
-      const e = makeEntity('cannibal', cx, cz, { isPlayer: isHuman, isLeader });
-      e.yaw = yawToward(-24 - cx, 0 - cz);
-      if (isLeader) { e.hp = e.maxHp = 220; state.leader = e; }
-      if (!isHuman) buildEntityMesh(e);
-      state.entities.push(e);
-      if (isHuman) state.player = e;
-    }
-
-    if (faction === 'killer') {
-      const e = makeEntity('killer', killerSpawn[0], killerSpawn[1], { isPlayer: true });
-      e.yaw = 0;
-      state.entities.push(e);
-      state.player = e;
-    }
+    // Exactly one killer per match — this is a 4v1, the way the rhyme wants it.
+    const killerKind = side === 'killer' ? kind : KILLER_ORDER[Math.floor(Math.random() * KILLER_ORDER.length)];
+    const k = makeEntity('killer', killerKind, 0, 10, { isPlayer: side === 'killer' });
+    k.yaw = Math.PI;
+    if (side !== 'killer') k.mesh = buildBodyMesh('killer', killerKind, false);
+    state.entities.push(k);
+    state.killer = k;
+    if (side === 'killer') state.player = k;
 
     setupPlayerLight();
     state.mode = 'playing';
     state.result = null;
+    buildPowerSlots();
+    buildFigurineHud();
   }
 
-  // player-attached lights, rebuilt per faction on spawn
+  // player-attached lights, rebuilt per side on spawn
   let selfLight = null, flashlight = null, flashTarget = null;
   function setupPlayerLight() {
     if (selfLight) camera.remove(selfLight);
     if (flashlight) { camera.remove(flashlight); camera.remove(flashTarget); }
-    const cfg = CONFIG[state.player.faction];
-    const lightColor = state.player.faction === 'survivor' ? 0x9fd7a8 : (state.player.faction === 'killer' ? 0xbcd3ff : 0xffb27a);
-    selfLight = new THREE.PointLight(lightColor, cfg.visionLight, cfg.visionRange, 2);
+    const p = state.player;
+    const isGuest = p.faction === 'guest';
+    const lightColor = isGuest ? 0xa8c0d8 : (p.kind === 'witch' ? 0x9fe0a8 : (p.kind === 'trickster' ? 0xffb0bc : 0xc4d0e0));
+    selfLight = new THREE.PointLight(lightColor, isGuest ? GUEST.visionLight : 0.85, isGuest ? GUEST.visionRange : 11, 2);
     camera.add(selfLight);
 
-    if (state.player.faction === 'survivor') {
+    if (isGuest) {
       flashlight = new THREE.SpotLight(0xfff2cf, 0, FLASHLIGHT_RANGE, FLASHLIGHT_HALF_ANGLE, 0.45, 1.3);
       flashTarget = new THREE.Object3D();
       flashTarget.position.set(0, 0, -1);
@@ -5284,15 +5983,15 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
 
   // First-person viewmodel: a held object at the bottom of the view that bobs
   // with your steps and kicks on attack, so you feel embodied instead of being
-  // a floating camera. Faction-specific: torch (survivor), cleaver (killer),
-  // clawed hand (cannibal). Built from primitives — no extra assets.
-  let viewmodel = null, vmBaseY = 0, vmRecoil = 0;
+  // a floating camera. Built from primitives — no extra assets.
+  let viewmodel = null, vmBaseY = 0, vmRecoil = 0, vmScythe = null, vmKnife = null;
   function setupViewmodel() {
     if (viewmodel) { camera.remove(viewmodel); viewmodel = null; }
+    vmScythe = null; vmKnife = null;
     const g = new THREE.Group();
-    const f = state.player.faction;
+    const p = state.player;
 
-    if (f === 'survivor') {
+    if (p.faction === 'guest') {
       const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2f, roughness: 0.6, metalness: 0.3 });
       const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.42, 12), bodyMat);
       barrel.rotation.x = Math.PI / 2.2;
@@ -5302,28 +6001,72 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       lens.rotation.x = Math.PI / 2.2;
       lens.position.set(0, 0.08, -0.3);
       g.add(lens);
-      g.position.set(0.28, -0.26, -0.5);
-    } else if (f === 'killer') {
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.34, 8), new THREE.MeshStandardMaterial({ color: 0x2a1c10, roughness: 0.9 }));
-      handle.position.set(0, -0.1, 0);
-      g.add(handle);
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.5, 0.02), new THREE.MeshStandardMaterial({ color: 0x8a9099, roughness: 0.35, metalness: 0.85 }));
-      blade.position.set(0.08, 0.18, 0);
-      g.add(blade);
-      g.position.set(0.34, -0.32, -0.62);
-      g.rotation.z = -0.35;
-    } else { // cannibal — a clawed hand
-      const palm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.24), new THREE.MeshStandardMaterial({ color: 0x7a5a4a, roughness: 0.9 }));
-      g.add(palm);
-      for (let i = 0; i < 4; i++) {
-        const claw = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.22, 6), new THREE.MeshStandardMaterial({ color: 0xd8cfc0, roughness: 0.5 }));
-        claw.position.set(-0.07 + i * 0.045, 0.02, -0.18);
-        claw.rotation.x = -Math.PI / 2.3;
-        g.add(claw);
+      g.position.set(0.44, -0.36, -0.55);
+      g.scale.setScalar(0.6);
+    } else if (p.kind === 'trickster') {
+      // Knife and scythe both hang in view; whichever was swung last is raised.
+      vmKnife = new THREE.Group();
+      const kHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.16, 8), new THREE.MeshStandardMaterial({ color: 0x1d1a18, roughness: 0.9 }));
+      vmKnife.add(kHandle);
+      const kBlade = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.34, 0.012), new THREE.MeshStandardMaterial({ color: 0xb9c0c8, roughness: 0.28, metalness: 0.9 }));
+      kBlade.position.y = 0.24;
+      vmKnife.add(kBlade);
+      vmKnife.position.set(0, 0, 0);
+      g.add(vmKnife);
+
+      vmScythe = new THREE.Group();
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.8, 8), new THREE.MeshStandardMaterial({ color: 0x2a1c10, roughness: 0.95 }));
+      vmScythe.add(shaft);
+      const curve = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.022, 6, 14, Math.PI * 0.8), new THREE.MeshStandardMaterial({ color: 0x9aa2ab, roughness: 0.3, metalness: 0.85 }));
+      curve.position.set(-0.2, 0.42, 0);
+      curve.rotation.z = 0.6;
+      vmScythe.add(curve);
+      vmScythe.position.set(-0.06, -0.1, 0);
+      vmScythe.visible = false;
+      g.add(vmScythe);
+
+      g.position.set(0.42, -0.40, -0.66);
+      g.rotation.z = -0.22;
+      g.scale.setScalar(0.9);
+    } else if (p.kind === 'witch') {
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 0.5, 8), new THREE.MeshStandardMaterial({ color: 0x3c3427, roughness: 1 }));
+      arm.rotation.x = 0.5;
+      g.add(arm);
+      for (let i = 0; i < 7; i++) {
+        const thorn = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.16, 5), MAT.plantMat);
+        thorn.position.set((Math.random() - 0.5) * 0.14, 0.05 + i * 0.06, -0.06 - Math.random() * 0.1);
+        thorn.rotation.set(-1.2 + Math.random() * 0.5, 0, Math.random());
+        g.add(thorn);
       }
-      g.position.set(0.3, -0.34, -0.5);
-      g.rotation.z = 0.2;
+      const bud = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshStandardMaterial({ color: 0x50a85c, emissive: 0x1c5423, emissiveIntensity: 1.0 }));
+      bud.position.set(0.02, 0.3, -0.18);
+      g.add(bud);
+      g.position.set(0.40, -0.38, -0.63);
+      g.rotation.z = 0.16;
+      g.scale.setScalar(0.9);
+    } else {
+      const fist = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.36), new THREE.MeshStandardMaterial({ color: 0x6b6255, roughness: 0.95 }));
+      g.add(fist);
+      for (let i = 0; i < 5; i++) {
+        const link = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.02, 5, 10), MAT.metal);
+        link.position.set(-0.12 + i * 0.02, -0.16 - i * 0.08, 0.02);
+        link.rotation.x = i % 2 ? Math.PI / 2 : 0;
+        g.add(link);
+      }
+      g.position.set(0.5, -0.4, -0.62);
+      g.rotation.z = 0.1;
+      g.scale.setScalar(0.72);
     }
+
+    // Held objects sit outside every light in the scene, so at night they read
+    // as black cut-outs. A little self-illumination is what makes a first-person
+    // weapon look held rather than missing.
+    g.traverse(n => {
+      if (!n.isMesh || !n.material || !n.material.emissive) return;
+      n.material = n.material.clone();
+      n.material.emissive.copy(n.material.color);
+      n.material.emissiveIntensity = 0.38;
+    });
 
     vmBaseY = g.position.y;
     camera.add(g);
@@ -5334,34 +6077,93 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   // shared helpers
   // ---------------------------------------------------------------------
 
-  function nearestLivingSurvivor(fromX, fromZ, excludeGrabbed) {
+  function killerCfg(e) { return KILLERS[e.kind]; }
+
+  function isGrabbable(g) {
+    return g && !g.isDead && !g.escaped && !g.hooked && !g.carriedBy;
+  }
+
+  // Someone still on their feet — the only valid target for a swing, a leash
+  // or a vine. Swinging at a body on the ground shouldn't eat the cooldown.
+  function isChasable(g) {
+    return isGrabbable(g) && !g.downed;
+  }
+
+  function nearestGuest(x, z, filter) {
     let best = null, bestD = Infinity;
-    for (const e of state.entities) {
-      if (e.faction !== 'survivor' || e.isDead || e.escaped) continue;
-      if (excludeGrabbed && e.isGrabbed) continue;
-      const d = Math.hypot(e.x - fromX, e.z - fromZ);
-      if (d < bestD) { bestD = d; best = e; }
+    for (const g of state.guests) {
+      if (g.isDead || g.escaped) continue;
+      if (filter && !filter(g)) continue;
+      const d = dist(x, z, g.x, g.z);
+      if (d < bestD) { bestD = d; best = g; }
     }
     return { entity: best, dist: bestD };
   }
 
-  function nearestLivingThreat(x, z) {
+  // Cone pick: the target the killer is actually looking at, not merely the
+  // closest one. Used by every melee swing and every ranged power.
+  function pickInCone(e, range, arc, requireLos, filter) {
     let best = null, bestD = Infinity;
-    for (const e of state.entities) {
-      if ((e.faction !== 'cannibal' && e.faction !== 'killer') || e.isDead) continue;
-      const d = Math.hypot(e.x - x, e.z - z);
-      if (d < bestD) { bestD = d; best = e; }
+    for (const g of state.guests) {
+      if (g.isDead || g.escaped) continue;
+      if (filter && !filter(g)) continue;
+      const dx = g.x - e.x, dz = g.z - e.z;
+      const d = Math.hypot(dx, dz);
+      if (d > range) continue;
+      if (Math.abs(normalizeAngle(yawToward(dx, dz) - e.yaw)) > arc) continue;
+      if (requireLos && !hasLineOfSight(e.x, e.z, g.x, g.z)) continue;
+      if (d < bestD) { bestD = d; best = g; }
     }
-    return { entity: best, dist: bestD };
+    return best;
   }
 
   function steerTo(e, tx, tz) {
     const dx = tx - e.x, dz = tz - e.z;
     const d = Math.hypot(dx, dz);
-    if (d < 0.3) { e.moveX = 0; e.moveZ = 0; return d; }
-    e.yaw = yawToward(dx, dz);
-    e.moveX = 0; e.moveZ = 1; // "forward" is defined by yaw, see applyEntity
+    if (d < 0.25) { e.moveX = 0; e.moveZ = 0; return d; }
+
+    // Walk straight at it when the way is clear; otherwise follow the flow
+    // field one cell at a time, which is what gets bots through doorways.
+    let aimX = tx, aimZ = tz;
+    if (d > 1.4 && !hasClearPath(e.x, e.z, tx, tz)) {
+      const step = navNextPoint(e, tx, tz);
+      if (step) { aimX = step.x; aimZ = step.z; }
+    }
+
+    let yaw = yawToward(aimX - e.x, aimZ - e.z);
+    // A bot wedged on a corner nudges sideways for a moment instead of
+    // grinding into the brick forever — the whole map is corners now.
+    if (e.sidestep > 0) yaw += e.sidestepDir * 1.15;
+    e.yaw = yaw;
+    e.moveX = 0; e.moveZ = 1;
     return d;
+  }
+
+  // Running away is not "the opposite of towards him" — that walks you into a
+  // wall. Fan out from the away-vector and take the most open heading.
+  function fleeFrom(e, tx, tz) {
+    const away = yawToward(e.x - tx, e.z - tz);
+    let bestYaw = away, bestScore = -Infinity;
+    for (let k = -4; k <= 4; k++) {
+      const yaw = away + k * 0.42;
+      const f = forwardVector(yaw);
+      const reach = hasClearPath(e.x, e.z, e.x + f.x * 5, e.z + f.z * 5) ? 5
+        : (hasClearPath(e.x, e.z, e.x + f.x * 2.5, e.z + f.z * 2.5) ? 2.5 : 0);
+      const score = reach - Math.abs(k) * 0.5;
+      if (score > bestScore) { bestScore = score; bestYaw = yaw; }
+    }
+    e.yaw = bestYaw;
+    e.moveX = 0; e.moveZ = 1;
+  }
+
+  // A guest walking face-first into the Witch's thorns should pull them apart
+  // rather than shuffle along the hedge forever.
+  function tearPlantAhead(e) {
+    const f = forwardVector(e.yaw);
+    if (!blockingPlant(e.x + f.x * 1.0, e.z + f.z * 1.0, 0.5)) return false;
+    e.moveX = 0; e.moveZ = 0;
+    e.interactHeld = true;
+    return true;
   }
 
   function wander(e, dt) {
@@ -5370,8 +6172,35 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       e.wanderYaw = Math.random() * Math.PI * 2;
       e.wanderTimer = 2 + Math.random() * 3;
     }
-    e.yaw = e.wanderYaw;
+    e.yaw = e.wanderYaw + (e.sidestep > 0 ? e.sidestepDir * 1.15 : 0);
     e.moveX = 0; e.moveZ = 1;
+  }
+
+  function trackStuck(e, dt) {
+    const moved = dist(e.x, e.z, e.prevX, e.prevZ);
+    const wants = Math.hypot(e.moveX, e.moveZ) > 0.05;
+    if (wants && moved < 0.4 * dt) {
+      e.stuckTimer += dt;
+      if (e.stuckTimer > 0.35) {
+        e.sidestep = 0.9;
+        e.sidestepDir = Math.random() < 0.5 ? -1 : 1;
+        e.stuckTimer = 0;
+      }
+    } else {
+      e.stuckTimer = 0;
+    }
+    e.sidestep = Math.max(0, e.sidestep - dt);
+    e.prevX = e.x; e.prevZ = e.z;
+  }
+
+  function freeHook(x, z) {
+    let best = null, bestD = Infinity;
+    for (const h of HOOKS) {
+      if (h.captive) continue;
+      const d = dist(x, z, h.x, h.z);
+      if (d < bestD) { bestD = d; best = h; }
+    }
+    return { hook: best, dist: bestD };
   }
 
   // ---------------------------------------------------------------------
@@ -5391,28 +6220,33 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     if (!captured) { p.moveX = 0; p.moveZ = 0; lookYawDelta = 0; lookPitchDelta = 0; return; }
 
     if (pointerLocked) {
-      // True 1:1 look from raw mouse deltas.
       rig.rotation.y -= lookYawDelta * LOOK_SENS;
       pitch = clamp(pitch - lookPitchDelta * LOOK_SENS, -PITCH_LIMIT, PITCH_LIMIT);
       lookYawDelta = 0; lookPitchDelta = 0;
     } else {
-      // Position steering: cursor offset from centre -> turn speed. Reaches a
-      // full turn without the cursor pinning at the edge and stalling.
       rig.rotation.y -= steerResponse(steerX) * STEER_YAW_SPEED * dt;
       pitch = clamp(pitch - steerResponse(steerY) * STEER_PITCH_SPEED * dt, -PITCH_LIMIT, PITCH_LIMIT);
     }
 
-    // Arrow keys always turn, as a guaranteed assist when the mouse can't spin.
     if (keyHeld('ArrowLeft')) rig.rotation.y += KEY_TURN_SPEED * dt;
     if (keyHeld('ArrowRight')) rig.rotation.y -= KEY_TURN_SPEED * dt;
     if (keyHeld('ArrowUp')) pitch = clamp(pitch + KEY_TURN_SPEED * dt, -PITCH_LIMIT, PITCH_LIMIT);
     if (keyHeld('ArrowDown')) pitch = clamp(pitch - KEY_TURN_SPEED * dt, -PITCH_LIMIT, PITCH_LIMIT);
 
     camera.rotation.x = pitch;
-    p.yaw = rig.rotation.y;
+    // A charging Roger steers with his shoulders, not his neck — the look
+    // still moves, but the body only follows at a fraction of it.
+    if (!(p.charge && p.charge.active)) p.yaw = rig.rotation.y;
 
-    if (p.isDead || p.escaped) { p.moveX = 0; p.moveZ = 0; return; }
-    if (p.isGrabbed) { p.moveX = 0; p.moveZ = 0; return; }
+    p.interactHeld = keyHeld('KeyE');
+    p.interactPressed = keyPressed('KeyE');
+    p.dropPressed = keyPressed('KeyG');
+    p.strugglePressed = keyPressed('Space');
+
+    if (p.isDead || p.escaped || p.hooked || p.carriedBy || p.stunned > 0 || p.rooted > 0) {
+      p.moveX = 0; p.moveZ = 0;
+      return;
+    }
 
     let ix = 0, iz = 0;
     if (keyHeld('KeyW')) iz += 1;
@@ -5420,237 +6254,655 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     if (keyHeld('KeyD')) ix += 1;
     if (keyHeld('KeyA')) ix -= 1;
     p.moveX = ix; p.moveZ = iz;
-    p.sprinting = keyHeld('ShiftLeft') || keyHeld('ShiftRight');
 
-    p.interactHeld = keyHeld('KeyE');
-    p.interactPressed = keyPressed('KeyE');
+    const wantSprint = keyHeld('ShiftLeft') || keyHeld('ShiftRight');
+    p.crouching = p.faction === 'guest' && (keyHeld('ControlLeft') || keyHeld('ControlRight'));
+    p.sprinting = wantSprint && !p.crouching && (p.faction !== 'guest' || (p.stamina > 0 && !p.exhausted));
 
-    if (p.faction === 'survivor' && keyPressed('KeyF')) p.flashlightOn = !p.flashlightOn;
+    if (p.faction === 'guest') {
+      if (keyPressed('KeyF')) p.flashlightOn = !p.flashlightOn;
+      return;
+    }
 
-    // Left click attacks (Space works too, for keyboard-only play).
-    const attack = mousePressed(0) || keyPressed('Space');
-    if (p.faction === 'cannibal' || p.faction === 'killer') p.wantsAttack = attack;
-    if (p.faction === 'cannibal') p.wantsGrab = mousePressed(2) || keyPressed('KeyG');
-    if (p.faction === 'killer') p.isBlocking = mouseHeld(2);
+    // Killer verbs. Same three buttons for every killer; what they do is the
+    // whole difference between the three of them.
+    const cfg = killerCfg(p);
+    p.wantsPrimary = mousePressed(0);
+    p.wantsSecondary = mousePressed(2);
+    p.wantsPower1 = keyPressed('KeyQ');
+    p.wantsPower2 = keyPressed('KeyF') && !!cfg.power2;
   }
 
   // ---------------------------------------------------------------------
   // bot ai
   // ---------------------------------------------------------------------
 
-  function updateBotAI(e, dt) {
-    if (e.isGrabbed) return;
-    if (e.faction === 'survivor') updateSurvivorBot(e, dt);
-    else if (e.faction === 'cannibal') updateCannibalBot(e, dt);
+  function noisiness(g) {
+    let bonus = 0;
+    if (g.sprinting) bonus += SPRINT_NOISE_BONUS;
+    if (g.flashlightOn) bonus += FLASHLIGHT_NOISE_BONUS;
+    if (g.crouching) bonus += CROUCH_NOISE_MALUS;
+    if (g.hp < GUEST.hp * 0.5) bonus += 2;   // wounded guests are loud
+    return bonus;
   }
 
-  function pickSurvivorObjective(e) {
-    if (state.generatorsDone < GENERATORS_REQUIRED) {
-      let best = null, bestD = Infinity;
-      for (const g of state.generators) {
-        if (g.done) continue;
-        const d = Math.hypot(g.x - e.x, g.z - e.z);
-        if (d < bestD) { bestD = d; best = g; }
+  function senseTarget(e) {
+    let best = null, bestScore = Infinity;
+    for (const g of state.guests) {
+      if (g.isDead || g.escaped || g.hooked || g.carriedBy) continue;
+      const d = dist(e.x, e.z, g.x, g.z);
+      let radius = SENSE_BASE + noisiness(g);
+      if (e.kind === 'witch') {
+        // Roots feel footsteps: anyone near her thickets is exposed wherever
+        // she happens to be standing.
+        for (const p of state.plants) {
+          if (dist(g.x, g.z, p.door.x, p.door.z) < KILLERS.witch.rootSense) { radius = Math.max(radius, 40); break; }
+        }
       }
-      if (best) return { type: 'generator', x: best.x, z: best.z };
+      if (g.downed) radius = Math.max(radius, 26);
+      if (d > radius) continue;
+      const score = d + (hasLineOfSight(e.x, e.z, g.x, g.z) ? 0 : 9);
+      if (score < bestScore) { bestScore = score; best = g; }
     }
-    return { type: 'gate', x: state.gate.x, z: state.gate.z };
+    return best;
   }
 
-  function updateSurvivorBot(e, dt) {
-    e.interactHeld = false; e.interactPressed = false; e.sprinting = false;
+  function updateKillerBot(e, dt) {
+    e.wantsPrimary = false; e.wantsSecondary = false;
+    e.wantsPower1 = false; e.wantsPower2 = false;
+    e.interactHeld = false; e.interactPressed = false;
+    e.sprinting = true;
 
-    const threat = nearestLivingThreat(e.x, e.z);
-    if (threat.entity && threat.dist < FLEE_RADIUS) {
-      const dx = e.x - threat.entity.x, dz = e.z - threat.entity.z;
-      e.yaw = yawToward(dx, dz);
-      e.moveX = 0; e.moveZ = 1;
-      e.sprinting = true;
-      return;
-    }
-
-    const target = pickSurvivorObjective(e);
-    const d = steerTo(e, target.x, target.z);
-    if (target.type === 'generator' && d <= INTERACT_RANGE) {
-      e.moveX = 0; e.moveZ = 0; e.interactHeld = true;
-    }
-  }
-
-  function updateCannibalBot(e, dt) {
-    e.wantsAttack = false; e.wantsGrab = false; e.sprinting = false;
+    if (e.stunned > 0 || (e.charge && e.charge.active)) { e.moveX = 0; e.moveZ = 0; return; }
+    const cfg = killerCfg(e);
 
     if (e.carrying) {
-      steerTo(e, state.altar.x, state.altar.z);
-      e.sprinting = true;
+      const { hook, dist: hd } = freeHook(e.x, e.z);
+      if (hook) {
+        steerTo(e, hook.x, hook.z);
+        if (hd <= 2.6) { e.moveX = 0; e.moveZ = 0; e.interactPressed = true; }
+      } else {
+        wander(e, dt);
+      }
       return;
     }
 
-    const cfg = CONFIG.cannibal;
-    const { entity: target, dist } = nearestLivingSurvivor(e.x, e.z, true);
-    if (target) {
-      let bonus = 0;
-      if (target.sprinting) bonus += SPRINT_NOISE_BONUS;
-      if (target.flashlightOn) bonus += FLASHLIGHT_NOISE_BONUS;
-      if (dist <= cfg.senseRadius + bonus) {
-        steerTo(e, target.x, target.z);
-        e.sprinting = true;
-        if (dist <= cfg.grabRange) e.wantsGrab = true;
-        if (dist <= cfg.attackRange) e.wantsAttack = true;
-        return;
+    const target = senseTarget(e);
+    if (!target) {
+      // Patrol the objective, not the map — the breakers are where guests
+      // have to come back to.
+      const live = BREAKERS.filter(b => !b.done);
+      if (live.length) {
+        const b = live[(e.id + Math.floor(performance.now() / 12000)) % live.length];
+        steerTo(e, b.x, b.z);
+      } else {
+        steerTo(e, BREACH.x, BREACH.z - 4);
       }
+      return;
     }
 
+    const d = steerTo(e, target.x, target.z);
+    const los = hasLineOfSight(e.x, e.z, target.x, target.z);
+
+    if (target.downed) {
+      if (d <= 2.3) {
+        e.moveX = 0; e.moveZ = 0;
+        if (cfg.canCarry) e.interactPressed = true;
+        else e.interactHeld = true;   // the Witch stays and grows through them
+      }
+      return;
+    }
+
+    if (d <= cfg.primary.range * 0.95) e.wantsPrimary = true;
+
+    if (e.kind === 'trickster') {
+      if (e.cdPower1 <= 0 && d > 3 && d <= cfg.power1.range && los) e.wantsPower1 = true;
+      if (e.cdPower2 <= 0 && d > 6 && los) e.wantsPower2 = true;
+      if (e.cdSecondary <= 0 && d <= cfg.secondary.range * 0.9) e.wantsSecondary = true;
+    } else if (e.kind === 'witch') {
+      if (e.cdSecondary <= 0 && d > 2.5 && d <= cfg.secondary.range && los) e.wantsSecondary = true;
+      if (e.cdPower1 <= 0 && d > 7) e.wantsPower1 = true;
+    } else {
+      if (e.cdSecondary <= 0 && d <= cfg.secondary.range * 0.9) e.wantsSecondary = true;
+      if (e.cdPower1 <= 0 && d > 6 && d < 20 && los) e.wantsPower1 = true;
+    }
+  }
+
+  function pickBreaker(e) {
+    let best = null, bestD = Infinity;
+    for (const b of BREAKERS) {
+      if (b.done) continue;
+      let d = dist(e.x, e.z, b.x, b.z);
+      if (b.progress > 0) d -= 6;     // finish what someone started
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return best;
+  }
+
+  function updateGuestBot(e, dt) {
+    e.interactHeld = false; e.interactPressed = false;
+    e.sprinting = false; e.crouching = false;
+
+    if (e.hooked || e.carriedBy) { e.moveX = 0; e.moveZ = 0; return; }
+
+    const { threat, dist: td } = nearestThreat(e.x, e.z);
+
+    if (e.downed) {
+      // Crawling: away from whoever put you here, towards anything else.
+      if (threat && td < 14) fleeFrom(e, threat.x, threat.z);
+      else { e.moveX = 0; e.moveZ = 0; }
+      return;
+    }
+
+    if (threat && td < FLEE_RADIUS) {
+      fleeFrom(e, threat.x, threat.z);
+      e.sprinting = true;
+      tearPlantAhead(e);
+      return;
+    }
+
+    // Somebody on a hook outranks everything else — that's the timer that
+    // actually ends the match.
+    for (const h of HOOKS) {
+      if (!h.captive || h.captive === e) continue;
+      const killerFar = !state.killer || dist(state.killer.x, state.killer.z, h.x, h.z) > 12;
+      if (!killerFar) continue;
+      const d = steerTo(e, h.x, h.z);
+      e.sprinting = true;
+      if (d <= INTERACT_RANGE) { e.moveX = 0; e.moveZ = 0; e.interactPressed = true; }
+      return;
+    }
+
+    for (const g of state.guests) {
+      if (g === e || !g.downed || g.isDead || g.carriedBy || g.hooked) continue;
+      const killerFar = !state.killer || dist(state.killer.x, state.killer.z, g.x, g.z) > 10;
+      if (!killerFar) continue;
+      const d = steerTo(e, g.x, g.z);
+      e.sprinting = true;
+      if (d <= INTERACT_RANGE) { e.moveX = 0; e.moveZ = 0; e.interactHeld = true; }
+      return;
+    }
+
+    if (state.breakersDone >= BREAKERS_REQUIRED) {
+      const d = steerTo(e, BREACH.x, BREACH.z);
+      e.sprinting = d > 4;
+      tearPlantAhead(e);
+      return;
+    }
+
+    const b = pickBreaker(e);
+    if (b) {
+      const d = steerTo(e, b.x, b.z);
+      if (d <= INTERACT_RANGE) { e.moveX = 0; e.moveZ = 0; e.interactHeld = true; }
+      else { e.sprinting = d > 10; tearPlantAhead(e); }
+      return;
+    }
     wander(e, dt);
+  }
+
+  function updateBotAI(e, dt) {
+    if (e.faction === 'guest') updateGuestBot(e, dt);
+    else updateKillerBot(e, dt);
   }
 
   // ---------------------------------------------------------------------
   // actions
   // ---------------------------------------------------------------------
 
-  function performAttack(e) {
-    const cfg = CONFIG[e.faction];
-    let best = null, bestD = Infinity;
-    for (const t of state.entities) {
-      if (t === e || t.isDead || t.escaped || t.faction === e.faction) continue;
-      const dx = t.x - e.x, dz = t.z - e.z;
-      const d = Math.hypot(dx, dz);
-      if (d > cfg.attackRange) continue;
-      const facing = yawToward(dx, dz);
-      if (Math.abs(normalizeAngle(facing - e.yaw)) > Math.PI / 2.2) continue;
-      if (d < bestD) { bestD = d; best = t; }
+  function destroyWall(w) {
+    w.alive = false;
+    if (w.mesh) {
+      w.mesh.material = MAT.rubble;
+      w.mesh.scale.y = 0.16;
+      w.mesh.position.y = w.h * 0.08;
     }
-    if (e.isPlayer) { flashCrosshair(); vmRecoil = 1; sfxAttack(); }
-    if (!best) return;
-    let dmg = cfg.attackDamage;
-    if (best.faction === 'killer' && best.isBlocking) dmg *= CONFIG.killer.blockDamageMul;
-    damageEntity(best, dmg);
+    navBake();   // the hole he just made is a route now
   }
 
-  function performGrab(e) {
-    const { entity: target, dist } = nearestLivingSurvivor(e.x, e.z, true);
-    if (!target || dist > CONFIG.cannibal.grabRange) return;
-    target.isGrabbed = true;
-    target.grabbedBy = e;
+  function addBlood(e, amount) {
+    if (e.kind !== 'trickster' || e.frenzy > 0) return;
+    e.blood = Math.min(100, e.blood + amount);
+    if (e.blood >= 100) {
+      // The spill tips him over. Everything gets faster, wider and worse.
+      e.frenzy = KILLERS.trickster.frenzy.time;
+      e.blood = 0;
+      sfxFrenzy();
+    }
+  }
+
+  function damageMul(e) { return e.frenzy > 0 ? KILLERS.trickster.frenzy.dmgMul : 1; }
+  function cooldownMul(e) { return e.frenzy > 0 ? KILLERS.trickster.frenzy.cdMul : 1; }
+  function speedMul(e) { return e.frenzy > 0 ? KILLERS.trickster.frenzy.speedMul : 1; }
+
+  function performMelee(e, which) {
+    const cfg = killerCfg(e)[which];
+    const target = pickInCone(e, cfg.range, cfg.arc, false, isChasable);
+    if (e.isPlayer) { flashCrosshair(); vmRecoil = 1; sfxSwing(); }
+    if (e.kind === 'trickster' && vmScythe && vmKnife && e.isPlayer) {
+      vmScythe.visible = which === 'secondary';
+      vmKnife.visible = which === 'primary';
+    }
+    if (!target) return false;
+    damageGuest(target, cfg.dmg * damageMul(e), e);
+    return true;
+  }
+
+  // Trickster: the hook shot. Not a weapon — a leash. It drags whoever it
+  // catches back into knife range and leaves them stunned there.
+  function performHookShot(e) {
+    const cfg = KILLERS.trickster.power1;
+    const target = pickInCone(e, cfg.range, cfg.arc, true, isChasable);
+    sfxChain();
+    if (e.isPlayer) { flashCrosshair(); vmRecoil = 1; }
+    if (!target) return false;
+    const f = forwardVector(e.yaw);
+    let nx = e.x + f.x * 1.8, nz = e.z + f.z * 1.8;
+    if (blockingWall(nx, nz)) { nx = e.x; nz = e.z; }
+    target.x = nx; target.z = nz;
+    target.rooted = Math.max(target.rooted, cfg.stun);
+    target.hitFlash = 0.2;
+    if (target.isPlayer) triggerDamageFlash();
+    sfxScream();
+    return true;
+  }
+
+  // Witch: ivy. No damage — it just takes your legs for three seconds, which
+  // in a chase is the whole game.
+  function performVine(e) {
+    const cfg = KILLERS.witch.secondary;
+    const target = pickInCone(e, cfg.range, cfg.arc, true, isChasable);
+    sfxGrowth();
+    if (e.isPlayer) { flashCrosshair(); vmRecoil = 1; }
+    if (!target) return false;
+    target.rooted = Math.max(target.rooted, cfg.root);
+    target.hitFlash = 0.2;
+    if (target.isPlayer) triggerDamageFlash();
+    return true;
+  }
+
+  // Roger: takes people off their feet in one motion — no downing them first,
+  // no second hit. The price is that he is slow enough to be seen coming.
+  function performRogerGrab(e) {
+    const cfg = KILLERS.roger.secondary;
+    const target = pickInCone(e, cfg.range, Math.PI / 2.2, false, isGrabbable);
+    if (e.isPlayer) { flashCrosshair(); vmRecoil = 1; }
+    if (!target) return false;
+    if (!target.downed) downGuest(target);
+    startCarry(e, target);
+    sfxChain();
+    return true;
+  }
+
+  function startCharge(e) {
+    e.charge = { t: 0, active: true };
+    sfxSmash();
+  }
+
+  function endCharge(e) {
+    e.charge = null;
+  }
+
+  function chargeStep(e, dt) {
+    const cfg = KILLERS.roger.power1;
+    e.charge.t += dt;
+    if (e.charge.t >= cfg.maxTime) { endCharge(e); return; }
+
+    const hit = pickInCone(e, 2.4, Math.PI / 2, false, isChasable);
+    if (hit) {
+      damageGuest(hit, cfg.dmg, e);
+      if (!hit.downed) hit.rooted = Math.max(hit.rooted, 1.0);
+      sfxSmash();
+      endCharge(e);
+      return;
+    }
+
+    const f = forwardVector(e.yaw);
+    const step = cfg.speed * dt;
+    const nx = e.x + f.x * step, nz = e.z + f.z * step;
+    const w = blockingWall(nx, nz);
+    if (w) {
+      if (w.breakable) {
+        // The whole point of him: the wall is a door he hasn't opened yet.
+        destroyWall(w);
+        sfxSmash();
+        e.x = nx; e.z = nz;
+      } else {
+        sfxSmash();
+        e.stunned = cfg.stun;
+        if (e.isPlayer) triggerDamageFlash();
+        endCharge(e);
+        return;
+      }
+    } else {
+      e.x = nx; e.z = nz;
+    }
+    e.x = clamp(e.x, BOUNDS.minX + 1.2, BOUNDS.maxX - 1.2);
+    e.z = clamp(e.z, BOUNDS.minZ + 1.2, BOUNDS.maxZ - 1.2);
+  }
+
+  function startCarry(e, target) {
+    target.carriedBy = e;
+    target.carryStruggle = 0;
     e.carrying = target;
   }
 
-  function placeOnAltar(e) {
-    const captive = e.carrying;
-    if (!captive) return;
+  function dropCarry(e) {
+    const t = e.carrying;
+    if (!t) return;
     e.carrying = null;
-    captive.x = state.altar.x; captive.z = state.altar.z;
-    captive.grabbedBy = null;
-    state.altar.captive = captive;
-    state.altar.timer = 0;
+    t.carriedBy = null;
+    t.downed = true;
   }
 
-  function rescueCaptive() {
-    const c = state.altar.captive;
-    if (!c) return;
-    c.isGrabbed = false;
-    c.grabbedBy = null;
-    state.altar.captive = null;
-    state.altar.timer = 0;
+  function hangOnHook(e, hook) {
+    const t = e.carrying;
+    if (!t) return;
+    e.carrying = null;
+    t.carriedBy = null;
+    t.downed = false;
+    t.hooked = hook;
+    t.x = hook.x; t.z = hook.z;
+    hook.captive = t;
+    hook.timer = 0;
+    sfxScream();
+    sfxChain();
   }
 
-  function damageEntity(target, dmg) {
-    target.hp -= dmg;
-    target.hitFlash = 0.15;
-    if (target.isPlayer) { triggerDamageFlash(); sfxHit(); }
-    if (target.hp <= 0 && !target.isDead) {
-      target.isDead = true;
-      target.hp = 0;
-      if (target.isGrabbed) {
-        if (target.grabbedBy) target.grabbedBy.carrying = null;
-        if (state.altar.captive === target) { state.altar.timer = 0; state.altar.captive = null; }
+  function unhook(hook) {
+    const t = hook.captive;
+    if (!t) return;
+    hook.captive = null;
+    hook.timer = 0;
+    t.hooked = null;
+    t.hp = GUEST.unhookHp;
+    t.downed = false;
+    t.bleed = 0;
+  }
+
+  function downGuest(g) {
+    g.hp = 0;
+    g.downed = true;
+    g.bleed = GUEST.bleedout;
+    g.rooted = 0;
+    g.sprinting = false;
+    sfxScream();
+    if (g.isPlayer) triggerDamageFlash();
+  }
+
+  function damageGuest(g, dmg, source, silent) {
+    if (g.isDead || g.escaped || g.downed || g.hooked || g.carriedBy) return;
+    g.hp -= dmg;
+    g.hitFlash = 0.15;
+    if (!silent) {
+      sfxHit();
+      if (g.isPlayer) triggerDamageFlash();
+      if (source) addBlood(source, KILLERS.trickster.bloodPerHit);
+    }
+    if (g.hp <= 0) downGuest(g);
+  }
+
+  function killGuest(g) {
+    if (g.isDead) return;
+    g.isDead = true;
+    g.hp = 0;
+    g.downed = false;
+    if (g.carriedBy) { g.carriedBy.carrying = null; g.carriedBy = null; }
+    if (g.hooked) { g.hooked.captive = null; g.hooked = null; }
+    if (state.killer && state.killer.channel && state.killer.channel.target === g) state.killer.channel = null;
+    showRhyme(state.deaths);
+    state.deaths++;
+    sfxBell();
+    updateFigurines();
+    checkWinConditions();
+  }
+
+  function escapeGuest(g) {
+    g.escaped = true;
+    state.escaped++;
+    sfxBell();
+    updateFigurines();
+    checkWinConditions();
+  }
+
+  // ---------------------------------------------------------------------
+  // interactions
+  // ---------------------------------------------------------------------
+
+  function guestInteract(e, dt) {
+    e.progressUi = 0;
+
+    // Taking someone off a hook is instant and loud — one press, one decision.
+    if (e.interactPressed) {
+      for (const h of HOOKS) {
+        if (!h.captive || h.captive === e) continue;
+        if (dist(e.x, e.z, h.x, h.z) <= INTERACT_RANGE) { unhook(h); return; }
       }
-      checkWinConditions();
+    }
+
+    if (!e.interactHeld) return;
+
+    // Lifting a downed friend.
+    for (const g of state.guests) {
+      if (g === e || !g.downed || g.isDead || g.carriedBy || g.hooked) continue;
+      if (dist(e.x, e.z, g.x, g.z) > INTERACT_RANGE) continue;
+      g.revive = (g.revive || 0) + dt;
+      g.reviveTouched = true;
+      e.progressUi = clamp(g.revive / GUEST.reviveTime, 0, 1);
+      if (g.revive >= GUEST.reviveTime) {
+        g.revive = 0;
+        g.downed = false;
+        g.hp = GUEST.reviveHp;
+        g.bleed = 0;
+      }
+      return;
+    }
+
+    // Breakers: the only way the breach ever lights up.
+    for (const b of BREAKERS) {
+      if (b.done) continue;
+      if (dist(e.x, e.z, b.x, b.z) > INTERACT_RANGE) continue;
+      b.progress += dt;
+      e.progressUi = clamp(b.progress / BREAKER_WORK, 0, 1);
+      if (b.progress >= BREAKER_WORK) {
+        b.done = true;
+        state.breakersDone++;
+        sfxBell();
+      }
+      return;
+    }
+
+    // Tearing a poisoned doorway open by hand. It works. It costs blood.
+    for (const p of state.plants) {
+      const b = p.box;
+      if (e.x + 1.3 < b.minX || e.x - 1.3 > b.maxX || e.z + 1.3 < b.minZ || e.z - 1.3 > b.maxZ) continue;
+      p.hp -= dt;
+      e.progressUi = clamp(1 - p.hp / GUEST.breakPlantTime, 0, 1);
+      damageGuest(e, 7 * dt, null, true);
+      if (p.hp <= 0) removePlant(p);
+      return;
     }
   }
 
-  function applyInteract(e, dt) {
-    if (e.faction !== 'survivor') return;
+  function killerInteract(e, dt) {
+    e.progressUi = 0;
 
-    if (e.interactHeld) {
-      for (const g of state.generators) {
-        if (g.done) continue;
-        if (Math.hypot(g.x - e.x, g.z - e.z) <= INTERACT_RANGE) {
-          g.progress += dt;
-          if (g.progress >= g.required) { g.done = true; state.generatorsDone++; }
-          break;
+    if (e.carrying) {
+      if (e.dropPressed) { dropCarry(e); return; }
+      const { hook, dist: hd } = freeHook(e.x, e.z);
+      if (e.interactPressed && hook && hd <= 3.0) hangOnHook(e, hook);
+      return;
+    }
+
+    const cfg = killerCfg(e);
+
+    if (cfg.canCarry) {
+      if (e.interactPressed) {
+        const { entity: g, dist: gd } = nearestGuest(e.x, e.z, x => x.downed && !x.carriedBy && !x.hooked);
+        if (g && gd <= 2.4) startCarry(e, g);
+      }
+      return;
+    }
+
+    // The Witch doesn't carry anyone anywhere. She kneels down and lets the
+    // quarter finish the job.
+    const { entity: g, dist: gd } = nearestGuest(e.x, e.z, x => x.downed && !x.carriedBy && !x.hooked);
+    const canExecute = g && gd <= 2.4 && e.interactHeld;
+    if (!canExecute) { e.channel = null; return; }
+    if (!e.channel || e.channel.target !== g) e.channel = { kind: 'execute', t: 0, need: cfg.execute.time, target: g };
+    e.channel.t += dt;
+    g.rooted = Math.max(g.rooted, 0.25);   // the roots pin them while she works
+    g.hitFlash = Math.max(g.hitFlash, 0.05);
+    e.progressUi = clamp(e.channel.t / e.channel.need, 0, 1);
+    if (e.channel.t >= e.channel.need) {
+      e.channel = null;
+      sfxGrowth();
+      killGuest(g);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // per-entity step
+  // ---------------------------------------------------------------------
+
+  function applyEntity(e, dt) {
+    if (e.isDead || e.escaped) return;
+    e.progressUi = 0;
+
+    e.cdPrimary = Math.max(0, e.cdPrimary - dt);
+    e.cdSecondary = Math.max(0, e.cdSecondary - dt);
+    e.cdPower1 = Math.max(0, e.cdPower1 - dt);
+    e.cdPower2 = Math.max(0, e.cdPower2 - dt);
+    e.hitFlash = Math.max(0, e.hitFlash - dt);
+    e.stunned = Math.max(0, e.stunned - dt);
+    e.rooted = Math.max(0, e.rooted - dt);
+
+    if (e.faction === 'killer') {
+      if (e.frenzy > 0) e.frenzy = Math.max(0, e.frenzy - dt);
+      if (e.charge && e.charge.active) {
+        // Steering during a charge: the body swings towards where you look,
+        // but slowly — commitment is the cost of the power.
+        if (e.isPlayer) e.yaw += clamp(normalizeAngle(rig.rotation.y - e.yaw), -1.3 * dt, 1.3 * dt);
+        chargeStep(e, dt);
+        killerInteract(e, dt);
+        return;
+      }
+    }
+
+    // Carried / hooked bodies don't drive themselves.
+    if (e.carriedBy) {
+      const c = e.carriedBy;
+      const f = forwardVector(c.yaw);
+      e.x = c.x - f.x * 0.25;
+      e.z = c.z - f.z * 0.25;
+      if (e.isPlayer && e.strugglePressed) e.carryStruggle += CARRY_STRUGGLE_GAIN;
+      e.carryStruggle = Math.max(0, e.carryStruggle - CARRY_STRUGGLE_DECAY * dt);
+      if (e.carryStruggle >= 1) { dropCarry(c); sfxScream(); }
+      return;
+    }
+    if (e.hooked) {
+      e.x = e.hooked.x; e.z = e.hooked.z;
+      return;
+    }
+
+    if (e.faction === 'guest') {
+      if (e.downed) {
+        e.bleed -= dt;
+        if (e.bleed <= 0) { killGuest(e); return; }
+      }
+      if (!e.reviveTouched && e.revive) e.revive = Math.max(0, e.revive - dt * 0.5);
+      e.reviveTouched = false;
+
+      // Stamina: sprinting is a resource, not a state. Guests who burn it all
+      // have to walk the next corner.
+      if (e.sprinting && (e.moveX || e.moveZ)) {
+        e.stamina = Math.max(0, e.stamina - GUEST.staminaDrain * dt);
+        if (e.stamina <= 0) e.exhausted = true;
+      } else {
+        e.stamina = Math.min(GUEST.staminaMax, e.stamina + GUEST.staminaRegen * dt);
+        if (e.stamina > GUEST.staminaMax * 0.4) e.exhausted = false;
+      }
+      if (e.exhausted) e.sprinting = false;
+    }
+
+    const blocked = e.stunned > 0 || e.rooted > 0;
+    let speed;
+    if (e.faction === 'guest') {
+      speed = e.downed ? 1.05 : GUEST.speed * (e.crouching ? GUEST.crouchMul : (e.sprinting ? GUEST.sprintMul : 1));
+    } else {
+      const cfg = killerCfg(e);
+      speed = cfg.speed * (e.sprinting ? cfg.sprintMul : 1) * speedMul(e);
+      if (e.carrying) speed *= 0.82;
+    }
+
+    const mv = Math.hypot(e.moveX, e.moveZ);
+    if (mv > 0.001 && !blocked) {
+      const f = forwardVector(e.yaw), r = rightVector(e.yaw);
+      const nx = e.moveX / mv, nz = e.moveZ / mv;
+      const dirX = f.x * nz + r.x * nx, dirZ = f.z * nz + r.z * nx;
+      moveWithCollision(e, dirX * speed * dt, dirZ * speed * dt);
+
+      // Scratch marks and blood: the killer's only trail.
+      if (e.faction === 'guest') {
+        e.markTimer -= dt;
+        if (e.markTimer <= 0) {
+          if (e.sprinting) { addMark(e.x, e.z, false); e.markTimer = 0.22; }
+          else if (e.hp < GUEST.hp * 0.5 || e.downed) { addMark(e.x, e.z, true); e.markTimer = 0.5; }
+          else e.markTimer = 0.2;
         }
       }
     }
+    if (!e.isPlayer) trackStuck(e, dt);
 
-    if (e.interactPressed && state.altar.captive && state.altar.captive !== e) {
-      if (Math.hypot(state.altar.x - e.x, state.altar.z - e.z) <= INTERACT_RANGE + state.altar.r) {
-        rescueCaptive();
+    if (e.faction === 'killer' && !blocked) {
+      const cfg = killerCfg(e);
+      if (e.wantsPrimary && e.cdPrimary <= 0) {
+        performMelee(e, 'primary');
+        e.cdPrimary = cfg.primary.cd * cooldownMul(e);
       }
+      if (e.wantsSecondary && e.cdSecondary <= 0) {
+        let used = true;
+        if (e.kind === 'trickster') { performMelee(e, 'secondary'); }
+        else if (e.kind === 'witch') { performVine(e); }
+        else { used = performRogerGrab(e); }
+        if (used) e.cdSecondary = cfg.secondary.cd * cooldownMul(e);
+      }
+      if (e.wantsPower1 && e.cdPower1 <= 0) {
+        let used = true;
+        if (e.kind === 'trickster') { performHookShot(e); }
+        else if (e.kind === 'witch') { used = plantThicket(e); }
+        else { startCharge(e); }
+        if (used) e.cdPower1 = cfg.power1.cd * cooldownMul(e);
+      }
+      if (e.wantsPower2 && e.cdPower2 <= 0 && cfg.power2) {
+        spawnDoubles(e);
+        e.cdPower2 = cfg.power2.cd;
+      }
+    }
+    e.wantsPrimary = false; e.wantsSecondary = false;
+    e.wantsPower1 = false; e.wantsPower2 = false;
+
+    if (e.faction === 'guest') {
+      if (!e.downed) guestInteract(e, dt);
+      else e.progressUi = 0;
+      checkEscape(e);
+    } else {
+      killerInteract(e, dt);
     }
   }
 
   function checkEscape(e) {
-    if (e.faction !== 'survivor' || e.isDead || e.escaped || e.isGrabbed) return;
-    if (state.generatorsDone < GENERATORS_REQUIRED) return;
-    const g = state.gate;
-    if (Math.abs(e.x - g.x) <= g.halfW && Math.abs(e.z - g.z) <= 2.5) {
-      e.escaped = true;
-      state.survivorsEscaped++;
-      checkWinConditions();
-    }
+    if (e.isDead || e.escaped || e.downed || e.hooked || e.carriedBy) return;
+    if (state.breakersDone < BREAKERS_REQUIRED) return;
+    if (Math.abs(e.x - BREACH.x) <= BREACH.halfW && e.z >= BOUNDS.maxZ - 1.6) escapeGuest(e);
   }
 
-  function checkAltarHandoff(e) {
-    if (e.faction !== 'cannibal' || !e.carrying) return;
-    if (Math.hypot(state.altar.x - e.x, state.altar.z - e.z) <= state.altar.r + 0.6) {
-      placeOnAltar(e);
+  function updateHooks(dt) {
+    for (const h of HOOKS) {
+      if (!h.captive) continue;
+      if (h.captive.isDead) { h.captive = null; h.timer = 0; continue; }
+      h.timer += dt;
+      if (h.timer >= HOOK_TIME) killGuest(h.captive);
     }
-  }
-
-  function applyEntity(e, dt) {
-    if (e.isDead || e.escaped) return;
-
-    e.cdAttack = Math.max(0, e.cdAttack - dt);
-    e.cdGrab = Math.max(0, e.cdGrab - dt);
-    e.hitFlash = Math.max(0, e.hitFlash - dt);
-
-    if (e.isGrabbed) {
-      if (e.grabbedBy) {
-        const carrier = e.grabbedBy;
-        const f = forwardVector(carrier.yaw);
-        e.x = carrier.x - f.x * 0.7;
-        e.z = carrier.z - f.z * 0.7;
-      }
-    } else {
-      const cfg = CONFIG[e.faction];
-      let speed = cfg.speed;
-      if (e.faction === 'killer' && e.isBlocking) speed *= cfg.blockSpeedMul;
-      else if (e.sprinting) speed *= cfg.sprintMul;
-
-      const mv = Math.hypot(e.moveX, e.moveZ);
-      if (mv > 0.001) {
-        const f = forwardVector(e.yaw), r = rightVector(e.yaw);
-        const nx = e.moveX / mv, nz = e.moveZ / mv;
-        const dirX = f.x * nz + r.x * nx, dirZ = f.z * nz + r.z * nx;
-        moveWithCollision(e, dirX * speed * dt, dirZ * speed * dt);
-      }
-    }
-
-    if (e.wantsAttack && e.cdAttack <= 0 && (e.faction === 'cannibal' || e.faction === 'killer')) {
-      performAttack(e);
-      e.cdAttack = CONFIG[e.faction].attackCooldown;
-    }
-    e.wantsAttack = false;
-
-    if (e.wantsGrab && e.cdGrab <= 0 && e.faction === 'cannibal' && !e.carrying) {
-      performGrab(e);
-      e.cdGrab = CONFIG.cannibal.grabCooldown;
-    }
-    e.wantsGrab = false;
-
-    applyInteract(e, dt);
-    checkEscape(e);
-    checkAltarHandoff(e);
   }
 
   // ---------------------------------------------------------------------
@@ -5658,17 +6910,20 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   // ---------------------------------------------------------------------
 
   const RESULT_COPY = {
-    survivors: { title: 'Выжившие ушли', sub: 'Кто-то добрался до дороги живым.', color: 'var(--survivor)' },
-    cannibals: { title: 'Секта победила', sub: 'Ни один турист не ушёл с базы.', color: 'var(--cannibal)' },
-    killers: { title: 'Вожак мёртв', sub: 'Ритуалы секты прерваны.', color: 'var(--killer)' },
+    killer: { title: 'Считалка сошлась', sub: 'Ни один гость не вышел из квартала.', color: 'var(--blood)' },
+    guests: { title: 'Кто-то вышел', sub: '', color: 'var(--guest)' },
+    playerDead: { title: 'Твоя фигурка разбита', sub: '', color: 'var(--blood)' },
   };
 
   function checkWinConditions() {
     if (state.mode !== 'playing') return;
-    if (state.leader && state.leader.isDead) return endGame('killers');
-    if (state.survivorsEscaped >= state.requiredEscape) return endGame('survivors');
-    const anyAlive = state.entities.some(e => e.faction === 'survivor' && !e.isDead && !e.escaped);
-    if (!anyAlive) return endGame('cannibals');
+    // If you're playing a guest, your own death is the end of your match —
+    // the rhyme goes on without you.
+    if (state.playerSide === 'guest' && state.player.isDead) return endGame('playerDead');
+    if (state.playerSide === 'guest' && state.player.escaped) return endGame('guests');
+    const active = state.guests.some(g => !g.isDead && !g.escaped);
+    if (active) return;
+    endGame(state.escaped > 0 ? 'guests' : 'killer');
   }
 
   function endGame(result) {
@@ -5677,10 +6932,21 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     const c = RESULT_COPY[result];
     endTitle.textContent = c.title;
     endTitle.style.color = c.color;
-    endSub.textContent = c.sub;
+
+    const left = state.guests.filter(g => !g.isDead && !g.escaped).length;
+    if (result === 'guests') {
+      endSub.textContent = 'Через пролом ушли: ' + state.escaped + ' из ' + state.guests.length + '.';
+    } else if (result === 'playerDead') {
+      endSub.textContent = state.player.name + ' — ' + state.player.sin + '. В квартале ещё остались живые: ' + left + '.';
+    } else {
+      endSub.textContent = c.sub;
+    }
+    endRhyme.textContent = state.deaths > 0 ? RHYME[Math.min(state.deaths, RHYME.length) - 1] : '';
+
     hudOverlay.classList.add('hidden');
     crosshair.classList.add('hidden');
-    releaseCapture();                     // free the mouse for the end screen (mode is 'ended', so no pause overlay)
+    frenzyTint.classList.remove('show');
+    releaseCapture();                     // free the mouse for the end screen
     endOverlay.classList.remove('hidden');
   }
 
@@ -5698,36 +6964,184 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
     requestAnimationFrame(() => damageFlash.classList.remove('show'));
   }
 
+  function showRhyme(index) {
+    if (index >= RHYME.length) return;
+    rhymeBanner.textContent = RHYME[index];
+    rhymeBanner.classList.add('show');
+    state.rhymeTimer = 5.5;
+  }
+  function hideRhyme() {
+    rhymeBanner.classList.remove('show');
+    state.rhymeTimer = 0;
+  }
+
+  function buildFigurineHud() {
+    hudFigurines.innerHTML = '';
+    for (let i = 0; i < state.guests.length; i++) {
+      const d = document.createElement('div');
+      d.className = 'fig';
+      d.title = state.guests[i].name;
+      hudFigurines.appendChild(d);
+    }
+    updateFigurines();
+  }
+
+  function updateFigurines() {
+    const nodes = hudFigurines.children;
+    for (let i = 0; i < state.guests.length && i < nodes.length; i++) {
+      const g = state.guests[i];
+      nodes[i].classList.toggle('broken', g.isDead);
+      nodes[i].classList.toggle('gone', g.escaped);
+    }
+    // The plinth in the plaza mirrors the HUD: same four figurines, tipped over.
+    for (let i = 0; i < figurineMeshes.length && i < state.guests.length; i++) {
+      const g = state.guests[i], f = figurineMeshes[i];
+      if (g.isDead) {
+        f.group.rotation.z = 1.4;
+        f.group.position.y = 0.94;
+        f.mat.color.setHex(0x2e2a26);
+      } else if (g.escaped) {
+        f.mat.color.setHex(0x6f8ba8);
+        f.mat.emissive.setHex(0x24384c);
+      }
+    }
+  }
+
+  // Power slots are rebuilt per side: the guest gets a reminder of their three
+  // verbs, the killer gets live cooldowns for theirs.
+  let powerSlots = [];
+  function buildPowerSlots() {
+    hudPowers.innerHTML = '';
+    powerSlots = [];
+    const p = state.player;
+    const rows = [];
+    if (p.faction === 'guest') {
+      rows.push({ key: 'E', label: 'Чинить / поднять' });
+      rows.push({ key: 'SHIFT', label: 'Бежать' });
+      rows.push({ key: 'CTRL', label: 'Красться' });
+      rows.push({ key: 'F', label: 'Фонарь' });
+    } else {
+      const cfg = killerCfg(p);
+      rows.push({ key: 'ЛКМ', label: cfg.primary.label, cd: 'cdPrimary', max: cfg.primary.cd });
+      rows.push({ key: 'ПКМ', label: cfg.secondary.label, cd: 'cdSecondary', max: cfg.secondary.cd });
+      rows.push({ key: 'Q', label: cfg.power1.label, cd: 'cdPower1', max: cfg.power1.cd });
+      if (cfg.power2) rows.push({ key: 'F', label: cfg.power2.label, cd: 'cdPower2', max: cfg.power2.cd });
+      rows.push({ key: 'E', label: p.kind === 'witch' ? 'Прорастание' : 'На крюк' });
+    }
+    for (const r of rows) {
+      const el = document.createElement('div');
+      el.className = 'slot ready';
+      const b = document.createElement('b'); b.textContent = r.key;
+      const s = document.createElement('span'); s.textContent = r.label;
+      const i = document.createElement('i');
+      el.appendChild(b); el.appendChild(s); el.appendChild(i);
+      hudPowers.appendChild(el);
+      powerSlots.push({ el, fill: i, cd: r.cd, max: r.max });
+    }
+  }
+
+  function updatePowerSlots() {
+    const p = state.player;
+    for (const s of powerSlots) {
+      if (!s.cd) continue;
+      const left = p[s.cd] || 0;
+      const frac = s.max ? clamp(left / s.max, 0, 1) : 0;
+      s.fill.style.width = (frac * 100) + '%';
+      s.el.classList.toggle('ready', left <= 0);
+      s.el.classList.toggle('cold', left > 0);
+    }
+  }
+
+  function healthStateText(p) {
+    if (p.isDead) return 'Мёртв';
+    if (p.escaped) return 'Ушёл';
+    if (p.hooked) return 'На крюке — жми ПРОБЕЛ, зови';
+    if (p.carriedBy) return 'Тебя несут — ПРОБЕЛ, вырывайся (' + Math.round(p.carryStruggle * 100) + '%)';
+    if (p.downed) return 'На земле — истекаешь (' + Math.ceil(p.bleed) + 'с)';
+    if (p.rooted > 0) return 'Опутан';
+    if (p.hp < GUEST.hp * 0.5) return 'Ранен';
+    return 'Цел';
+  }
+
   function computePrompt(p) {
-    if (p.isDead) return 'Вы мертвы.';
-    if (p.isGrabbed) return 'Вас схватили — ждите спасения...';
-    if (p.faction === 'survivor') {
-      for (const g of state.generators) {
-        if (!g.done && Math.hypot(g.x - p.x, g.z - p.z) <= INTERACT_RANGE) return '[E] Чинить генератор';
+    if (p.faction === 'guest') {
+      if (p.isDead) return 'Тебя больше нет.';
+      if (p.hooked) return 'Крюк. Кто-нибудь придёт... или нет.';
+      if (p.carriedBy) return 'ПРОБЕЛ — вырываться';
+      if (p.downed) return 'Ползи. Кто-то из своих может тебя поднять.';
+      if (blockingPlant(p.x, p.z, 1.3)) return '[E] Рвать заросли (больно)';
+      for (const h of HOOKS) {
+        if (h.captive && h.captive !== p && dist(p.x, p.z, h.x, h.z) <= INTERACT_RANGE) return '[E] Снять с крюка';
       }
-      if (state.altar.captive && state.altar.captive !== p &&
-          Math.hypot(state.altar.x - p.x, state.altar.z - p.z) <= INTERACT_RANGE + state.altar.r) {
-        return '[E] Спасти пленника';
+      for (const g of state.guests) {
+        if (g !== p && g.downed && !g.isDead && !g.carriedBy && dist(p.x, p.z, g.x, g.z) <= INTERACT_RANGE) return '[E] Поднять ' + g.name;
       }
-      if (state.generatorsDone >= GENERATORS_REQUIRED) return 'Ворота открыты — беги к дороге!';
+      for (const b of BREAKERS) {
+        if (!b.done && dist(p.x, p.z, b.x, b.z) <= INTERACT_RANGE) return '[E] Чинить щит';
+      }
+      if (state.breakersDone >= BREAKERS_REQUIRED) return 'Свет дали — пролом на севере открыт';
       return '';
     }
-    if (p.faction === 'cannibal') return p.carrying ? 'Тащи пленника к алтарю' : 'Клик/Пробел — атака · ПКМ/G — схватить';
-    if (p.faction === 'killer') return p.isBlocking ? 'Блок' : 'Клик/Пробел — атака · ПКМ — блок';
+
+    if (p.stunned > 0) return 'Оглушён';
+    if (p.carrying) return '[E] Вздёрнуть на крюк · [G] бросить';
+    const { entity: g, dist: gd } = nearestGuest(p.x, p.z, x => x.downed && !x.carriedBy && !x.hooked);
+    if (g && gd <= 2.4) return p.kind === 'witch' ? '[E] Казнь прорастанием (держать)' : '[E] Взвалить на плечо';
+    if (p.kind === 'trickster' && p.frenzy > 0) return 'РЕЖИМ ПСИХА — ' + p.frenzy.toFixed(1) + 'с';
+    if (p.kind === 'witch') return 'Поросль: ' + state.plants.length + '/' + KILLERS.witch.power1.max;
+    if (p.kind === 'roger' && p.charge) return 'ТАРАН';
     return '';
   }
 
   function updateHud() {
     if (state.mode !== 'playing' || !state.player) return;
     const p = state.player;
-    hudHealthFill.style.width = Math.max(0, (p.hp / p.maxHp) * 100) + '%';
-    hudGenCount.textContent = state.generatorsDone + '/' + GENERATORS_REQUIRED;
+    const isGuest = p.faction === 'guest';
+
+    hudHealthLabel.textContent = isGuest ? 'Состояние' : 'Охота';
+    hudHealthFill.parentElement.classList.toggle('hidden', !isGuest);
+    hudStaminaWrap.classList.toggle('hidden', !isGuest);
+    hudBloodWrap.classList.toggle('hidden', !(p.kind === 'trickster'));
+
+    if (isGuest) {
+      hudHealthFill.style.width = Math.max(0, (p.hp / p.maxHp) * 100) + '%';
+      hudStaminaFill.style.width = (p.stamina / GUEST.staminaMax) * 100 + '%';
+      hudState.textContent = healthStateText(p);
+    } else {
+      const left = state.guests.filter(g => !g.isDead && !g.escaped).length;
+      hudState.textContent = p.carrying ? ('Несёшь: ' + p.carrying.name) : ('На ногах: ' + left);
+      if (p.kind === 'trickster') {
+        const frenzied = p.frenzy > 0;
+        hudBloodFill.style.width = (frenzied ? (p.frenzy / KILLERS.trickster.frenzy.time) : (p.blood / 100)) * 100 + '%';
+        hudBloodFill.style.background = frenzied ? 'linear-gradient(90deg,#ff4d3d,#ffd23d)' : 'linear-gradient(90deg,#5c1018,#e0384c)';
+      }
+    }
+
+    hudGenCount.textContent = state.breakersDone + '/' + BREAKERS_REQUIRED;
     hudPrompt.textContent = computePrompt(p);
+
+    const prog = p.progressUi || 0;
+    hudProgress.classList.toggle('hidden', prog <= 0);
+    hudProgressFill.style.width = (prog * 100) + '%';
+
+    frenzyTint.classList.toggle('show', p.kind === 'trickster' && p.frenzy > 0);
+    updatePowerSlots();
   }
 
   // ---------------------------------------------------------------------
   // render sync
   // ---------------------------------------------------------------------
+
+  function syncWorldVisuals() {
+    for (const b of breakerMeshes) {
+      const done = b.ref.done;
+      b.box.material.emissive.setHex(done ? 0x1a3d1e : (b.ref.progress > 0 ? 0x3a2a10 : 0x000000));
+      b.box.material.emissiveIntensity = done ? 0.8 : 0.5;
+      b.ring.material.color.setHex(done ? 0x5ec26a : 0xc9862f);
+      b.ring.scale.setScalar(0.35 + clamp(b.ref.progress / BREAKER_WORK, 0, 1) * 0.65);
+    }
+    breachGlow.material.opacity = state.breakersDone >= BREAKERS_REQUIRED ? 0.3 : 0.05;
+  }
 
   function syncEntityMeshes(dt) {
     for (const e of state.entities) {
@@ -5739,32 +7153,47 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
       if (e.isDead) {
         g.position.set(e.x, 0.2, e.z);
         g.rotation.set(0, e.yaw, Math.PI / 2);
+      } else if (e.carriedBy) {
+        const c = e.carriedBy;
+        g.position.set(e.x, 1.35, e.z);
+        g.rotation.set(0, c.yaw + Math.PI / 2, Math.PI / 2);
+      } else if (e.hooked) {
+        // hangs off the hook arm (local +x of the hook prop), not inside the post
+        g.position.set(e.x + 0.55, 0.92 + Math.sin(performance.now() / 700) * 0.04, e.z);
+        g.rotation.set(0, e.yaw, 0.14);
+      } else if (e.downed) {
+        g.position.set(e.x, 0.25, e.z);
+        g.rotation.set(0, e.yaw, Math.PI / 2.1);
       } else {
         g.position.set(e.x, 0, e.z);
         g.rotation.set(0, e.yaw, 0);
-
-        if (e.mesh.mixer) {
-          const moving = Math.hypot(e.moveX, e.moveZ) > 0.05 && !e.isGrabbed;
-          const desiredAnim = e.isGrabbed ? 'captive' : (!moving ? 'idle' : (e.sprinting ? 'run' : 'walk'));
-          fadeToAction(e.mesh, desiredAnim, 0.2);
-          e.mesh.mixer.update(dt);
-        }
       }
 
-      const flashLit = e.hitFlash > 0;
-      const grabPulse = e.isGrabbed ? Math.abs(Math.sin(performance.now() / 120)) * 0.5 : 0;
+      if (e.mesh.mixer && !e.isDead) {
+        const still = e.downed || e.carriedBy || e.hooked || e.rooted > 0 || e.stunned > 0;
+        const moving = Math.hypot(e.moveX, e.moveZ) > 0.05;
+        const desired = still ? 'captive' : (!moving ? 'idle' : (e.sprinting ? 'run' : 'walk'));
+        fadeToAction(e.mesh, desired, 0.2);
+        e.mesh.mixer.update(dt);
+      }
+
+      const base = e.faction === 'guest' ? COLOR.guest : KILLERS[e.kind].color;
+      const pulse = (e.hooked || e.downed) ? Math.abs(Math.sin(performance.now() / 260)) * 0.32 : 0;
       for (const mat of e.mesh.materials) {
-        if (flashLit) { mat.emissive.setHex(0xffffff); mat.emissiveIntensity = 0.9; }
-        else if (e.isGrabbed) { mat.emissive.setHex(0x990000); mat.emissiveIntensity = grabPulse; }
-        else { mat.emissive.setHex(e.isLeader ? FACTION_COLOR.leader : FACTION_COLOR[e.faction]); mat.emissiveIntensity = 0.18; }
+        if (e.hitFlash > 0) { mat.emissive.setHex(0xffffff); mat.emissiveIntensity = 0.9; }
+        else if (e.rooted > 0) { mat.emissive.setHex(0x2f8f3a); mat.emissiveIntensity = 0.7; }
+        else if (pulse > 0) { mat.emissive.setHex(0xb01722); mat.emissiveIntensity = pulse; }
+        else { mat.emissive.setHex(base); mat.emissiveIntensity = e.faction === 'guest' ? 0.14 : 0.24; }
       }
 
-      e.mesh.healthBar.visible = !e.isDead;
-      e.mesh.healthBar.scale.x = 0.7 * Math.max(0, e.hp / e.maxHp);
+      if (e.mesh.healthBar) {
+        e.mesh.healthBar.visible = !e.isDead && !e.downed;
+        e.mesh.healthBar.scale.x = 0.7 * Math.max(0, e.hp / e.maxHp);
+      }
     }
 
-    if (flashlight) flashlight.intensity = state.player.flashlightOn ? 1.5 : 0;
-    if (flashTimer > 0) { flashTimer -= dt; }
+    if (flashlight) flashlight.intensity = state.player.flashlightOn ? 1.6 : 0;
+    if (flashTimer > 0) flashTimer -= dt;
   }
 
   // ---------------------------------------------------------------------
@@ -5778,37 +7207,54 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
 
     resize();   // cheap (guarded); keeps the canvas filling the viewport as it settles/changes
 
-    // Campfire flicker runs always, even on the menu, for ambience.
-    if (campfireLight) {
-      const flick = 2.0 + Math.sin(ts / 90) * 0.4 + (Math.random() - 0.5) * 0.5;
-      campfireLight.intensity = flick;
-      if (campfireCore) campfireCore.scale.setScalar(0.9 + Math.sin(ts / 70) * 0.12);
+    // Ambience runs even on the menu: the barrel gutters, the lamps struggle.
+    if (barrelLight) {
+      barrelLight.intensity = 1.9 + Math.sin(ts / 90) * 0.4 + (Math.random() - 0.5) * 0.5;
+      if (barrelCore) barrelCore.scale.setScalar(0.9 + Math.sin(ts / 70) * 0.12);
+    }
+    for (const l of lamps) {
+      const f = Math.sin(ts / 320 + l.phase) * 0.5 + Math.sin(ts / 47 + l.phase * 3) * 0.5;
+      const on = f > -0.55;
+      l.light.intensity = on ? 1.3 + f * 0.3 : 0.05;
+      l.bulb.material.color.setHex(on ? 0xffe7b0 : 0x33302a);
     }
 
     if (state.mode === 'playing') {
       updatePlayerInput(dt);
-      rig.position.set(state.player.x, 0, state.player.z);
 
       for (const e of state.entities) if (!e.isPlayer) updateBotAI(e, dt);
       for (const e of state.entities) applyEntity(e, dt);
+
+      updateHooks(dt);
+      updatePlants(dt);
+      updateDoubles(dt);
+      updateMarks(dt);
+
       rig.position.set(state.player.x, 0, state.player.z);
 
       const p = state.player;
-      const moving = (p.moveX || p.moveZ) && !p.isGrabbed && !p.isDead;
+      const moving = (p.moveX || p.moveZ) && !p.carriedBy && !p.isDead && p.stunned <= 0 && p.rooted <= 0;
 
-      // Head bob + synced footsteps.
+      // Head bob + synced footsteps. A carried guest gets the carrier's gait.
       let bob = 0;
       if (moving) {
-        const rate = p.sprinting ? 11 : 7;
+        const rate = p.downed ? 3 : (p.sprinting ? 11 : (p.crouching ? 5 : 7));
         const prevPhase = stepPhase;
         stepPhase += dt * rate;
-        bob = Math.sin(stepPhase) * 0.035;
-        // one footstep per full stride (each time the sine crosses its trough)
+        bob = Math.sin(stepPhase) * (p.sprinting ? 0.05 : 0.035);
         if (Math.floor(prevPhase / Math.PI) !== Math.floor(stepPhase / Math.PI)) sfxFootstep();
       }
-      camera.position.y = EYE_HEIGHT + bob;
+      let eye = EYE_HEIGHT + bob;
+      if (p.faction === 'guest') {
+        if (p.downed) eye = 0.55;
+        else if (p.crouching) eye = 1.15 + bob;
+        else if (p.carriedBy) eye = 1.5;
+        else if (p.hooked) eye = 1.9;
+      } else if (p.kind === 'roger') {
+        eye = EYE_HEIGHT * 1.18 + bob;   // he is a head taller than anyone here
+      }
+      camera.position.y = eye;
 
-      // Viewmodel bob + recoil recovery.
       if (viewmodel) {
         vmRecoil = Math.max(0, vmRecoil - dt * 6);
         const sway = moving ? Math.sin(stepPhase) * 0.012 : Math.sin(ts / 600) * 0.004;
@@ -5816,36 +7262,36 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
         viewmodel.rotation.x = -vmRecoil * 0.5;
       }
 
-      // Heartbeat: the hunted hears their own pulse. Survivor only — it quickens
-      // and swells as the nearest predator closes in.
-      if (p.faction === 'survivor' && !p.isDead) {
-        const threat = nearestLivingThreat(p.x, p.z);
-        if (threat.entity && threat.dist < 16) {
-          const closeness = 1 - threat.dist / 16;         // 0 far … 1 adjacent
+      // Heartbeat: the hunted hears their own pulse — and a double's footsteps
+      // sound exactly like the real thing.
+      if (p.faction === 'guest' && !p.isDead) {
+        const { threat, dist: td } = nearestThreat(p.x, p.z);
+        if (threat && td < 18) {
+          const closeness = 1 - td / 18;
           AUDIO.heartTimer -= dt;
           if (AUDIO.heartTimer <= 0) {
             sfxHeartbeat(closeness);
-            AUDIO.heartTimer = 1.1 - closeness * 0.65;     // ~1.1s far → ~0.45s close
+            AUDIO.heartTimer = 1.15 - closeness * 0.7;
           }
         } else {
           AUDIO.heartTimer = 0;
         }
       }
 
-      if (state.altar.captive) {
-        state.altar.timer += dt;
-        if (state.altar.timer >= SACRIFICE_TIME) damageEntity(state.altar.captive, 9999);
+      if (state.rhymeTimer > 0) {
+        state.rhymeTimer -= dt;
+        if (state.rhymeTimer <= 0) rhymeBanner.classList.remove('show');
       }
 
-      syncObjectiveVisuals(state);
+      syncWorldVisuals();
       syncEntityMeshes(dt);
       updateHud();
     }
 
     renderer.render(scene, camera);
 
-    keysPrev = new Set(keys);
-    mouseButtonsPrev = new Set(mouseButtons);
+    keyPresses.clear();
+    mousePresses.clear();
     requestAnimationFrame(frame);
   }
   resize();
@@ -5855,19 +7301,21 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   // menu wiring
   // ---------------------------------------------------------------------
 
-  document.querySelectorAll('.totem[data-faction]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      spawnMatch(btn.dataset.faction);
-      menuOverlay.classList.add('hidden');
-      endOverlay.classList.add('hidden');
-      hudOverlay.classList.remove('hidden');
-      crosshair.classList.remove('hidden');
-      pitch = 0; camera.rotation.x = 0;
-      rig.rotation.y = state.player.yaw;
-      canvas.focus();
-      startAudio();
-      requestCapture();   // capture the mouse right away (this click is the user gesture Pointer Lock needs)
-    });
+  function startMatch(side, kind) {
+    spawnMatch(side, kind);
+    menuOverlay.classList.add('hidden');
+    endOverlay.classList.add('hidden');
+    hudOverlay.classList.remove('hidden');
+    crosshair.classList.remove('hidden');
+    pitch = 0; camera.rotation.x = 0;
+    rig.rotation.y = state.player.yaw;
+    canvas.focus();
+    startAudio();
+    requestCapture();   // this click is the user gesture Pointer Lock needs
+  }
+
+  document.querySelectorAll('.totem[data-side]').forEach(btn => {
+    btn.addEventListener('click', () => startMatch(btn.dataset.side, btn.dataset.kind || null));
   });
 
   document.getElementById('restart-btn').addEventListener('click', () => {
@@ -5883,14 +7331,17 @@ window.__ASSET_SOLDIER_B64 = "Z2xURgIAAABU9yAA6F4FAEpTT057ImFjY2Vzc29ycyI6W3siYn
   // rig on their next match; if it never finishes, capsules carry the game.
   loadModels(() => {});
 
-  window.__wolfState = state; // debug hooks for iterating on this prototype
+  // Debug/test hooks for iterating on this prototype.
+  window.__wolfState = state;
+  window.__wolfWorld = { WALLS, DOORWAYS, HOOKS, BREAKERS, BREACH };
   window.__wolfRig = rig;
   window.__wolfCamera = camera;
   window.__wolfScene = scene;
   window.__wolfAudio = AUDIO;
+  window.__wolfStart = (side, kind) => startMatch(side, kind);
   window.__wolfInput = () => ({ pointerLocked, captured, steerX, steerY });
-  window.__wolfSteer = (x, y) => { steerX = x; steerY = y; };   // test hook for the steering fallback
-  window.__wolfEsc = () => releaseCapture();       // test hook: ESC while a real lock swallows the keydown
+  window.__wolfSteer = (x, y) => { steerX = x; steerY = y; };
+  window.__wolfEsc = () => releaseCapture();
   window.__wolfCapture = () => requestCapture();
 })();
 </script>

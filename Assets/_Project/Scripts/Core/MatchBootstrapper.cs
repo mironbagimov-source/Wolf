@@ -8,28 +8,45 @@ namespace Wolf.Core
     /// <summary>
     /// Entry point for the gameplay scene. Reads what the lobby put into
     /// PlayerSelection, brings up the right INetworkService, and spawns the
-    /// local human plus (in BotMatch) an AI roster for the other side(s).
+    /// local human plus (in BotMatch) the rest of the cast.
     ///
-    /// Current limitation: no Killer bot brain exists yet (see AI/), so
-    /// BotMatch never spawns Killers — that faction is multiplayer-only until
-    /// one is written.
+    /// Exactly one killer exists per match by design — whichever archetype was
+    /// picked if the human is the killer, a random one otherwise, so a guest
+    /// doesn't know what's coming until they hear it.
     /// </summary>
     public class MatchBootstrapper : MonoBehaviour
     {
+        [System.Serializable]
+        public struct GuestProfile
+        {
+            public string guestName;
+            [TextArea] public string sin;
+        }
+
         [Header("Human prefabs (camera + local input)")]
-        [SerializeField] private GameObject survivorHumanPrefab;
-        [SerializeField] private GameObject cannibalHumanPrefab;
-        [SerializeField] private GameObject killerHumanPrefab;
+        [SerializeField] private GameObject guestHumanPrefab;
+        [SerializeField] private GameObject tricksterHumanPrefab;
+        [SerializeField] private GameObject witchHumanPrefab;
+        [SerializeField] private GameObject rogerHumanPrefab;
 
         [Header("Bot prefabs (no camera, has BotBrainBase)")]
-        [SerializeField] private GameObject survivorBotPrefab;
-        [SerializeField] private GameObject cannibalBotPrefab;
+        [SerializeField] private GameObject guestBotPrefab;
+        [SerializeField] private GameObject tricksterBotPrefab;
+        [SerializeField] private GameObject witchBotPrefab;
+        [SerializeField] private GameObject rogerBotPrefab;
 
-        [Header("Bot roster size (BotMatch only)")]
-        [SerializeField] private int botSurvivorCount = 3;
-        [SerializeField] private int botCannibalCount = 2;
+        [Header("The cast")]
+        [Tooltip("Names and sins, handed out in order. Guests beyond this list get a numbered fallback.")]
+        [SerializeField]
+        private GuestProfile[] guestRoster =
+        {
+            new() { guestName = "Марго Ланд", sin = "сдала своих, чтобы уйти от срока" },
+            new() { guestName = "Костя Вьюн", sin = "подписал брата на чужой долг" },
+            new() { guestName = "Илья Тарн", sin = "спрятал свою ошибку в чужой могиле" },
+            new() { guestName = "Нина Верес", sin = "подожгла дом вместе с бумагами" },
+        };
 
-        [SerializeField] private string sessionName = "wolf-tourbase";
+        [SerializeField] private string sessionName = "wolf-quarter";
 
         private INetworkService _network;
 
@@ -46,75 +63,102 @@ namespace Wolf.Core
         private void OnNetworkReady()
         {
             FactionType chosen = PlayerSelection.ChosenFaction;
-            SpawnHuman(chosen);
+            KillerArchetype archetype = chosen == FactionType.Killer
+                ? PlayerSelection.ChosenKiller
+                : RandomArchetype();
+
+            int guestCount = GameManager.Instance.Settings != null ? GameManager.Instance.Settings.guestCount : 4;
+            int guestIndex = 0;
+
+            if (chosen == FactionType.Guest)
+            {
+                SpawnGuest(guestHumanPrefab, guestIndex++);
+            }
+            else
+            {
+                SpawnKiller(archetype, human: true);
+            }
 
             if (GameManager.Instance.Mode == GameModeType.BotMatch)
             {
-                SpawnBotRoster(chosen);
+                for (; guestIndex < guestCount; guestIndex++)
+                {
+                    SpawnGuest(guestBotPrefab, guestIndex);
+                }
+
+                if (chosen == FactionType.Guest)
+                {
+                    SpawnKiller(archetype, human: false);
+                }
             }
 
             GameManager.Instance.StartMatch();
         }
 
-        private void SpawnHuman(FactionType faction)
+        private static KillerArchetype RandomArchetype()
         {
-            GameObject prefab = faction switch
-            {
-                FactionType.Survivor => survivorHumanPrefab,
-                FactionType.Cannibal => cannibalHumanPrefab,
-                FactionType.Killer => killerHumanPrefab,
-                _ => null,
-            };
+            var values = (KillerArchetype[])System.Enum.GetValues(typeof(KillerArchetype));
+            return values[Random.Range(0, values.Length)];
+        }
 
+        private void SpawnGuest(GameObject prefab, int index)
+        {
             if (prefab == null)
             {
-                Debug.LogError($"[MatchBootstrapper] No human prefab assigned for {faction}.");
+                Debug.LogError("[MatchBootstrapper] No guest prefab assigned.");
                 return;
             }
 
-            Transform spawn = GetSpawnPoint(faction, 0);
-            GameObject instance = _network.SpawnPlayer(prefab, faction, spawn.position, spawn.rotation);
-
-            // Solo human Cannibal in a bot match plays as the boss by default.
-            if (faction == FactionType.Cannibal && GameManager.Instance.Mode == GameModeType.BotMatch)
+            Transform spawn = GetSpawnPoint(FactionType.Guest, index);
+            GameObject instance = _network.SpawnPlayer(prefab, FactionType.Guest, spawn.position, spawn.rotation);
+            if (instance == null)
             {
-                instance.AddComponent<CultLeaderMarker>();
+                return;
             }
+
+            GuestIdentity identity = instance.GetComponent<GuestIdentity>();
+            if (identity == null)
+            {
+                identity = instance.AddComponent<GuestIdentity>();
+            }
+            if (index < guestRoster.Length)
+            {
+                identity.guestName = guestRoster[index].guestName;
+                identity.sin = guestRoster[index].sin;
+            }
+            else
+            {
+                identity.guestName = $"Гость {index + 1}";
+            }
+            identity.figurineIndex = index;
         }
 
-        private void SpawnBotRoster(FactionType humanFaction)
+        private void SpawnKiller(KillerArchetype archetype, bool human)
         {
-            if (humanFaction != FactionType.Survivor)
-            {
-                for (int i = 0; i < botSurvivorCount; i++)
+            GameObject prefab = human
+                ? archetype switch
                 {
-                    SpawnBot(FactionType.Survivor, survivorBotPrefab, i + 1);
+                    KillerArchetype.Trickster => tricksterHumanPrefab,
+                    KillerArchetype.Witch => witchHumanPrefab,
+                    KillerArchetype.JollyRoger => rogerHumanPrefab,
+                    _ => null,
                 }
-            }
-
-            if (humanFaction != FactionType.Cannibal)
-            {
-                for (int i = 0; i < botCannibalCount; i++)
+                : archetype switch
                 {
-                    GameObject bot = SpawnBot(FactionType.Cannibal, cannibalBotPrefab, i + 1);
-                    if (i == 0 && bot != null)
-                    {
-                        bot.AddComponent<CultLeaderMarker>();
-                    }
-                }
-            }
-        }
+                    KillerArchetype.Trickster => tricksterBotPrefab,
+                    KillerArchetype.Witch => witchBotPrefab,
+                    KillerArchetype.JollyRoger => rogerBotPrefab,
+                    _ => null,
+                };
 
-        private GameObject SpawnBot(FactionType faction, GameObject prefab, int spawnIndex)
-        {
             if (prefab == null)
             {
-                Debug.LogError($"[MatchBootstrapper] No bot prefab assigned for {faction}.");
-                return null;
+                Debug.LogError($"[MatchBootstrapper] No {(human ? "human" : "bot")} prefab assigned for {archetype}.");
+                return;
             }
 
-            Transform spawn = GetSpawnPoint(faction, spawnIndex);
-            return _network.SpawnPlayer(prefab, faction, spawn.position, spawn.rotation);
+            Transform spawn = GetSpawnPoint(FactionType.Killer, 0);
+            _network.SpawnPlayer(prefab, FactionType.Killer, spawn.position, spawn.rotation);
         }
 
         private Transform GetSpawnPoint(FactionType faction, int index)

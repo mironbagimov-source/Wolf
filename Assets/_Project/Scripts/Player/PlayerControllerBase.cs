@@ -7,11 +7,11 @@ using Wolf.Utils;
 namespace Wolf.Player
 {
     /// <summary>
-    /// Shared first-person locomotion, look, and interaction for all three
-    /// factions. Faction-specific abilities live in the subclasses
-    /// (Survivor/Cannibal/Killer). Reads an IInputProvider rather than
-    /// hardware input directly, so a BotBrainBase on the same GameObject can
-    /// drive this exact same code in BotMatch — see Utils/IInputProvider.cs.
+    /// Shared first-person locomotion, look, and interaction for both sides.
+    /// Side-specific abilities live in the subclasses (Guest/Killer). Reads an
+    /// IInputProvider rather than hardware input directly, so a BotBrainBase on
+    /// the same GameObject can drive this exact same code in BotMatch — see
+    /// Utils/IInputProvider.cs.
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
     [RequireComponent(typeof(HealthComponent))]
@@ -19,8 +19,8 @@ namespace Wolf.Player
     {
         [Header("Movement")]
         [SerializeField] protected float walkSpeed = 3.5f;
-        [SerializeField] protected float sprintSpeed = 6f;
-        [SerializeField] protected float crouchSpeed = 1.5f;
+        [SerializeField] protected float sprintSpeed = 5.4f;
+        [SerializeField] protected float crouchSpeed = 1.8f;
         [SerializeField] protected float gravity = -20f;
 
         [Header("Look")]
@@ -30,7 +30,7 @@ namespace Wolf.Player
         [SerializeField] protected float maxPitch = 80f;
 
         [Header("Interaction")]
-        [SerializeField] protected float interactRange = 2.5f;
+        [SerializeField] protected float interactRange = 2.6f;
         [SerializeField] protected LayerMask interactMask = ~0;
 
         /// <summary>Which side this instance belongs to — set by the concrete subclass.</summary>
@@ -39,6 +39,7 @@ namespace Wolf.Player
         public HealthComponent Health { get; private set; }
         public bool IsCrouching { get; private set; }
         public bool IsSprinting { get; private set; }
+        public Transform CameraPivot => cameraPivot;
 
         /// <summary>
         /// The one human-controlled instance on this machine — what the HUD
@@ -49,6 +50,14 @@ namespace Wolf.Player
 
         protected CharacterController controller;
         protected IInputProvider input;
+
+        /// <summary>
+        /// What the bot brain or the keyboard is asking for this frame. Named
+        /// Intent rather than Input on purpose: a property called Input would
+        /// shadow UnityEngine.Input inside every subclass.
+        /// </summary>
+        public IInputProvider Intent => input;
+
         private float _pitch;
         private float _verticalVelocity;
         private bool _inputLocked;
@@ -71,12 +80,6 @@ namespace Wolf.Player
             }
         }
 
-        protected virtual void Start()
-        {
-            bool isCultLeader = GetComponent<CultLeaderMarker>() != null;
-            GameManager.Instance?.RegisterPlayer(Faction, Health, isCultLeader);
-        }
-
         protected virtual void Update()
         {
             if (_inputLocked || Health.IsDead)
@@ -93,8 +96,10 @@ namespace Wolf.Player
             }
         }
 
-        /// <summary>Disables movement/look/interact input — used while grabbed, on the altar, etc.</summary>
+        /// <summary>Disables movement/look/interact — used while carried, hooked, rooted or stunned.</summary>
         public void SetInputLocked(bool locked) => _inputLocked = locked;
+
+        public bool IsInputLocked => _inputLocked;
 
         private void HandleLook()
         {
@@ -111,8 +116,8 @@ namespace Wolf.Player
 
         private void HandleMove()
         {
-            IsCrouching = input.Crouch;
-            IsSprinting = !IsCrouching && input.Sprint;
+            IsCrouching = CanCrouch && input.Crouch;
+            IsSprinting = !IsCrouching && input.Sprint && CanSprint;
 
             float speed = IsCrouching ? crouchSpeed : (IsSprinting ? sprintSpeed : walkSpeed);
             speed = ApplySpeedModifier(speed);
@@ -135,23 +140,36 @@ namespace Wolf.Player
             controller.Move(velocity * Time.deltaTime);
         }
 
-        /// <summary>Hook for faction-specific speed buffs/debuffs (e.g. Cannibal sprint bonus).</summary>
+        /// <summary>Guests crouch to stay quiet; killers have no use for it.</summary>
+        protected virtual bool CanCrouch => false;
+
+        /// <summary>Hook for stamina, exhaustion, or a killer who simply doesn't run.</summary>
+        protected virtual bool CanSprint => true;
+
+        /// <summary>Hook for side-specific speed changes (carrying someone, frenzy, injury).</summary>
         protected virtual float ApplySpeedModifier(float baseSpeed) => baseSpeed;
 
-        private void TryInteract()
+        /// <summary>Fires the interact ray. Public so a held interaction can re-run it every frame.</summary>
+        public IInteractable ProbeInteractable()
         {
             if (cameraPivot == null)
             {
-                return;
+                return null;
             }
 
-            if (Physics.Raycast(cameraPivot.position, cameraPivot.forward, out RaycastHit hit, interactRange, interactMask))
+            if (!Physics.Raycast(cameraPivot.position, cameraPivot.forward, out RaycastHit hit, interactRange, interactMask))
             {
-                if (hit.collider.TryGetComponent(out IInteractable interactable) && interactable.CanInteract(this))
-                {
-                    interactable.Interact(this);
-                }
+                return null;
             }
+
+            return hit.collider.TryGetComponent(out IInteractable interactable) && interactable.CanInteract(this)
+                ? interactable
+                : null;
+        }
+
+        private void TryInteract()
+        {
+            ProbeInteractable()?.Interact(this);
         }
     }
 }

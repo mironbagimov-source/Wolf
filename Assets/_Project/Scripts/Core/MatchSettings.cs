@@ -3,7 +3,9 @@ using UnityEngine;
 namespace Wolf.Core
 {
     /// <summary>
-    /// Balance knobs, tunable in the Editor without touching code.
+    /// Match-level balance knobs, tunable in the Editor without touching code.
+    /// Per-killer numbers (damage, cooldowns, power ranges) live on the killer
+    /// controllers instead — those are character design, this is match design.
     /// Create one via Assets → Create → Wolf → Match Settings and assign it
     /// on the GameManager.
     /// </summary>
@@ -11,27 +13,40 @@ namespace Wolf.Core
     public class MatchSettings : ScriptableObject
     {
         [Header("Roster")]
-        [Tooltip("Killers are always exactly this many by design (see GDD).")]
-        public int killerCount = 3;
-        public int minSurvivors = 1;
-        public int maxSurvivors = 6;
-        public int minCannibals = 1;
-        public int maxCannibals = 6;
+        [Tooltip("Guests per match. Four is the design — the rhyme has four lines.")]
+        public int guestCount = 4;
 
-        [Header("Survivor objective")]
-        [Tooltip("How many generators must be completed before the exit gate opens.")]
-        public int generatorsRequired = 3;
-        [Tooltip("How many survivors must reach the exit for Survivors to win.")]
-        public int survivorsRequiredToEscape = 1;
+        [Header("Objective")]
+        [Tooltip("Breakers that must be repaired before the breach opens.")]
+        public int breakersRequired = 4;
+        [Tooltip("Seconds of solo work to bring one breaker back online.")]
+        public float breakerRepairSeconds = 14f;
 
-        [Header("Cannibal ritual")]
-        [Tooltip("Seconds a captured survivor has on the altar before being sacrificed.")]
-        public float sacrificeTimer = 30f;
-        [Tooltip("Seconds a downed survivor can be carried before auto-escaping a grab.")]
-        public float carryStruggleTime = 15f;
+        [Header("Guest states")]
+        [Tooltip("Seconds a downed guest has on the ground before they bleed out.")]
+        public float bleedoutSeconds = 48f;
+        [Tooltip("Seconds another guest needs to lift a downed one back up.")]
+        public float reviveSeconds = 6f;
+        [Tooltip("Health a revived guest gets back — enough to run, not enough to be safe.")]
+        public float reviveHealth = 45f;
+        [Tooltip("Health a guest gets when taken off a hook.")]
+        public float unhookHealth = 40f;
 
-        [Header("Killer hunt")]
-        [Tooltip("Cult Leader max health — killers must burn this down to zero.")]
-        public float cultLeaderHealth = 300f;
+        [Header("Hooks")]
+        [Tooltip("Seconds on a hook before that guest is gone for good.")]
+        public float hookSeconds = 26f;
+        [Tooltip("Seconds of wiggling to break out of a killer's grip while carried.")]
+        public float carryStruggleSeconds = 14f;
+
+        [Header("The rhyme")]
+        [Tooltip("One line lands each time a guest leaves the board, in order.")]
+        [TextArea]
+        public string[] rhymeLines =
+        {
+            "Четверо гостей вошли в пустой квартал. Один остался в подворотне — и стало трое.",
+            "Трое гостей искали свет в окне. Один нашёл его слишком близко — и стало двое.",
+            "Двое гостей бежали на пролом. Один не добежал — и остался один.",
+            "Один гость стоял в тишине совсем один. И не осталось никого.",
+        };
     }
 }
