@@ -1,3 +1,8 @@
+# Godot generated — импорт-кэш и экспортные пресеты с путями машины
+godot/.godot/
+godot/android/
+export_presets.cfg
+
 # Unity generated
 [Ll]ibrary/
 [Tt]emp/
