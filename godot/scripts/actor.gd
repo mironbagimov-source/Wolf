@@ -16,6 +16,13 @@ const LAYER_GUEST := 2
 const LAYER_KILLER := 4
 const LAYER_THICKET := 8
 
+## Риг персонажа: Soldier из примеров three.js (MIT, см. assets/LICENSE.md).
+## Один и тот же скелет на всех — стороны различаются покраской, ростом и
+## метками силуэта, как и в браузерной версии.
+const CHARACTER := preload("res://assets/soldier.glb")
+const MODEL_YAW_OFFSET := PI   ## риг смотрит в +Z, игра — в -Z
+const POSES := ["Idle", "Walk", "Run"]
+
 var intent := Intent.new()
 var is_player := false
 var yaw := 0.0
@@ -34,6 +41,8 @@ var _materials: Array[StandardMaterial3D] = []
 var _tint := Color.WHITE
 var _health_bar: MeshInstance3D
 var _body_pivot: Node3D
+var _anim: AnimationPlayer
+var _pose := ""
 
 
 func setup_body(tint: Color, body_scale: float, with_health_bar: bool) -> void:
@@ -52,23 +61,8 @@ func setup_body(tint: Color, body_scale: float, with_health_bar: bool) -> void:
 	_body_pivot = Node3D.new()
 	add_child(_body_pivot)
 
-	var body := MeshInstance3D.new()
-	var body_mesh := CapsuleMesh.new()
-	body_mesh.height = 1.5 * body_scale
-	body_mesh.radius = 0.32 * body_scale
-	body.mesh = body_mesh
-	body.position.y = 0.85 * body_scale
-	body.material_override = _make_material(tint)
-	_body_pivot.add_child(body)
-
-	var skull := MeshInstance3D.new()
-	var skull_mesh := SphereMesh.new()
-	skull_mesh.radius = 0.24 * body_scale
-	skull_mesh.height = 0.48 * body_scale
-	skull.mesh = skull_mesh
-	skull.position.y = 1.68 * body_scale
-	skull.material_override = _make_material(tint)
-	_body_pivot.add_child(skull)
+	if not _build_model(tint, body_scale):
+		_build_capsules(tint, body_scale)
 
 	head = Node3D.new()
 	head.position.y = EYE_HEIGHT
@@ -88,6 +82,98 @@ func setup_body(tint: Color, body_scale: float, with_health_bar: bool) -> void:
 		add_child(_health_bar)
 
 
+## Риг — прогрессивное улучшение: если модель не подгрузилась, тело всё равно
+## должно быть, иначе матч превращается в невидимок.
+func _build_model(tint: Color, body_scale: float) -> bool:
+	var instance := CHARACTER.instantiate() as Node3D
+	if instance == null:
+		return false
+
+	instance.scale = Vector3.ONE * body_scale
+	instance.rotation.y = MODEL_YAW_OFFSET
+	_body_pivot.add_child(instance)
+
+	for mesh_node in _find_meshes(instance):
+		if mesh_node.mesh == null:
+			continue
+		for surface in mesh_node.mesh.get_surface_count():
+			mesh_node.set_surface_override_material(surface, _tint_of(mesh_node, surface, tint))
+
+	_anim = instance.find_child("AnimationPlayer", true, false)
+	if _anim:
+		# glTF отдаёт клипы без зацикливания — шаг делается один раз и замирает.
+		for pose in POSES:
+			if _anim.has_animation(pose):
+				_anim.get_animation(pose).loop_mode = Animation.LOOP_LINEAR
+		play_pose("Idle")
+
+	return true
+
+
+## Текстуру рига оставляем, цвет только подмешиваем: полная заливка тинтом
+## превращает солдата в силуэт.
+func _tint_of(mesh_node: MeshInstance3D, surface: int, tint: Color) -> StandardMaterial3D:
+	var source := mesh_node.get_active_material(surface)
+	var material: StandardMaterial3D
+	if source is StandardMaterial3D:
+		material = (source as StandardMaterial3D).duplicate()
+	else:
+		material = StandardMaterial3D.new()
+
+	material.albedo_color = Color.WHITE.lerp(tint, 0.6)
+	material.emission_enabled = true
+	material.emission = tint
+	material.emission_energy_multiplier = 0.12
+	_materials.append(material)
+	return material
+
+
+func _find_meshes(node: Node) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	if node is MeshInstance3D:
+		out.append(node)
+	for child in node.get_children():
+		out.append_array(_find_meshes(child))
+	return out
+
+
+func _build_capsules(tint: Color, body_scale: float) -> void:
+	var body := MeshInstance3D.new()
+	var body_mesh := CapsuleMesh.new()
+	body_mesh.height = 1.5 * body_scale
+	body_mesh.radius = 0.32 * body_scale
+	body.mesh = body_mesh
+	body.position.y = 0.85 * body_scale
+	body.material_override = _make_material(tint)
+	_body_pivot.add_child(body)
+
+	var skull := MeshInstance3D.new()
+	var skull_mesh := SphereMesh.new()
+	skull_mesh.radius = 0.24 * body_scale
+	skull_mesh.height = 0.48 * body_scale
+	skull.mesh = skull_mesh
+	skull.position.y = 1.68 * body_scale
+	skull.material_override = _make_material(tint)
+	_body_pivot.add_child(skull)
+
+
+## Поза по намерению: стоит, идёт или бежит. `still` — для тех, кто уже не
+## распоряжается собой: на земле, на плече, на крюке.
+func sync_pose(still: bool) -> void:
+	var moving := intent.move.length_squared() > 0.01 and can_move()
+	if still or not moving:
+		play_pose("Idle")
+	else:
+		play_pose("Run" if intent.sprint else "Walk")
+
+
+func play_pose(pose: String) -> void:
+	if _anim == null or _pose == pose or not _anim.has_animation(pose):
+		return
+	_pose = pose
+	_anim.play(pose, 0.2)
+
+
 func _make_material(tint: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = tint
@@ -99,14 +185,29 @@ func _make_material(tint: Color) -> StandardMaterial3D:
 	return material
 
 
+## Метки силуэта (маска, венец, цепь) вешаются сюда, а не на само тело: иначе
+## в виде от первого лица маска окажется в тринадцати сантиметрах от камеры и
+## закроет игроку весь экран.
+func attach_to_body(node: Node3D) -> void:
+	if _body_pivot:
+		_body_pivot.add_child(node)
+	else:
+		add_child(node)
+
+
+## Своё тело в кадре не нужно — но для съёмки и для будущего вида от третьего
+## лица его надо уметь вернуть.
+func show_body(on: bool) -> void:
+	if _body_pivot:
+		_body_pivot.visible = on
+
+
 func attach_camera() -> void:
 	camera = Camera3D.new()
 	camera.fov = 75.0
 	camera.current = true
 	head.add_child(camera)
-	# Своё тело в кадре не нужно — вид от первого лица.
-	if _body_pivot:
-		_body_pivot.visible = false
+	show_body(false)   # вид от первого лица
 
 
 func set_eye_height(value: float) -> void:
@@ -202,7 +303,7 @@ func sync_materials(pulse: float, pulse_color: Color) -> void:
 			material.emission_energy_multiplier = pulse
 		else:
 			material.emission = _tint
-			material.emission_energy_multiplier = 0.2
+			material.emission_energy_multiplier = 0.12
 
 
 func sync_health_bar(visible_now: bool) -> void:

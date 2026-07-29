@@ -1,6 +1,6 @@
 extends Node
 
-## Снимает несколько кадров матча без человека за рулём:
+## Снимает несколько кадров матча свободной камерой:
 ##
 ##     xvfb-run -a godot --path godot --rendering-driver opengl3 tests/shot.tscn
 ##
@@ -9,27 +9,41 @@ extends Node
 const OUT := "/tmp/claude-0/-home-user-Wolf/f4bbd2eb-a3f6-5544-981d-a677f67999cf/scratchpad"
 
 var runner: MatchRunner
+var eye: Camera3D
 
 
 func _ready() -> void:
 	runner = MatchRunner.new()
 	add_child(runner)
+	eye = Camera3D.new()
+	eye.fov = 70.0
+	add_child(eye)
 	await _shots()
 
 
 func _shots() -> void:
-	# Площадь с постаментом: убийца смотрит на четыре фигурки, гости вокруг.
 	runner.start("killer", "trickster")
 	await _step(6)
-	_park(runner.killer, Vector2(0, 9), 0.0)
+	_free_camera()
+
+	# Площадь: четыре фигурки на постаменте, гости вокруг.
 	var spots := [Vector2(-3, -3), Vector2(3, -4), Vector2(-4, 2), Vector2(4, 2)]
 	for i in runner.guests.size():
 		var guest := runner.guests[i]
 		guest.brain = null
 		guest.intent.move = Vector2.ZERO
 		_park(guest, spots[i], PI)
+	_park(runner.killer, Vector2(6, 3), 2.2)
+	_look_from(Vector3(0, 2.6, 4.4), Vector3(0, 1.0, -1.5))
 	await _step(30)
 	await _save("godot-plaza.png")
+
+	# Убийца в упор: рост, покраска, метка силуэта.
+	_park(runner.killer, Vector2(0, -4), PI)
+	runner.killer.play_pose("Walk")
+	_look_from(Vector3(1.1, 1.6, -0.7), Vector3(0, 1.15, -4))
+	await _step(30)
+	await _save("godot-killer.png")
 
 	# Гость на крюке — узловой момент матча.
 	var hook := runner.hooks[4]
@@ -38,11 +52,28 @@ func _shots() -> void:
 	runner.killer.pick_up(victim)
 	await _step(2)
 	hook.hang(runner.killer)
-	_park(runner.killer, hook.spot + Vector2(0, 4.5), 0.0)
+	_park(runner.killer, hook.spot + Vector2(2.0, 2.5), 0.0)
+	_look_from(Vector3(hook.spot.x + 2.2, 2.0, hook.spot.y + 4.2), Vector3(hook.spot.x + 0.3, 1.15, hook.spot.y))
 	await _step(30)
 	await _save("godot-hook.png")
 
 	get_tree().quit(0)
+
+
+func _free_camera() -> void:
+	if runner.killer and runner.killer.camera:
+		runner.killer.camera.current = false
+	# Убийца здесь — «игрок», поэтому его тело спрятано под вид от первого лица.
+	# Для съёмки со стороны его надо вернуть.
+	runner.killer.show_body(true)
+	runner.killer.brain = null
+	runner.killer.is_player = false
+	eye.current = true
+
+
+func _look_from(from: Vector3, at: Vector3) -> void:
+	eye.global_position = from
+	eye.look_at(at, Vector3.UP)
 
 
 func _park(actor: Actor, at: Vector2, facing: float) -> void:

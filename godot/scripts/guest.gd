@@ -95,6 +95,7 @@ func _physics_process(delta: float) -> void:
 			return
 		State.HOOKED:
 			set_eye_height(1.9)
+			play_pose("Idle")
 			return
 		State.ESCAPED, State.GONE:
 			return
@@ -121,6 +122,7 @@ func _sync_look() -> void:
 		Color("b01722")
 	)
 	sync_health_bar(state == State.STANDING or state == State.DOWNED)
+	sync_pose(state != State.STANDING)
 
 
 func _pulse() -> float:
@@ -163,6 +165,7 @@ func _tick_carried(delta: float) -> void:
 	global_position.y = carried_by.global_position.y
 	set_eye_height(1.5)
 	lay_down(PI * 0.5)
+	play_pose("Idle")
 
 	if intent.struggle:
 		carry_struggle += Kits.CARRY_STRUGGLE_GAIN

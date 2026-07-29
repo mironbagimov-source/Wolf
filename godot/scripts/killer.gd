@@ -58,29 +58,30 @@ func _add_silhouette() -> void:
 	match kind:
 		"trickster":
 			var mask := SphereMesh.new()
-			mask.radius = 0.2
-			mask.height = 0.44
+			mask.radius = 0.13
+			mask.height = 0.3
 			mark.mesh = mask
-			mark.position = Vector3(0, 1.66, -0.16)
+			mark.position = Vector3(0, 1.56, -0.14)
+			mark.scale = Vector3(1.0, 1.0, 0.45)   # маска, а не шар на лице
 			material.albedo_color = Color("e8e2d4")
 		"witch":
 			var crown := TorusMesh.new()
-			crown.inner_radius = 0.18
-			crown.outer_radius = 0.28
+			crown.inner_radius = 0.13
+			crown.outer_radius = 0.2
 			mark.mesh = crown
-			mark.position = Vector3(0, 1.86, 0)
+			mark.position = Vector3(0, 1.76, 0)
 			material.albedo_color = Color("3fbf55")
 		_:
 			var chain := TorusMesh.new()
-			chain.inner_radius = 0.36
-			chain.outer_radius = 0.46
+			chain.inner_radius = 0.28
+			chain.outer_radius = 0.36
 			mark.mesh = chain
-			mark.position = Vector3(0, 1.5, 0)
-			mark.rotation.x = PI * 0.42
+			mark.position = Vector3(0, 1.28, 0)
+			mark.rotation.x = PI * 0.44
 			material.albedo_color = Color("aab2bd")
 
 	mark.material_override = material
-	add_child(mark)
+	attach_to_body(mark)
 
 
 func damage_mul() -> float:
@@ -132,6 +133,7 @@ func _physics_process(delta: float) -> void:
 	_run_interactions(delta)
 
 	sync_materials(0.0, Color.WHITE)
+	sync_pose(stunned > 0.0)
 	intent.clear_presses()
 
 
@@ -226,6 +228,7 @@ func _tick_charge(delta: float) -> void:
 		return
 
 	rotation.y = yaw
+	play_pose("Run")
 	var f := forward()
 	velocity = Vector3(f.x * power.speed, -1.0, f.y * power.speed)
 	move_and_slide()
