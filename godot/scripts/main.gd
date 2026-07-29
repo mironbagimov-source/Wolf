@@ -20,6 +20,9 @@ func _ready() -> void:
 	ui.restart_requested.connect(_on_restart)
 	runner.ended.connect(_on_ended)
 	runner.rhyme_line.connect(func(text: String) -> void: ui.speak_rhyme(text))
+	runner.phase_changed.connect(func(text: String) -> void: ui.speak_phase(text))
+	runner.region_changed.connect(func(title: String) -> void: ui.speak_region(title))
+	runner.finisher_beat.connect(func(title: String, line: String) -> void: ui.speak_finisher(title, line))
 
 
 func _process(_delta: float) -> void:
@@ -51,14 +54,14 @@ func _on_ended(result: String) -> void:
 			subtitle = "Через пролом ушли: %d из %d." % [runner.escaped, runner.guests.size()]
 			colour = Color("d8c08a")
 		"player_dead":
-			var me := runner.guests[0]
+			var me := runner.guests[runner.player_guest]
 			title = "Твоя фигурка разбита"
-			subtitle = "%s — %s. В квартале ещё остались живые: %d." % [
+			subtitle = "%s — %s. В руинах ещё остались живые: %d." % [
 				me.guest_name, me.guilt, runner.guests_in_play()
 			]
 		_:
 			title = "Считалка сошлась"
-			subtitle = "Из квартала не вышел никто."
+			subtitle = "Из руин не вышел никто."
 
 	ui.show_end(title, subtitle, colour)
 

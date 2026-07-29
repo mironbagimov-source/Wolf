@@ -14,6 +14,14 @@ var guest_name := "Гость"
 var guilt := ""   ## «за что» — всплывает на финальном экране
 var index := 0
 
+## Черта: то, чем этот человек выкручивался в прошлой жизни, и её цена.
+## Числа берутся из Kits.ROSTER, поведение — из веток ниже.
+var trait_name := ""
+var trait_text := ""
+var mods := {}
+var stamina_max := 5.0
+var self_lifts := 0
+
 var stamina := 0.0
 var exhausted := false
 var bleed := 0.0
@@ -33,9 +41,11 @@ var _mark_timer := 0.0
 
 
 func _ready() -> void:
-	max_hp = Kits.GUEST.hp
+	max_hp = Kits.GUEST.hp * mod("hp_mul", 1.0)
 	hp = max_hp
-	stamina = Kits.GUEST.stamina_max
+	stamina_max = Kits.GUEST.stamina_max * mod("stamina_mul", 1.0)
+	stamina = stamina_max
+	self_lifts = int(mod("self_lift", 0.0))
 	collision_layer = LAYER_GUEST
 	# Гость упирается в поросль Ведьмы, убийца — нет. На этой асимметрии
 	# держится вся её способность.
@@ -53,6 +63,10 @@ func _ready() -> void:
 
 	if is_player:
 		attach_camera()
+
+
+func mod(key: String, fallback: float) -> float:
+	return float(mods.get(key, fallback))
 
 
 func in_play() -> bool:
@@ -79,6 +93,10 @@ func current_speed() -> float:
 
 func _physics_process(delta: float) -> void:
 	if not runner or not runner.running:
+		return
+	# Во время добивания телом распоряжается постановка. Ни мозг, ни клавиатура
+	# сюда уже не достают — в этом и весь ужас происходящего.
+	if pinned:
 		return
 
 	tick_timers(delta)
@@ -137,8 +155,8 @@ func _tick_stamina(delta: float) -> void:
 		if stamina <= 0.0:
 			exhausted = true
 	else:
-		stamina = minf(Kits.GUEST.stamina_max, stamina + Kits.GUEST.stamina_regen * delta)
-		if stamina > Kits.GUEST.stamina_max * 0.4:
+		stamina = minf(stamina_max, stamina + Kits.GUEST.stamina_regen * mod("regen_mul", 1.0) * delta)
+		if stamina > stamina_max * 0.4:
 			exhausted = false
 
 
@@ -211,7 +229,7 @@ func take_damage(amount: float, source: Killer = null, quiet := false) -> void:
 func go_down() -> void:
 	hp = 0.0
 	state = State.DOWNED
-	bleed = Kits.GUEST.bleedout
+	bleed = Kits.GUEST.bleedout * mod("bleed_mul", 1.0)
 	rooted = 0.0
 	flashlight_on = false
 	revive_progress = 0.0
@@ -240,7 +258,7 @@ func drop_to_ground() -> void:
 	carried_by = null
 	state = State.DOWNED
 	if bleed <= 0.0:
-		bleed = Kits.GUEST.bleedout
+		bleed = Kits.GUEST.bleedout * mod("bleed_mul", 1.0)
 
 
 func hang_on(hook) -> void:
@@ -286,6 +304,9 @@ func die() -> void:
 
 func _run_interactions(delta: float) -> void:
 	progress_ui = 0.0
+	if state == State.DOWNED:
+		_try_self_lift(delta)
+		return
 	if state != State.STANDING:
 		return
 
@@ -304,7 +325,7 @@ func _run_interactions(delta: float) -> void:
 			continue
 		if flat_position().distance_to(other.flat_position()) > Kits.INTERACT_RANGE:
 			continue
-		other.revive_progress += delta
+		other.revive_progress += delta / mod("revive_mul", 1.0)
 		other.revive_touched = true
 		progress_ui = clampf(other.revive_progress / Kits.GUEST.revive_time, 0.0, 1.0)
 		if other.revive_progress >= Kits.GUEST.revive_time:
@@ -316,7 +337,7 @@ func _run_interactions(delta: float) -> void:
 			continue
 		if flat_position().distance_to(breaker.spot) > Kits.INTERACT_RANGE:
 			continue
-		breaker.work(delta)
+		breaker.work(delta * mod("repair_mul", 1.0))
 		progress_ui = breaker.progress()
 		return
 
@@ -330,11 +351,24 @@ func _run_interactions(delta: float) -> void:
 		return
 
 
+## Двужильный поднимается сам — один раз за матч и вдвое дольше обычного. Это
+## не спасение, а второй шанс дойти до угла.
+func _try_self_lift(delta: float) -> void:
+	if self_lifts <= 0 or not intent.interact_held:
+		return
+	revive_progress += delta * 0.5
+	revive_touched = true
+	progress_ui = clampf(revive_progress / Kits.GUEST.revive_time, 0.0, 1.0)
+	if revive_progress >= Kits.GUEST.revive_time:
+		self_lifts -= 1
+		lift_up(Kits.GUEST.revive_hp * 0.6)
+
+
 func _check_breach() -> void:
 	if state != State.STANDING or not runner.breach_open():
 		return
 	var here := flat_position()
-	if absf(here.x - QuarterData.BREACH.x) <= QuarterData.BREACH.half_w and here.y >= QuarterData.BREACH.z:
+	if absf(here.x - WorldData.BREACH.x) <= WorldData.BREACH.half_w and here.y <= WorldData.BREACH.z:
 		escape()
 
 
@@ -348,6 +382,8 @@ func prompt() -> String:
 		State.CARRIED:
 			return "ПРОБЕЛ — вырываться (%d%%)" % int(carry_struggle * 100.0)
 		State.DOWNED:
+			if self_lifts > 0:
+				return "[E] Встать самому (%d%%)" % int(progress_ui * 100.0)
 			return "Ползи. Кто-то из своих может тебя поднять."
 
 	for plant in runner.plants:
@@ -364,8 +400,25 @@ func prompt() -> String:
 		if not breaker.online and flat_position().distance_to(breaker.spot) <= Kits.INTERACT_RANGE:
 			return "[E] Чинить щит"
 	if runner.breach_open():
-		return "Свет дали — пролом на севере открыт"
+		return "Пролом на юге старого города открыт"
+	if runner.gate_open():
+		return "Ворота старого города открыты — щиты внутри"
 	return ""
+
+
+## Насколько далеко его слышно сверх базового. Черта Марго добавляет сюда
+## постоянные полтора метра, черта Ильи — вычитает их из приседа.
+func noise() -> float:
+	var bonus := mod("noise", 0.0)
+	if intent.sprint:
+		bonus += Kits.SPRINT_NOISE
+	if flashlight_on:
+		bonus += Kits.FLASHLIGHT_NOISE
+	if intent.crouch:
+		bonus += Kits.CROUCH_NOISE + mod("crouch_noise", 0.0)
+	if is_injured():
+		bonus += 2.0
+	return bonus
 
 
 func state_text() -> String:

@@ -5,6 +5,7 @@ extends RefCounted
 ## близко; снять своего с крюка; поднять своего с земли; починить щит; уйти.
 
 const INTERACT := 2.4
+const RESCUE_RANGE := 45.0   ## дальше этого крюк уже не его забота
 
 var _sidestep := 0.0
 var _sidestep_dir := 1.0
@@ -37,6 +38,8 @@ func tick(guest: Guest, delta: float) -> void:
 			_flee(guest, threat.point)
 		else:
 			intent.move = Vector2.ZERO
+			# Двужильный поднимается сам — если его оставили в покое.
+			intent.interact_held = guest.self_lifts > 0
 		_track_stuck(guest, delta)
 		return
 
@@ -104,6 +107,9 @@ func _rescue(guest: Guest) -> bool:
 	for hook in guest.runner.hooks:
 		if not hook.captive or hook.captive == guest:
 			continue
+		# Через полкарты не бегают: пока дойдёшь, таймер кончится и без тебя.
+		if guest.flat_position().distance_to(hook.spot) > RESCUE_RANGE:
+			continue
 		# Прийти убийце в руки — не спасение.
 		if guest.runner.killer and guest.runner.killer.flat_position().distance_to(hook.spot) < 12.0:
 			continue
@@ -131,14 +137,21 @@ func _lift(guest: Guest) -> bool:
 	return false
 
 
+## Чинить — но не всё подряд. Пока ворота заперты, щиты старого города для него
+## не существуют: бежать туда — это встать лбом в ворота и там же и остаться.
+## Как только ворота открылись, всё наоборот: только они и имеют смысл.
 func _repair(guest: Guest) -> bool:
 	if guest.runner.breach_open():
 		return false
 
+	var finale := guest.runner.gate_open()
 	var best: Breaker = null
 	var best_score := INF
 	for breaker in guest.runner.breakers:
 		if breaker.online:
+			continue
+		var in_oldcity := breaker.region == "oldcity"
+		if in_oldcity != finale:
 			continue
 		var score := guest.flat_position().distance_to(breaker.spot) - breaker.progress() * 6.0
 		if score < best_score:
@@ -160,7 +173,7 @@ func _repair(guest: Guest) -> bool:
 func _leave(guest: Guest) -> bool:
 	if not guest.runner.breach_open():
 		return false
-	var distance := _steer(guest, Vector2(QuarterData.BREACH.x, QuarterData.BREACH.z + 1.0))
+	var distance := _steer(guest, Vector2(WorldData.BREACH.x, WorldData.BREACH.z + 1.5))
 	guest.intent.sprint = distance > 4.0
 	_tear_ahead(guest)
 	return true

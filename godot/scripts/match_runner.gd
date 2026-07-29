@@ -1,8 +1,9 @@
 class_name MatchRunner
 extends Node3D
 
-## Матч целиком: строит квартал, расставляет гостей и убийцу, крутит таймеры
-## крюков, поросли и двойников, считает считалку и решает, чем всё кончилось.
+## Матч целиком: строит мир, расставляет гостей и убийцу, крутит таймеры крюков,
+## поросли и двойников, ведёт квест по зонам, ставит добивания и решает, чем всё
+## кончилось.
 ##
 ## Ничего не знает про меню и HUD — они слушают сигналы. Благодаря этому
 ## tests/smoke_test.gd поднимает матч без единого элемента интерфейса.
@@ -10,10 +11,14 @@ extends Node3D
 signal rhyme_line(text: String)
 signal ended(result: String)
 signal roster_changed()
+signal region_changed(title: String)
+signal phase_changed(text: String)
+signal finisher_beat(title: String, line: String)
 
 var running := false
 var player_side := "guest"
 var killer_kind := "trickster"
+var player_guest := 0        ## кем из четверых играет человек
 
 var walls: Array = []
 var doorways: Array = []
@@ -29,17 +34,30 @@ var breakers_online := 0
 var escaped := 0
 var lost := 0
 var result := ""
+var region_id := "neutral"
+var finisher: Finisher = null
 
 var _marks: Array = []
 var _figurines: Array[MeshInstance3D] = []
 var _breach_glow: MeshInstance3D
+var _gate_wall: Dictionary = {}
+var _gate_block: WallBlock
+var _gate_lights: Array[OmniLight3D] = []
+var _gate_was_open := false
+var _breach_was_open := false
+var _env: Environment
 var _level_root: Node3D
 var _actors_root: Node3D
 
 
 func start(side: String, kind: String) -> void:
 	player_side = side
-	killer_kind = kind if side == "killer" else Kits.KILLER_ORDER.pick_random()
+	if side == "guest":
+		player_guest = clampi(int(kind), 0, Kits.ROSTER.size() - 1)
+		killer_kind = Kits.KILLER_ORDER.pick_random()
+	else:
+		player_guest = 0
+		killer_kind = kind if Kits.KILLERS.has(kind) else "trickster"
 
 	_clear()
 	_build_level()
@@ -48,10 +66,14 @@ func start(side: String, kind: String) -> void:
 	running = true
 	result = ""
 	roster_changed.emit()
+	phase_changed.emit("Найдите щиты. Три из них откроют ворота старого города.")
 
 
 func _clear() -> void:
 	running = false
+	if finisher and is_instance_valid(finisher):
+		finisher.abort()
+	finisher = null
 	for node in [_level_root, _actors_root]:
 		if node:
 			node.queue_free()
@@ -62,111 +84,179 @@ func _clear() -> void:
 	doubles.clear()
 	_marks.clear()
 	_figurines.clear()
+	_gate_lights.clear()
+	_gate_wall = {}
+	_gate_block = null
+	_gate_was_open = false
+	_breach_was_open = false
 	killer = null
 	breakers_online = 0
 	escaped = 0
 	lost = 0
+	region_id = "neutral"
 
 	_level_root = Node3D.new()
-	_level_root.name = "Quarter"
+	_level_root.name = "World"
 	add_child(_level_root)
 	_actors_root = Node3D.new()
 	_actors_root.name = "Cast"
 	add_child(_actors_root)
 
 
-# --- постройка квартала ---
+# --- постройка мира --------------------------------------------------------
 
 func _build_level() -> void:
-	var layout := QuarterData.build()
+	var layout := WorldData.build()
 	walls = layout.walls
 	doorways = layout.doorways
 
 	_build_environment()
 	_build_ground()
+	_build_gate()
 
 	for wall in walls:
 		var block := WallBlock.new()
 		_level_root.add_child(block)
 		block.build(wall)
+		if wall == _gate_wall:
+			_gate_block = block
 
-	for spot in QuarterData.HOOK_SPOTS:
+	for spot in layout.hooks:
 		var hook := Hook.new()
 		hook.runner = self
 		_level_root.add_child(hook)
 		hook.build(spot)
 		hooks.append(hook)
 
-	for spot in QuarterData.BREAKER_SPOTS:
+	for entry in layout.breakers:
 		var breaker := Breaker.new()
 		_level_root.add_child(breaker)
-		breaker.build(spot)
+		breaker.build(entry.at, entry.region)
 		breakers.append(breaker)
 
-	_build_plinth()
-	_build_barrel()
-	_build_lamps()
+	for prop in layout.props:
+		_build_prop(prop)
+	for lamp in layout.lamps:
+		_build_lamp(lamp)
+
 	_build_breach()
 
-	nav.bake(walls, QuarterData.BOUNDS)
+	nav.bake(walls, WorldData.BOUNDS)
 
 
 func _build_environment() -> void:
 	var environment := WorldEnvironment.new()
-	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("05060a")
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("1b2130")
-	env.ambient_light_energy = 0.95
-	env.fog_enabled = true
-	env.fog_light_color = Color("06070c")
-	env.fog_density = 0.022
-	environment.environment = env
+	_env = Environment.new()
+	_env.background_mode = Environment.BG_COLOR
+	_env.background_color = Color("05060a")
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	_env.ambient_light_color = Color("2b3346")
+	_env.ambient_light_energy = 1.25
+	_env.fog_enabled = true
+	_env.fog_light_color = Color("06070c")
+	_env.fog_density = 0.016
+	environment.environment = _env
 	_level_root.add_child(environment)
 
 	var moon := DirectionalLight3D.new()
-	moon.light_color = Color("53607e")
-	moon.light_energy = 0.5
+	moon.light_color = Color("6b7a9c")
+	moon.light_energy = 0.75
 	moon.rotation_degrees = Vector3(-50, 30, 0)
 	_level_root.add_child(moon)
 
 
+## Одна плита столкновений на весь мир и по цветному полу на зону. Пол — это
+## первое, что говорит игроку, куда он зашёл: камень катакомб, мох джунглей,
+## глина деревни, асфальт старого города.
 func _build_ground() -> void:
+	var width: float = WorldData.BOUNDS.max_x - WorldData.BOUNDS.min_x + 20.0
+	var depth: float = WorldData.BOUNDS.max_z - WorldData.BOUNDS.min_z + 20.0
+
 	var ground := StaticBody3D.new()
 	ground.collision_layer = Actor.LAYER_WORLD
 	ground.collision_mask = 0
 
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(160, 2, 140)
+	box.size = Vector3(width, 2, depth)
 	shape.shape = box
 	shape.position.y = -1.0
 	ground.add_child(shape)
 
 	var mesh := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(160, 140)
+	plane.size = Vector2(width, depth)
 	mesh.mesh = plane
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Color("101216")
+	material.albedo_color = Color("0d0f13")
 	material.roughness = 1.0
 	mesh.material_override = material
 	ground.add_child(mesh)
-
 	_level_root.add_child(ground)
+
+	var floors := {
+		"neutral": Color("15171d"), "catacombs": Color("1a1a1c"),
+		"jungle": Color("131e14"), "village": Color("1e1913"), "oldcity": Color("16181f"),
+	}
+	for region in WorldData.REGIONS:
+		var rect: Dictionary = region.rect
+		var patch := MeshInstance3D.new()
+		var patch_mesh := PlaneMesh.new()
+		patch_mesh.size = Vector2(rect.max_x - rect.min_x, rect.max_z - rect.min_z)
+		patch.mesh = patch_mesh
+		patch.position = Vector3((rect.min_x + rect.max_x) * 0.5, 0.02, (rect.min_z + rect.max_z) * 0.5)
+		var patch_material := StandardMaterial3D.new()
+		patch_material.albedo_color = floors[region.id]
+		patch_material.roughness = 1.0
+		patch.material_override = patch_material
+		_level_root.add_child(patch)
+
+
+## Ворота старого города. Обычная стена в списке — значит, сетка путей знает о
+## них, боты их обходят, а Роджер об них глохнет. Открываются светом.
+func _build_gate() -> void:
+	var gate: Dictionary = WorldData.OLDCITY_GATE
+	_gate_wall = {
+		"min_x": gate.x - gate.half_w, "max_x": gate.x + gate.half_w,
+		"min_z": gate.z - 0.5, "max_z": gate.z + 0.5,
+		"h": 5.5, "breakable": false, "alive": true, "kind": "gate",
+	}
+	walls.append(_gate_wall)
+
+	for side in [-1.0, 1.0]:
+		var light := OmniLight3D.new()
+		light.light_color = Color("c9862f")
+		light.light_energy = 1.2
+		light.omni_range = 12.0
+		light.position = Vector3(gate.x + side * (gate.half_w + 1.2), 4.2, gate.z)
+		_level_root.add_child(light)
+		_gate_lights.append(light)
+
+
+func _build_prop(prop: Dictionary) -> void:
+	match String(prop.kind):
+		"plinth":
+			_build_plinth(prop.at)
+		"fire":
+			_build_fire(prop.at)
+		"well":
+			_build_well(prop.at)
+		"roof":
+			_build_roof(prop.at, float(prop.size))
+		"tree":
+			_build_canopy(prop.at, float(prop.size))
 
 
 ## Постамент с четырьмя фигурками: счётчик матча, видный издалека, и та самая
 ## считалка одновременно.
-func _build_plinth() -> void:
+func _build_plinth(at: Vector2) -> void:
 	var base := MeshInstance3D.new()
 	var base_mesh := CylinderMesh.new()
 	base_mesh.top_radius = 1.5
 	base_mesh.bottom_radius = 1.8
 	base_mesh.height = 1.0
 	base.mesh = base_mesh
-	base.position = Vector3(QuarterData.PLAZA.x, 0.5, QuarterData.PLAZA.y)
+	base.position = Vector3(at.x, 0.5, at.y)
 	_level_root.add_child(base)
 
 	for i in 4:
@@ -176,11 +266,7 @@ func _build_plinth() -> void:
 		mesh.height = 0.62
 		mesh.radius = 0.12
 		figurine.mesh = mesh
-		figurine.position = Vector3(
-			QuarterData.PLAZA.x + cos(angle) * 0.8,
-			1.3,
-			QuarterData.PLAZA.y + sin(angle) * 0.8
-		)
+		figurine.position = Vector3(at.x + cos(angle) * 0.8, 1.3, at.y + sin(angle) * 0.8)
 		var material := StandardMaterial3D.new()
 		material.albedo_color = Color("d9d2c2")
 		material.emission_enabled = true
@@ -190,16 +276,16 @@ func _build_plinth() -> void:
 		_figurines.append(figurine)
 
 
-## Горящая бочка у постамента — единственный тёплый свет в квартале и
-## единственная причина, по которой площадь вообще видно.
-func _build_barrel() -> void:
+## Горящая бочка — тёплый свет и единственная причина, по которой это место
+## вообще видно.
+func _build_fire(at: Vector2) -> void:
 	var barrel := MeshInstance3D.new()
 	var barrel_mesh := CylinderMesh.new()
 	barrel_mesh.top_radius = 0.55
 	barrel_mesh.bottom_radius = 0.5
 	barrel_mesh.height = 1.1
 	barrel.mesh = barrel_mesh
-	barrel.position = Vector3(QuarterData.BARREL.x, 0.55, QuarterData.BARREL.y)
+	barrel.position = Vector3(at.x, 0.55, at.y)
 	var barrel_material := StandardMaterial3D.new()
 	barrel_material.albedo_color = Color("2a1c14")
 	barrel.material_override = barrel_material
@@ -211,7 +297,7 @@ func _build_barrel() -> void:
 	flame_mesh.bottom_radius = 0.4
 	flame_mesh.height = 1.1
 	flame.mesh = flame_mesh
-	flame.position = Vector3(QuarterData.BARREL.x, 1.5, QuarterData.BARREL.y)
+	flame.position = Vector3(at.x, 1.5, at.y)
 	var flame_material := StandardMaterial3D.new()
 	flame_material.albedo_color = Color("ff7a1e")
 	flame_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -222,36 +308,84 @@ func _build_barrel() -> void:
 	fire.light_color = Color("ff8a3a")
 	fire.light_energy = 3.2
 	fire.omni_range = 18.0
-	fire.position = Vector3(QuarterData.BARREL.x, 1.6, QuarterData.BARREL.y)
+	fire.position = Vector3(at.x, 1.6, at.y)
 	_level_root.add_child(fire)
 
 
-func _build_lamps() -> void:
-	for lamp in QuarterData.LAMP_SPOTS:
-		var post := MeshInstance3D.new()
-		var post_mesh := CylinderMesh.new()
-		post_mesh.top_radius = 0.11
-		post_mesh.bottom_radius = 0.15
-		post_mesh.height = 6.0
-		post.mesh = post_mesh
-		post.position = Vector3(lamp.x, 3.0, lamp.y)
-		_level_root.add_child(post)
+func _build_well(at: Vector2) -> void:
+	var ring := MeshInstance3D.new()
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 1.1
+	mesh.bottom_radius = 1.2
+	mesh.height = 1.0
+	ring.mesh = mesh
+	ring.position = Vector3(at.x, 0.5, at.y)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color("30302f")
+	ring.material_override = material
+	_level_root.add_child(ring)
 
-		if lamp.z > 0.5:
-			var light := OmniLight3D.new()
-			light.light_color = Color("ffd9a0")
-			light.light_energy = 1.6
-			light.omni_range = 16.0
-			light.position = Vector3(lamp.x, 5.7, lamp.y)
-			_level_root.add_child(light)
+
+func _build_roof(at: Vector2, size: float) -> void:
+	var roof := MeshInstance3D.new()
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.0
+	mesh.bottom_radius = size
+	mesh.height = 2.2
+	mesh.radial_segments = 4
+	roof.mesh = mesh
+	roof.position = Vector3(at.x, WorldData.WALL_H + 1.0, at.y)
+	roof.rotation.y = PI * 0.25
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color("241a12")
+	material.roughness = 1.0
+	roof.material_override = material
+	_level_root.add_child(roof)
+
+
+## Крона. Ствол — это уже стена в списке (WallBlock рисует его цилиндром), сюда
+## остаётся только шапка: в тумане джунгли должны читаться сверху вниз.
+func _build_canopy(at: Vector2, radius: float) -> void:
+	var canopy := MeshInstance3D.new()
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.0
+	mesh.bottom_radius = radius * 3.4
+	mesh.height = 3.6
+	mesh.radial_segments = 6
+	canopy.mesh = mesh
+	canopy.position = Vector3(at.x, 6.4, at.y)
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color("16301a")
+	material.roughness = 1.0
+	canopy.material_override = material
+	_level_root.add_child(canopy)
+
+
+func _build_lamp(lamp: Vector3) -> void:
+	var post := MeshInstance3D.new()
+	var post_mesh := CylinderMesh.new()
+	post_mesh.top_radius = 0.11
+	post_mesh.bottom_radius = 0.15
+	post_mesh.height = 6.0
+	post.mesh = post_mesh
+	post.position = Vector3(lamp.x, 3.0, lamp.y)
+	_level_root.add_child(post)
+
+	if lamp.z > 0.5:
+		var light := OmniLight3D.new()
+		light.light_color = Color("ffd9a0")
+		light.light_energy = 1.6
+		light.omni_range = 16.0
+		light.position = Vector3(lamp.x, 5.7, lamp.y)
+		_level_root.add_child(light)
 
 
 func _build_breach() -> void:
 	_breach_glow = MeshInstance3D.new()
 	var quad := QuadMesh.new()
-	quad.size = Vector2(QuarterData.BREACH.half_w * 2.0, 5.0)
+	quad.size = Vector2(WorldData.BREACH.half_w * 2.0, 5.0)
 	_breach_glow.mesh = quad
-	_breach_glow.position = Vector3(QuarterData.BREACH.x, 2.5, QuarterData.BOUNDS.max_z)
+	_breach_glow.position = Vector3(WorldData.BREACH.x, 2.5, WorldData.BOUNDS.min_z)
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color("bfd0e0", 0.05)
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -263,18 +397,22 @@ func _build_breach() -> void:
 
 func _spawn_cast() -> void:
 	for i in Kits.ROSTER.size():
+		var entry: Dictionary = Kits.ROSTER[i]
 		var guest := Guest.new()
 		guest.runner = self
-		guest.is_player = player_side == "guest" and i == 0
+		guest.is_player = player_side == "guest" and i == player_guest
 		guest.index = i
-		guest.guest_name = Kits.ROSTER[i].name
-		guest.guilt = Kits.ROSTER[i].sin
-		guest.skin = load(Kits.ROSTER[i].skin) as BodySkin
+		guest.guest_name = entry.name
+		guest.guilt = entry.sin
+		guest.trait_name = entry.trait
+		guest.trait_text = entry.trait_text
+		guest.mods = entry.mods
+		guest.skin = load(entry.skin) as BodySkin
 		if not guest.is_player:
 			guest.brain = GuestBrain.new()
 		_actors_root.add_child(guest)
-		guest.global_position = Vector3(QuarterData.GUEST_SPAWNS[i].x, 0.1, QuarterData.GUEST_SPAWNS[i].y)
-		guest.face(QuarterData.PLAZA)
+		guest.global_position = Vector3(WorldData.GUEST_SPAWNS[i].x, 0.1, WorldData.GUEST_SPAWNS[i].y)
+		guest.face(WorldData.centre_of("neutral"))
 		guests.append(guest)
 
 	killer = Killer.new()
@@ -284,15 +422,23 @@ func _spawn_cast() -> void:
 	if not killer.is_player:
 		killer.brain = KillerBrain.new()
 	_actors_root.add_child(killer)
-	killer.global_position = Vector3(QuarterData.KILLER_SPAWN.x, 0.1, QuarterData.KILLER_SPAWN.y)
-	killer.yaw = PI
+	# Он начинает не рядом с гостями, а в одной из опасных зон: первые полминуты
+	# перекрёсток обязан быть тихим.
+	var spawn: Vector2 = WorldData.KILLER_SPAWNS.pick_random()
+	killer.global_position = Vector3(spawn.x, 0.1, spawn.y)
+	killer.face(WorldData.centre_of("neutral"))
 
 
-# --- ход матча ---
+# --- ход матча -------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
 	if not running:
 		return
+
+	if finisher and is_instance_valid(finisher):
+		finisher.tick(delta)
+	else:
+		finisher = null
 
 	for hook in hooks:
 		hook.tick(delta)
@@ -300,6 +446,8 @@ func _physics_process(delta: float) -> void:
 	_tick_plants(delta)
 	_tick_doubles(delta)
 	_tick_marks(delta)
+	_tick_phase()
+	_tick_region(delta)
 	_sync_world()
 
 
@@ -340,12 +488,75 @@ func _tick_marks(delta: float) -> void:
 		material.albedo_color.a = 0.85 * clampf(mark.life / Kits.MARK_LIFE, 0.0, 1.0)
 
 
+## Квест в две ступени. Три щита где угодно открывают ворота — и с этого момента
+## всё, что осталось сделать, находится в старом городе. Туда идут гости, туда
+## идёт убийца, и там матч заканчивается.
+func _tick_phase() -> void:
+	var gate := gate_open()
+	if gate and not _gate_was_open:
+		_gate_was_open = true
+		if _gate_block:
+			_gate_block.shatter()
+		for light in _gate_lights:
+			light.light_color = Color("5ec26a")
+			light.light_energy = 2.4
+		rebake_nav()
+		phase_changed.emit("Ворота старого города открылись. Последние щиты — за ними.")
+
+	var breach := breach_open()
+	if breach and not _breach_was_open:
+		_breach_was_open = true
+		phase_changed.emit("Свет дали. Пролом на юге старого города открыт.")
+
+
+## Каждая зона — свой воздух. Освещение и туман тянутся к значениям той зоны, в
+## которой стоит игрок: переход между катакомбами и перекрёстком должен быть
+## заметен телом, а не по надписи.
+func _tick_region(delta: float) -> void:
+	var eye := _player_actor()
+	if not eye or not _env:
+		return
+	var region := WorldData.region_of(eye.flat_position())
+	var blend := clampf(delta * 1.5, 0.0, 1.0)
+	_env.ambient_light_color = _env.ambient_light_color.lerp(region.ambient, blend)
+	_env.ambient_light_energy = lerpf(_env.ambient_light_energy, float(region.energy), blend)
+	_env.fog_density = lerpf(_env.fog_density, float(region.fog), blend)
+	if String(region.id) != region_id:
+		region_id = String(region.id)
+		region_changed.emit(region.title)
+
+
+func _player_actor() -> Actor:
+	if player_side == "killer":
+		return killer
+	if player_guest < guests.size():
+		return guests[player_guest]
+	return null
+
+
 func _sync_world() -> void:
 	var glow := _breach_glow.material_override as StandardMaterial3D
 	glow.albedo_color.a = 0.3 if breach_open() else 0.05
 
 
-# --- способности, которым нужен доступ к миру ---
+# --- добивание -------------------------------------------------------------
+
+## Одно на матч за раз: пока идёт постановка, убийца из игры выключен, и второй
+## такой сцены быть не может.
+func begin_finisher(who: Killer, whom: Guest) -> bool:
+	if finisher and is_instance_valid(finisher):
+		return false
+	if not whom or not whom.in_play() or not whom.is_downed():
+		return false
+
+	var scene := Finisher.new()
+	_level_root.add_child(scene)
+	scene.begin(self, who, whom)
+	finisher = scene
+	return true
+
+
+# --- способности, которым нужен доступ к миру ------------------------------
 
 func plant_thicket(witch: Killer) -> bool:
 	var kit: Dictionary = Kits.KILLERS.witch.power1
@@ -406,7 +617,7 @@ func add_mark(at: Vector2, injured: bool) -> void:
 
 
 func rebake_nav() -> void:
-	nav.bake(walls, QuarterData.BOUNDS)
+	nav.bake(walls, WorldData.BOUNDS)
 
 
 func free_hook_near(point: Vector2, reach: float) -> Hook:
@@ -423,12 +634,31 @@ func free_hook_near(point: Vector2, reach: float) -> Hook:
 
 
 func inside_bounds(point: Vector2, margin: float) -> bool:
-	return point.x > QuarterData.BOUNDS.min_x + margin and point.x < QuarterData.BOUNDS.max_x - margin \
-		and point.y > QuarterData.BOUNDS.min_z + margin and point.y < QuarterData.BOUNDS.max_z - margin
+	return point.x > WorldData.BOUNDS.min_x + margin and point.x < WorldData.BOUNDS.max_x - margin \
+		and point.y > WorldData.BOUNDS.min_z + margin and point.y < WorldData.BOUNDS.max_z - margin
 
 
+## Ворота открывает любой свет: три щита, где угодно на карте.
+func gate_open() -> bool:
+	return count_breakers_online() >= Kits.GATE_BREAKERS
+
+
+## А пролом — только те два щита, что стоят в самом старом городе. Поэтому финал
+## один на всех: выйти можно только оттуда и только после того, как все туда
+## пришли.
 func breach_open() -> bool:
-	return count_breakers_online() >= Kits.BREAKERS_REQUIRED
+	for breaker in breakers:
+		if breaker.region == "oldcity" and not breaker.online:
+			return false
+	return true
+
+
+func finale_breakers() -> Array[Breaker]:
+	var out: Array[Breaker] = []
+	for breaker in breakers:
+		if breaker.region == "oldcity":
+			out.append(breaker)
+	return out
 
 
 func count_breakers_online() -> int:
@@ -448,7 +678,7 @@ func guests_in_play() -> int:
 	return count
 
 
-# --- развязка ---
+# --- развязка --------------------------------------------------------------
 
 func report_escaped(_guest: Guest) -> void:
 	escaped += 1
@@ -481,8 +711,8 @@ func _check_end() -> void:
 		return
 
 	# За гостя матч заканчивается вместе с тобой: считалка идёт дальше без тебя.
-	if player_side == "guest" and guests.size() > 0:
-		var me := guests[0]
+	if player_side == "guest" and player_guest < guests.size():
+		var me := guests[player_guest]
 		if me.state == Guest.State.GONE:
 			_finish("player_dead")
 			return
@@ -499,4 +729,7 @@ func _check_end() -> void:
 func _finish(outcome: String) -> void:
 	running = false
 	result = outcome
+	if finisher and is_instance_valid(finisher):
+		finisher.abort()
+		finisher = null
 	ended.emit(outcome)

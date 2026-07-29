@@ -11,6 +11,8 @@ extends RefCounted
 ## же, что увидит игрок.
 
 const CELL := 1.0
+const RADIUS := 0.45   ## полширины тела: стена «толще» себя на эту величину
+const FIELD_CACHE := 12
 
 var _w := 0
 var _h := 0
@@ -25,14 +27,25 @@ func bake(walls: Array, bounds: Dictionary) -> void:
 	_walls = walls
 	_x0 = bounds.min_x - 1.0
 	_z0 = bounds.min_z - 1.0
-	_w = int(ceil((bounds.max_x + 1.0 - _x0) / CELL))
-	_h = int(ceil((bounds.max_z + 4.0 - _z0) / CELL))
+	_w = int(ceil((bounds.max_x + 2.0 - _x0) / CELL))
+	_h = int(ceil((bounds.max_z + 2.0 - _z0) / CELL))
 	_solid = PackedByteArray()
 	_solid.resize(_w * _h)
+	_solid.fill(0)
 
-	for j in _h:
-		for i in _w:
-			_solid[j * _w + i] = 1 if _blocked(walls, centre_x(i), centre_z(j), 0.42) else 0
+	# Не «каждая клетка спрашивает все стены», а «каждая стена красит свои
+	# клетки»: на мире из тысяч стен первое считается минутами, второе — мигом.
+	for wall in walls:
+		if not wall.alive:
+			continue
+		var i0 := clampi(int(floor((wall.min_x - RADIUS - _x0) / CELL)), 0, _w - 1)
+		var i1 := clampi(int(floor((wall.max_x + RADIUS - _x0) / CELL)), 0, _w - 1)
+		var j0 := clampi(int(floor((wall.min_z - RADIUS - _z0) / CELL)), 0, _h - 1)
+		var j1 := clampi(int(floor((wall.max_z + RADIUS - _z0) / CELL)), 0, _h - 1)
+		for j in range(j0, j1 + 1):
+			var row := j * _w
+			for i in range(i0, i1 + 1):
+				_solid[row + i] = 1
 
 	_fields.clear()
 
@@ -53,28 +66,24 @@ func cell_z(z: float) -> int:
 	return clampi(int(floor((z - _z0) / CELL)), 0, _h - 1)
 
 
-func blocked_at(x: float, z: float, r := 0.42) -> bool:
-	return _blocked(_walls, x, z, r)
+func blocked_at(x: float, z: float, _r := 0.45) -> bool:
+	if _w == 0:
+		return false
+	return _solid[cell_z(z) * _w + cell_x(x)] == 1
 
 
-## Прямой проход, промеренный шириной тела. Это не линия взгляда: взгляд —
-## волосяной луч и с удовольствием «видит» щель, в которую никто не пролезет.
+## Проходим ли напрямую. Считается по той же сетке, что и пути: это грубее
+## настоящей геометрии на полметра, зато не зависит от числа стен в мире —
+## а боты дёргают эту проверку каждый кадр.
 func has_clear_path(a: Vector2, b: Vector2) -> bool:
-	var steps := int(ceil(a.distance_to(b) / 0.45))
+	if _w == 0:
+		return true
+	var steps := int(ceil(a.distance_to(b) / (CELL * 0.5)))
 	for i in range(1, steps + 1):
 		var t := float(i) / float(steps)
-		if _blocked(_walls, lerpf(a.x, b.x, t), lerpf(a.y, b.y, t), 0.45):
+		if blocked_at(lerpf(a.x, b.x, t), lerpf(a.y, b.y, t)):
 			return false
 	return true
-
-
-static func _blocked(walls: Array, x: float, z: float, r: float) -> bool:
-	for wall in walls:
-		if not wall.alive:
-			continue
-		if x + r > wall.min_x and x - r < wall.max_x and z + r > wall.min_z and z - r < wall.max_z:
-			return true
-	return false
 
 
 ## Цели стоят вплотную к стенам, а тела застревают в углах — оба конца пути
@@ -133,7 +142,7 @@ func _field(target: Vector2) -> PackedInt32Array:
 				queue[tail] = idx
 				tail += 1
 
-	if _fields.size() > 48:
+	if _fields.size() > FIELD_CACHE:
 		_fields.clear()
 	_fields[key] = field
 	return field

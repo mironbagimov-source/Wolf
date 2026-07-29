@@ -33,6 +33,7 @@ var max_hp := 100.0
 var hit_flash := 0.0
 var rooted := 0.0
 var stunned := 0.0
+var pinned := false   ## телом распоряжается постановка (добивание), а не мозг
 
 var pitch := 0.0
 var head: Node3D
@@ -201,6 +202,12 @@ func _make_material(tint: Color) -> StandardMaterial3D:
 ## Метки силуэта (маска, венец, цепь) вешаются сюда, а не на само тело: иначе
 ## в виде от первого лица маска окажется в тринадцати сантиметрах от камеры и
 ## закроет игроку весь экран.
+## Узел с мешами. Добивание двигает его напрямую — поднимает тело над землёй,
+## подаёт убийцу в выпад, — не трогая капсулу столкновений.
+func body_pivot() -> Node3D:
+	return _body_pivot
+
+
 func attach_to_body(node: Node3D) -> void:
 	if _body_pivot:
 		_body_pivot.add_child(node)

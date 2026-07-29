@@ -26,7 +26,7 @@ func _shots() -> void:
 	await _step(6)
 	_free_camera()
 
-	# Площадь: четыре фигурки на постаменте, гости вокруг.
+	# Перекрёсток: четыре фигурки на постаменте, гости вокруг.
 	var spots := [Vector2(-3, -3), Vector2(3, -4), Vector2(-4, 2), Vector2(4, 2)]
 	for i in runner.guests.size():
 		var guest := runner.guests[i]
@@ -38,72 +38,63 @@ func _shots() -> void:
 	await _step(30)
 	await _save("godot-plaza.png")
 
-	# Убийца в упор: рост, покраска, метка силуэта.
-	_park(runner.killer, Vector2(0, -4), PI)
-	runner.killer.play_pose("Walk")
-	_look_from(Vector3(1.1, 1.6, -0.7), Vector3(0, 1.15, -4))
-	await _step(30)
-	await _save("godot-killer.png")
-
-	# Все четверо в ряд — сравнить силуэты. Место выбрано пустое, свет свой:
-	# это витрина моделей, а не кадр из матча.
-	var lamp := OmniLight3D.new()
-	lamp.light_energy = 6.0
-	lamp.omni_range = 26.0
-	lamp.light_color = Color("ffd9b0")
-	lamp.position = Vector3(17.0, 3.4, 1.0)
-	add_child(lamp)
-
-	var row_z := -3.0
-	for i in runner.guests.size():
-		_park(runner.guests[i], Vector2(9.0 + i * 2.5, row_z + 2.6), PI)
-		runner.guests[i].play_pose("Idle")
-
-	var extra: Array[Killer] = []
-	for pair in [["trickster", 16.0], ["witch", 18.5], ["roger", 21.0]]:
-		var body := Killer.new()
-		body.runner = runner
-		body.setup(pair[0])
-		runner._actors_root.add_child(body)
-		_park(body, Vector2(pair[1], row_z), PI)
-		body.play_pose("Idle")
-		extra.append(body)
-	_park(runner.killer, Vector2(-40, -40), PI)
-
+	# Вид сверху на весь мир: пять зон разом, ради чего всё и затевалось. Ночь и
+	# туман на время снимаются — это чертёж, а не кадр из игры.
+	var env: Environment = runner._env
+	var night := {"fog": env.fog_enabled, "ambient": env.ambient_light_color, "energy": env.ambient_light_energy}
+	env.fog_enabled = false
+	env.ambient_light_color = Color("cfd6e0")
+	env.ambient_light_energy = 2.6
+	eye.projection = Camera3D.PROJECTION_ORTHOGONAL
+	eye.size = 215.0
+	_look_from(Vector3(0, 150, 0.1), Vector3(0, 0, 0))
 	await _step(20)
-	_look_from(Vector3(17.2, 1.75, 3.4), Vector3(17.2, 1.0, row_z))
-	await _step(20)
-	await _save("godot-cast.png")
+	await _save("godot-map.png")
+	eye.projection = Camera3D.PROJECTION_PERSPECTIVE
+	env.fog_enabled = night.fog
+	env.ambient_light_color = night.ambient
+	env.ambient_light_energy = night.energy
 
-	# Четверо гостей в ряд: у каждого свой скин, и это не украшение — по нему
-	# в матче узнают, кого тащат на крюк.
-	for i in runner.guests.size():
-		_park(runner.guests[i], Vector2(14.6 + i * 2.2, row_z), PI)
-		runner.guests[i].play_pose("Idle")
-	for body in extra:
-		_park(body, Vector2(-40, -40), PI)
-	await _step(16)
-	_look_from(Vector3(17.9, 1.7, 2.6), Vector3(17.9, 1.0, row_z))
-	await _step(16)
-	await _save("godot-guests.png")
+	# По кадру на зону, с уровня глаз: воздух в каждой должен быть свой.
+	for pair in [
+		["catacombs", Vector2(-74, -6), 1.9, "godot-catacombs.png"],
+		["jungle", Vector2(62, 2), 0.7, "godot-jungle.png"],
+		["village", Vector2(0, 52), 2.6, "godot-village.png"],
+		["oldcity", Vector2(0, -50), 0.4, "godot-oldcity.png"],
+	]:
+		var at: Vector2 = pair[1]
+		var facing: float = pair[2]
+		_park(runner.killer, at, facing)
+		runner.region_id = ""
+		await _step(90)     # дать туману и свету дотянуться до значений зоны
+		var f := Actor.forward_of(facing)
+		_look_from(Vector3(at.x, 1.7, at.y), Vector3(at.x + f.x * 10.0, 1.3, at.y + f.y * 10.0))
+		await _step(6)
+		await _save(String(pair[3]))
 
-	for body in extra:
-		body.queue_free()
-	lamp.queue_free()
-	_park(runner.killer, Vector2(0, 12), PI)
-	await _step(4)
+	# Добивание: то, ради чего гость смотрит в экран и не может отвернуться.
+	for pair in [["trickster", "godot-finish-trickster.png"], ["witch", "godot-finish-witch.png"],
+			["roger", "godot-finish-roger.png"]]:
+		runner.start("killer", String(pair[0]))
+		await _step(4)
+		_free_camera()
+		for guest in runner.guests:
+			guest.brain = null
+			guest.intent.move = Vector2.ZERO
+			_park(guest, Vector2(-60, -60), 0.0)
 
-	# Гость на крюке — узловой момент матча.
-	var hook := runner.hooks[4]
-	var victim := runner.guests[1]
-	victim.go_down()
-	runner.killer.pick_up(victim)
-	await _step(2)
-	hook.hang(runner.killer)
-	_park(runner.killer, hook.spot + Vector2(2.0, 2.5), 0.0)
-	_look_from(Vector3(hook.spot.x + 2.2, 2.0, hook.spot.y + 4.2), Vector3(hook.spot.x + 0.3, 1.15, hook.spot.y))
-	await _step(30)
-	await _save("godot-hook.png")
+		var killer := runner.killer
+		var victim := runner.guests[1]
+		_park(killer, Vector2(0, 6), 0.0)
+		victim.go_down()
+		_park(victim, Vector2(0, 6) + Actor.forward_of(0.0) * 1.25, PI)
+		runner.begin_finisher(killer, victim)
+		# Взять кадр в разгар самого зрелищного такта, а не на поклоне.
+		await _step(150)
+		eye.current = true
+		_look_from(Vector3(2.6, 1.6, 4.0), Vector3(0.0, 1.0, 4.2))
+		await _step(4)
+		await _save(String(pair[1]))
 
 	get_tree().quit(0)
 

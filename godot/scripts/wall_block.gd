@@ -4,9 +4,19 @@ extends StaticBody3D
 ## Кусок стены. Треснувшие (breakable) Роджер проходит насквозь и оставляет
 ## после себя постоянный пролом — маршрут, которого не было, когда погоня
 ## начиналась. Игрок обязан читать их до разгона, поэтому они другого цвета.
+##
+## Не всё, что здесь стоит, — кирпич. Стволы джунглей и ворота старого города —
+## те же коробки в списке стен: сетка путей, таран и поросль работают с ними
+## одним кодом, отличается только меш. Дешевле, чем заводить им отдельную жизнь.
+
+const TINTS := {
+	"wall": Color("2b2b31"), "broken": Color("3a3129"),
+	"tree": Color("2b2016"), "gate": Color("4a3a20"),
+}
 
 var data: Dictionary
 var breakable := false
+var kind := "wall"
 
 var _mesh: MeshInstance3D
 var _shape: CollisionShape3D
@@ -15,6 +25,7 @@ var _shape: CollisionShape3D
 func build(wall: Dictionary) -> void:
 	data = wall
 	breakable = wall.breakable
+	kind = String(wall.get("kind", "wall"))
 
 	var width: float = wall.max_x - wall.min_x
 	var depth: float = wall.max_z - wall.min_z
@@ -31,11 +42,20 @@ func build(wall: Dictionary) -> void:
 	add_child(_shape)
 
 	_mesh = MeshInstance3D.new()
-	var box_mesh := BoxMesh.new()
-	box_mesh.size = Vector3(width, height, depth)
-	_mesh.mesh = box_mesh
+	if kind == "tree":
+		var trunk := CylinderMesh.new()
+		trunk.top_radius = width * 0.36
+		trunk.bottom_radius = width * 0.5
+		trunk.height = height
+		trunk.radial_segments = 6
+		_mesh.mesh = trunk
+	else:
+		var box_mesh := BoxMesh.new()
+		box_mesh.size = Vector3(width, height, depth)
+		_mesh.mesh = box_mesh
+
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Color("3a3129") if breakable else Color("2b2b31")
+	material.albedo_color = TINTS.get(kind, TINTS.wall) if not breakable else TINTS.broken
 	material.roughness = 1.0
 	_mesh.material_override = material
 	add_child(_mesh)

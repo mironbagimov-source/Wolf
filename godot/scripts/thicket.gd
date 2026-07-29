@@ -15,7 +15,7 @@ var hp := 0.0
 
 func build(door: Dictionary, lifetime: float) -> void:
 	doorway = door
-	box = QuarterData.plant_box(door)
+	box = WorldData.plant_box(door)
 	life = lifetime
 	hp = Kits.GUEST.tear_time
 

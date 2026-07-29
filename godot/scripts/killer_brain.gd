@@ -2,15 +2,24 @@ class_name KillerBrain
 extends RefCounted
 
 ## Ищет ближайшего гостя, которого слышит, и знает, что делать с телом: нести на
-## крюк — или, если это Ведьма, которая никого не носит, опуститься там, где оно
-## лежит. Без цели патрулирует щиты: гостям всё равно придётся к ним вернуться.
+## крюк, а если крюк слишком далеко — добить на месте.
+##
+## Без цели он не бродит наугад по всем двумстам метрам. Он выбирает зону по её
+## опасности (WorldData.REGIONS) и работает внутри неё: поэтому в катакомбах на
+## него натыкаются вчетверо чаще, чем на перекрёстке, и поэтому обещание, которое
+## зона даёт своим видом, оказывается правдой. Когда открываются ворота старого
+## города, весь этот выбор схлопывается: оставшиеся щиты — там, и он идёт туда.
+
+const HOOK_GIVE_UP := 24.0   ## дальше этого нести уже не имеет смысла
 
 var _sidestep := 0.0
 var _sidestep_dir := 1.0
 var _stuck := 0.0
 var _prev := Vector2.ZERO
 var _patrol: Breaker = null
+var _patrol_point := Vector2.ZERO
 var _patrol_timer := 0.0
+var _finish_here := false
 var _wander_yaw := 0.0
 var _wander_timer := 0.0
 
@@ -39,10 +48,13 @@ func tick(killer: Killer, delta: float) -> void:
 	var distance := _steer(killer, target.flat_position())
 
 	if target.is_downed():
-		if distance <= 2.3:
+		if distance <= Kits.FINISH_RANGE * 0.95:
 			intent.move = Vector2.ZERO
-			intent.interact_pressed = true
-			intent.interact_held = true    # удержание нужно Ведьме, остальным безразлично
+			# Держать — это добить, нажать — взвалить на плечо. Ведьме выбор не
+			# положен, остальным он есть, и решается он расстоянием до крюка.
+			intent.interact_held = true
+			if not _wants_finish(killer, target):
+				intent.interact_pressed = true
 		_track_stuck(killer, delta)
 		return
 
@@ -74,6 +86,18 @@ func _use_kit(killer: Killer, distance: float) -> void:
 				intent.secondary = true
 			if killer.cd_power1 <= 0.0 and distance > 6.0 and distance < 20.0:
 				intent.power1 = true
+
+
+## Крюк или добивание. Тащить тело через полкарты — подарок его напарникам:
+## пока он идёт, они успевают и починить, и снять с крюка. Если ближайший
+## свободный крюк дальше двадцати четырёх метров, дешевле закончить здесь.
+func _wants_finish(killer: Killer, target: Guest) -> bool:
+	if not killer.can_finish():
+		return false
+	if not killer.kit.can_carry:
+		return true
+	var hook := killer.runner.free_hook_near(target.flat_position(), HOOK_GIVE_UP)
+	return hook == null
 
 
 func _carry_to_hook(killer: Killer, delta: float) -> void:
@@ -108,7 +132,7 @@ func _sense(killer: Killer) -> Guest:
 		if guest.state == Guest.State.CARRIED or guest.state == Guest.State.HOOKED:
 			continue
 
-		var radius := Kits.SENSE_BASE + _noisiness(guest)
+		var radius := Kits.SENSE_BASE + guest.noise()
 		if killer.kind == "witch":
 			# Корни чувствуют шаги: тот, кто рядом с её порослью, открыт всюду.
 			for plant in killer.runner.plants:
@@ -132,38 +156,58 @@ func _sense(killer: Killer) -> Guest:
 	return best
 
 
-func _noisiness(guest: Guest) -> float:
-	var bonus := 0.0
-	if guest.intent.sprint:
-		bonus += Kits.SPRINT_NOISE
-	if guest.flashlight_on:
-		bonus += Kits.FLASHLIGHT_NOISE
-	if guest.intent.crouch:
-		bonus += Kits.CROUCH_NOISE
-	if guest.is_injured():
-		bonus += 2.0
-	return bonus
-
-
+## Патруль по зонам, а не по всей карте. Сначала зона — по весу опасности,
+## потом невключённый щит внутри неё; если щитов там нет, просто точка в зоне,
+## чтобы он в ней действительно оказался, а не прошёл насквозь.
 func _patrol_breakers(killer: Killer, delta: float) -> void:
 	_patrol_timer -= delta
 	if not _patrol or _patrol.online or _patrol_timer <= 0.0:
-		_patrol = _pick_breaker(killer)
-		_patrol_timer = 12.0
-	if not _patrol:
-		_wander(killer, delta)
+		_pick_patrol(killer)
+		_patrol_timer = 18.0
+
+	if _patrol:
+		_steer(killer, _patrol.spot)
 		return
-	_steer(killer, _patrol.spot)
+	if _steer(killer, _patrol_point) < 4.0:
+		_patrol_timer = 0.0
 
 
-func _pick_breaker(killer: Killer) -> Breaker:
-	var candidates: Array[Breaker] = []
+func _pick_patrol(killer: Killer) -> void:
+	_patrol = null
+
+	# Финал стягивает и его: за воротами остались последние щиты, и гостям
+	# больше некуда идти.
+	if killer.runner.gate_open():
+		var finale := _offline_in(killer, "oldcity")
+		if not finale.is_empty():
+			_patrol = _closest(killer, finale)
+			return
+
+	var region := WorldData.pick_region_weighted()
+	var here := _offline_in(killer, String(region.id))
+	if not here.is_empty():
+		_patrol = _closest(killer, here)
+		return
+	_patrol_point = WorldData.random_point_in(String(region.id))
+
+
+func _offline_in(killer: Killer, region_id: String) -> Array[Breaker]:
+	var out: Array[Breaker] = []
 	for breaker in killer.runner.breakers:
-		if not breaker.online:
-			candidates.append(breaker)
-	if candidates.is_empty():
-		return null
-	return candidates.pick_random()
+		if not breaker.online and breaker.region == region_id:
+			out.append(breaker)
+	return out
+
+
+func _closest(killer: Killer, candidates: Array[Breaker]) -> Breaker:
+	var best: Breaker = null
+	var best_distance := INF
+	for breaker in candidates:
+		var distance := killer.flat_position().distance_to(breaker.spot)
+		if distance < best_distance:
+			best_distance = distance
+			best = breaker
+	return best
 
 
 func _steer(killer: Killer, target: Vector2) -> float:

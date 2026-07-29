@@ -5,8 +5,9 @@ extends Node
 ##     godot --headless --path godot --fixed-fps 60 tests/smoke_test.tscn
 ##
 ## Проверяет ровно то, во что играют: цепочку «сбил → на плечо → на крюк →
-## строка считалки», срыв Трикстера, плющ/поросль/казнь Ведьмы, таран и захват
-## Роджера, работу ботов на щитах и выход через пролом.
+## строка считалки», срыв Трикстера, плющ и поросль Ведьмы, таран и захват
+## Роджера, все три добивания от начала до конца, зоны и их опасность, две
+## ступени квеста (ворота → пролом), работу ботов на щитах и выход наружу.
 ##
 ## Ненулевой код возврата означает, что что-то из этого сломано.
 
@@ -27,6 +28,9 @@ func _run_all() -> void:
 	await _case_frenzy()
 	await _case_witch()
 	await _case_roger()
+	await _case_world()
+	await _case_finishers()
+	await _case_traits()
 	await _case_bots_play()
 	await _case_escape()
 
@@ -113,14 +117,7 @@ func _case_witch() -> void:
 
 	guest.go_down()
 	_put_in_front(killer, guest, 1.2)
-	var executed := false
-	for i in 260:
-		killer.intent.interact_held = true
-		await _step(1)
-		if guest.state == Guest.State.GONE:
-			executed = true
-			break
-	_check(executed, "казнь прорастанием завершена")
+	_check(await _hold_finisher(killer, guest), "казнь прорастанием завершена")
 
 
 func _case_roger() -> void:
@@ -157,15 +154,106 @@ func _case_roger() -> void:
 	_check(killer.carrying == guest, "захват на ходу — гость на плече")
 
 
+## Мир: пять зон, их опасность, ворота и пролом. Если карта развалится, здесь
+## это видно раньше, чем в любой погоне.
+func _case_world() -> void:
+	print("\nМир: зоны, ворота, пролом")
+	await _fresh("guest", "0")
+
+	_check(WorldData.REGIONS.size() == 5, "зон пять")
+	_check(WorldData.region_of(Vector2(0, 0)).id == "neutral", "центр — перекрёсток")
+	_check(WorldData.region_of(Vector2(-74, 0)).id == "catacombs", "запад — катакомбы")
+	_check(WorldData.region_of(Vector2(74, 4)).id == "jungle", "восток — джунгли")
+	_check(WorldData.region_of(Vector2(0, 66)).id == "village", "север — деревня")
+	_check(WorldData.region_of(Vector2(0, -60)).id == "oldcity", "юг — старый город")
+
+	var neutral: float = WorldData.region_by_id("neutral").danger
+	var worst := 0.0
+	for region in WorldData.REGIONS:
+		if region.id != "neutral":
+			worst = maxf(worst, float(region.danger))
+	_check(neutral < worst * 0.5, "на перекрёстке заметно безопаснее (%.2f против %.2f)" % [neutral, worst])
+
+	_check(runner.walls.size() > 600, "мир построен целиком (стен %d)" % runner.walls.size())
+	_check(runner.hooks.size() >= 12, "крюков хватает на всю карту (%d)" % runner.hooks.size())
+	_check(runner.finale_breakers().size() == 2, "в старом городе два щита финала")
+
+	# Ворота заперты, и сетка путей знает об этом: с перекрёстка в старый город
+	# по прямой не пройти.
+	_check(not runner.gate_open(), "ворота заперты на старте")
+	_check(runner.nav.blocked_at(WorldData.OLDCITY_GATE.x, WorldData.OLDCITY_GATE.z), "ворота стоят в сетке путей")
+	_check(not runner.breach_open(), "пролом закрыт на старте")
+
+	var lit := 0
+	for breaker in runner.breakers:
+		if breaker.region != "oldcity" and lit < Kits.GATE_BREAKERS:
+			breaker.online = true
+			lit += 1
+	await _step(3)
+	_check(runner.gate_open(), "три щита открыли ворота")
+	_check(not runner.nav.blocked_at(WorldData.OLDCITY_GATE.x, WorldData.OLDCITY_GATE.z), "проход в старый город открылся")
+	_check(not runner.breach_open(), "но пролом всё ещё закрыт — щиты финала внутри")
+
+	for breaker in runner.finale_breakers():
+		breaker.online = true
+	_check(runner.breach_open(), "щиты старого города открыли пролом")
+
+
+## Три добивания целиком, такт за тактом. Каждое обязано закончиться смертью и
+## вернуть обоим управление — застрявшая постановка ломает матч намертво.
+func _case_finishers() -> void:
+	print("\nДобивания: три постановки")
+	for kind in Kits.KILLER_ORDER:
+		await _fresh("killer", kind)
+		var killer := runner.killer
+		var guest := runner.guests[1]
+		var kit: Dictionary = Kits.KILLERS[kind]
+
+		_place(killer, Vector2(0, 8), 0.0)
+		guest.go_down()
+		_put_in_front(killer, guest, 1.2)
+
+		var beats: Array[String] = []
+		runner.finisher_beat.connect(func(_t: String, line: String) -> void: beats.append(line))
+		var done := await _hold_finisher(killer, guest)
+		_check(done, "%s: «%s» доведено до конца" % [kit.name, kit.finisher.title])
+		_check(beats.size() == kit.finisher.stages.size(),
+			"%s: сыграны все такты (%d из %d)" % [kit.name, beats.size(), kit.finisher.stages.size()])
+		_check(not killer.pinned and runner.finisher == null, "%s: управление вернулось" % kit.name)
+		_check(guest.state == Guest.State.GONE, "%s: гость выбыл" % kit.name)
+
+
+## Черты выживших: у каждого своя, и каждая обязана что-то менять в числах.
+func _case_traits() -> void:
+	print("\nВыжившие: четыре разные черты")
+	await _fresh("guest", "0")
+
+	var seen := {}
+	for i in runner.guests.size():
+		seen[runner.guests[i].trait_name] = true
+		_check(runner.guests[i].trait_name != "", "%s: черта есть" % runner.guests[i].guest_name)
+	_check(seen.size() == runner.guests.size(), "черты у всех разные")
+
+	var nina := runner.guests[3]
+	var margo := runner.guests[0]
+	var kostya := runner.guests[1]
+	_check(nina.max_hp < margo.max_hp, "у Нины меньше здоровья (%.0f против %.0f)" % [nina.max_hp, margo.max_hp])
+	nina.go_down()
+	margo.go_down()
+	_check(nina.bleed > margo.bleed, "но она дольше держится на земле (%.0fс против %.0fс)" % [nina.bleed, margo.bleed])
+	_check(kostya.stamina_max > margo.stamina_max, "Костя бежит дольше")
+	_check(kostya.self_lifts == 1 and margo.self_lifts == 0, "и один раз встаёт сам")
+
+
 func _case_bots_play() -> void:
 	print("\nБоты: щиты и навигация")
-	await _fresh("guest", "", true)
+	await _fresh("guest", "0", true)
 
 	var start_positions: Array[Vector2] = []
 	for guest in runner.guests:
 		start_positions.append(guest.flat_position())
 
-	await _step(600)   # десять секунд симуляции
+	await _step(900)   # пятнадцать секунд симуляции
 
 	var moved := 0
 	for i in runner.guests.size():
@@ -181,16 +269,16 @@ func _case_bots_play() -> void:
 
 func _case_escape() -> void:
 	print("\nРазвязка: пролом и конец матча")
-	await _fresh("guest", "", true)
+	await _fresh("guest", "0", true)
 
 	for breaker in runner.breakers:
 		breaker.online = true
-	_check(runner.breach_open(), "четыре щита открыли пролом")
+	_check(runner.breach_open(), "щиты открыли пролом")
 
 	for guest in runner.guests:
 		guest.brain = null
 		guest.intent.move = Vector2.ZERO
-		_place(guest, Vector2(0, QuarterData.BREACH.z + 0.5), 0.0)
+		_place(guest, Vector2(0, WorldData.BREACH.z - 0.5), 0.0)
 	await _step(10)
 
 	_check(not runner.running, "матч закончился")
@@ -217,6 +305,18 @@ func _fresh(side: String, kind: String, keep_brains := false) -> void:
 	runner.killer.is_player = false
 	runner.killer.intent.move = Vector2.ZERO
 	await _step(1)
+
+
+## Держать [E] и ждать, пока замах перейдёт в постановку, а постановка — в
+## смерть. Возвращает false, если за двадцать секунд ничего не случилось.
+func _hold_finisher(killer: Killer, guest: Guest) -> bool:
+	for i in 1200:
+		if not killer.pinned:
+			killer.intent.interact_held = true
+		await _step(1)
+		if guest.state == Guest.State.GONE:
+			return true
+	return false
 
 
 func _step(frames: int) -> void:

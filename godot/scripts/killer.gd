@@ -21,6 +21,7 @@ var charge_time := -1.0     ## разгон Роджера; отрицатель
 var carrying: Guest = null
 var channel_target: Guest = null
 var channel_time := 0.0
+var cd_finish := 0.0        ## откат добивания у тех, кому есть чем его заменить
 var progress_ui := 0.0
 
 var brain                   ## KillerBrain у бота, null у игрока
@@ -72,7 +73,11 @@ func _physics_process(delta: float) -> void:
 	if not runner or not runner.running:
 		return
 
+	if pinned:
+		return
+
 	tick_timers(delta)
+	cd_finish = maxf(0.0, cd_finish - delta)
 	cd_primary = maxf(0.0, cd_primary - delta)
 	cd_secondary = maxf(0.0, cd_secondary - delta)
 	cd_power1 = maxf(0.0, cd_power1 - delta)
@@ -311,18 +316,18 @@ func _run_interactions(delta: float) -> void:
 				hook.hang(self)
 		return
 
-	if kit.can_carry:
-		if intent.interact_pressed:
-			var guest := nearest_downed()
-			if guest and flat_position().distance_to(guest.flat_position()) <= 2.4:
-				pick_up(guest)
+	var target := nearest_downed()
+	if not target or flat_position().distance_to(target.flat_position()) > Kits.FINISH_RANGE:
+		channel_target = null
+		channel_time = 0.0
 		return
 
-	# Ведьма никого никуда не носит. Она опускается рядом и даёт кварталу
-	# закончить начатое.
-	var target := nearest_downed()
-	var in_reach := target and flat_position().distance_to(target.flat_position()) <= 2.4
-	if not in_reach or not intent.interact_held:
+	# Короткое нажатие — на плечо, удержание — добивание. Ведьма никого никуда
+	# не носит, поэтому у неё есть только второе.
+	if kit.can_carry and intent.interact_pressed:
+		pick_up(target)
+		return
+	if not intent.interact_held or not can_finish():
 		channel_target = null
 		channel_time = 0.0
 		return
@@ -332,16 +337,24 @@ func _run_interactions(delta: float) -> void:
 		channel_time = 0.0
 
 	channel_time += delta
-	progress_ui = clampf(channel_time / kit.execute.time, 0.0, 1.0)
-	# Корни держат жертву, пока она работает: иначе сбитый гость просто отполз
-	# бы, и способности бы не существовало.
+	progress_ui = clampf(channel_time / Kits.FINISH_WINDUP, 0.0, 1.0)
+	# Корни держат жертву, пока идёт замах: иначе сбитый гость просто отполз бы,
+	# и способности бы не существовало.
 	target.rooted = maxf(target.rooted, 0.25)
 	target.flash(0.05)
 
-	if channel_time >= kit.execute.time:
+	if channel_time >= Kits.FINISH_WINDUP:
 		channel_target = null
 		channel_time = 0.0
-		target.die()
+		if kit.can_carry:
+			cd_finish = Kits.FINISH_COOLDOWN
+		runner.begin_finisher(self, target)
+
+
+## Добивание убирает гостя навсегда и минует крюк — но стоит пяти секунд
+## неподвижности. Тем, у кого крюк есть, оно ещё и на откате.
+func can_finish() -> bool:
+	return not kit.can_carry or cd_finish <= 0.0
 
 
 ## Что показать в подсказке игроку-убийце.
@@ -351,8 +364,12 @@ func prompt() -> String:
 	if carrying:
 		return "[E] Вздёрнуть на крюк · [G] бросить"
 	var downed := nearest_downed()
-	if downed and flat_position().distance_to(downed.flat_position()) <= 2.4:
-		return "[E] Казнь прорастанием (держать)" if kind == "witch" else "[E] Взвалить на плечо"
+	if downed and flat_position().distance_to(downed.flat_position()) <= Kits.FINISH_RANGE:
+		if not can_finish():
+			return "[E] Взвалить на плечо · «%s» через %dс" % [kit.finisher.title, ceili(cd_finish)]
+		if kit.can_carry:
+			return "[E] Взвалить на плечо · держать — «%s»" % kit.finisher.title
+		return "[E] «%s» (держать)" % kit.finisher.title
 	if kind == "trickster" and frenzy > 0.0:
 		return "РЕЖИМ ПСИХА — %.1fс" % frenzy
 	if kind == "witch":
@@ -377,6 +394,9 @@ func power_slots() -> Array:
 	]
 	if kit.has("power2"):
 		slots.append({"key": "F", "label": kit.power2.label, "cd": cd_power2, "max": kit.power2.cd})
-	slots.append({"key": "E", "label": "Прорастание" if kind == "witch" else "На крюк", "cd": 0.0, "max": 0.0})
+	slots.append({
+		"key": "E", "label": kit.finisher.title,
+		"cd": cd_finish, "max": Kits.FINISH_COOLDOWN if kit.can_carry else 0.0,
+	})
 	return slots
 

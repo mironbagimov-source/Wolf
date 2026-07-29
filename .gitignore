@@ -1,7 +1,9 @@
-# Godot generated — импорт-кэш и экспортные пресеты с путями машины
+# Godot generated — импорт-кэш. export_presets.cfg лежит в репозитории: пути в
+# нём относительные, и без него не собрать готовый билд.
 godot/.godot/
 godot/android/
-export_presets.cfg
+
+# Готовые билды: собираются godot/tools/build.sh (см. [Bb]uild/ ниже).
 
 # Unity generated
 [Ll]ibrary/

@@ -1,12 +1,16 @@
 class_name Breaker
 extends Node3D
 
-## Щит. Четыре из пяти включённых открывают пролом.
+## Щит. Три включённых где угодно открывают ворота старого города; два
+## последних стоят за этими воротами и открывают пролом наружу.
 ##
 ## Прогресс не сбрасывается, когда от щита отходят — в этом и смысл: убийца
-## вынужден возвращаться к тем же пяти точкам.
+## вынужден возвращаться к тем же точкам. Зона щита (`region`) нужна и боту-
+## убийце для патруля, и боту-гостю, чтобы не бежать чинить то, что за
+## запертыми воротами.
 
 var spot := Vector2.ZERO
+var region := "neutral"
 var online := false
 var worked := 0.0
 
@@ -14,8 +18,9 @@ var _box_material: StandardMaterial3D
 var _ring: MeshInstance3D
 
 
-func build(at: Vector2) -> void:
+func build(at: Vector2, in_region: String) -> void:
 	spot = at
+	region = in_region
 	position = Vector3(at.x, 0.0, at.y)
 
 	var box := MeshInstance3D.new()

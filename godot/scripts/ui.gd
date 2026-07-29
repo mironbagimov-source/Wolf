@@ -20,7 +20,14 @@ var _hp_bar: ProgressBar
 var _stamina_bar: ProgressBar
 var _blood_bar: ProgressBar
 var _breaker_label: Label
+var _region_label: Label
+var _trait_label: Label
 var _figurines: Array[ColorRect] = []
+var _phase: Label
+var _finisher_title: Label
+var _finisher_line: Label
+var _finisher_timer := 0.0
+var _phase_timer := 0.0
 var _prompt: Label
 var _progress: ProgressBar
 var _slots: HBoxContainer
@@ -63,13 +70,20 @@ func _build_menu() -> void:
 	lede.custom_minimum_size = Vector2(760, 0)
 	column.add_child(lede)
 
-	column.add_child(_label("СТОРОНА ГОСТЕЙ", 13, INK_DIM, HORIZONTAL_ALIGNMENT_CENTER))
+	column.add_child(_label(
+		"СТОРОНА ГОСТЕЙ · три щита откроют ворота старого города, два за ними — пролом",
+		13, INK_DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	var guest_row := HBoxContainer.new()
 	guest_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	guest_row.add_theme_constant_override("separation", 10)
 	column.add_child(guest_row)
-	guest_row.add_child(_side_button(
-		"Гость", "guest", "",
-		"Включи 4 щита из 5 и дойди до пролома.\nОружия нет: тишина, бег, напарники."))
+	# Выжившие — не четыре одинаковых силуэта. Черта выбирается здесь, и здесь же
+	# написано, чем за неё платят.
+	for i in Kits.ROSTER.size():
+		var entry: Dictionary = Kits.ROSTER[i]
+		guest_row.add_child(_side_button(
+			entry.name, "guest", str(i),
+			"«%s»\n%s" % [entry.trait, entry.trait_text]))
 
 	column.add_child(_label("СТОРОНА ОБИЖЕННЫХ", 13, INK_DIM, HORIZONTAL_ALIGNMENT_CENTER))
 	var killer_row := HBoxContainer.new()
@@ -81,10 +95,10 @@ func _build_menu() -> void:
 		"ЛКМ нож · ПКМ серп\nQ крюк · F двойники\nПассивка: режим психа"))
 	killer_row.add_child(_side_button(
 		"Ведьма", "killer", "witch",
-		"ЛКМ лоза · ПКМ плющ\nQ поросль в проём\nE казнь прорастанием"))
+		"ЛКМ лоза · ПКМ плющ\nQ поросль в проём\nE держать — «Прорастание»"))
 	killer_row.add_child(_side_button(
 		"Весёлый Роджер", "killer", "roger",
-		"ЛКМ удар · ПКМ захват\nQ таран сквозь стену\nE вздёрнуть на крюк"))
+		"ЛКМ удар · ПКМ захват\nQ таран сквозь стену\nE крюк, держать — «Якорь»"))
 
 	column.add_child(_label(
 		"Мышь — осмотреться · WASD — движение · Shift бег · Ctrl красться · ESC освободить курсор",
@@ -93,9 +107,10 @@ func _build_menu() -> void:
 
 func _side_button(title: String, side: String, kind: String, kit_text: String) -> Button:
 	var button := Button.new()
-	button.custom_minimum_size = Vector2(230, 92)
+	button.custom_minimum_size = Vector2(205, 104)
 	button.text = "%s\n%s" % [title, kit_text]
-	button.add_theme_font_size_override("font_size", 13)
+	button.add_theme_font_size_override("font_size", 12)
+	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	button.pressed.connect(func() -> void: side_picked.emit(side, kind))
 	return button
 
@@ -120,6 +135,10 @@ func _build_hud() -> void:
 	left.add_child(_stamina_bar)
 	_blood_bar = _bar(Color("e0384c"))
 	left.add_child(_blood_bar)
+	_trait_label = _label("", 12, INK_DIM, HORIZONTAL_ALIGNMENT_LEFT)
+	_trait_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_trait_label.custom_minimum_size = Vector2(240, 0)
+	left.add_child(_trait_label)
 
 	var right := VBoxContainer.new()
 	right.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -128,8 +147,10 @@ func _build_hud() -> void:
 	right.offset_right = -18
 	right.alignment = BoxContainer.ALIGNMENT_END
 	_hud.add_child(right)
-	_breaker_label = _label("Щиты 0/4", 16, INK, HORIZONTAL_ALIGNMENT_RIGHT)
+	_breaker_label = _label("", 16, INK, HORIZONTAL_ALIGNMENT_RIGHT)
 	right.add_child(_breaker_label)
+	_region_label = _label("", 13, INK_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
+	right.add_child(_region_label)
 
 	# Четыре фигурки: счётчик матча и та самая считалка одновременно.
 	var figurine_row := HBoxContainer.new()
@@ -161,6 +182,31 @@ func _build_hud() -> void:
 	_slots.alignment = BoxContainer.ALIGNMENT_CENTER
 	_slots.add_theme_constant_override("separation", 8)
 	bottom.add_child(_slots)
+
+	# Строка квеста: куда идти сейчас. Появляется на переломах — три щита, ворота,
+	# пролом — и уходит сама.
+	_phase = _label("", 16, EMBER, HORIZONTAL_ALIGNMENT_CENTER)
+	_phase.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_phase.offset_top = 96
+	_phase.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_phase.modulate.a = 0.0
+	_hud.add_child(_phase)
+
+	# Добивание идёт своим экраном: подпись сверху, такт снизу. Пока оно идёт,
+	# ни у кого из двоих управления нет, и смотреть больше не на что.
+	_finisher_title = _label("", 30, Color("b01722"), HORIZONTAL_ALIGNMENT_CENTER)
+	_finisher_title.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_finisher_title.offset_top = 54
+	_finisher_title.modulate.a = 0.0
+	_hud.add_child(_finisher_title)
+
+	_finisher_line = _label("", 19, Color("e6ddc8"), HORIZONTAL_ALIGNMENT_CENTER)
+	_finisher_line.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_finisher_line.offset_top = -150
+	_finisher_line.offset_bottom = -110
+	_finisher_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_finisher_line.modulate.a = 0.0
+	_hud.add_child(_finisher_line)
 
 	_rhyme = _label("", 20, Color("e6ddc8"), HORIZONTAL_ALIGNMENT_CENTER)
 	_rhyme.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -237,11 +283,38 @@ func speak_rhyme(text: String) -> void:
 	_rhyme_timer = 5.5
 
 
+func speak_phase(text: String) -> void:
+	_phase.text = text
+	_phase.modulate.a = 1.0
+	_phase_timer = 7.0
+
+
+func speak_region(title: String) -> void:
+	_region_label.text = title
+
+
+func speak_finisher(title: String, line: String) -> void:
+	_finisher_title.text = title
+	_finisher_title.modulate.a = 1.0
+	_finisher_line.text = line
+	_finisher_line.modulate.a = 1.0
+	_finisher_timer = 2.4
+
+
 func _process(delta: float) -> void:
 	if _rhyme_timer > 0.0:
 		_rhyme_timer -= delta
 		if _rhyme_timer <= 0.0:
 			_rhyme.modulate.a = 0.0
+	if _phase_timer > 0.0:
+		_phase_timer -= delta
+		if _phase_timer <= 0.0:
+			_phase.modulate.a = 0.0
+	if _finisher_timer > 0.0:
+		_finisher_timer -= delta
+		if _finisher_timer <= 0.0:
+			_finisher_title.modulate.a = 0.0
+			_finisher_line.modulate.a = 0.0
 
 
 ## Раз в кадр перерисовать всё, что зависит от состояния матча.
@@ -249,7 +322,7 @@ func sync(runner: MatchRunner) -> void:
 	if not runner.running:
 		return
 
-	var player = runner.killer if runner.player_side == "killer" else runner.guests[0]
+	var player = runner.killer if runner.player_side == "killer" else runner.guests[runner.player_guest]
 	var is_guest := player is Guest
 
 	_state_label.text = player.state_text()
@@ -257,17 +330,30 @@ func sync(runner: MatchRunner) -> void:
 	_stamina_bar.visible = is_guest
 	_blood_bar.visible = not is_guest and player.kind == "trickster"
 
+	_trait_label.visible = is_guest
 	if is_guest:
 		var guest := player as Guest
 		_hp_bar.value = guest.hp / guest.max_hp * 100.0
-		_stamina_bar.value = guest.stamina / Kits.GUEST.stamina_max * 100.0
+		_stamina_bar.value = guest.stamina / guest.stamina_max * 100.0
+		_trait_label.text = "%s · «%s»" % [guest.guest_name, guest.trait_name]
 	elif _blood_bar.visible:
 		var killer := player as Killer
 		var frenzied := killer.frenzy > 0.0
 		_blood_bar.value = (killer.frenzy / killer.kit.frenzy.time if frenzied else killer.blood / 100.0) * 100.0
 		_blood_bar.modulate = Color("ffd23d") if frenzied else Color.WHITE
 
-	_breaker_label.text = "Щиты %d/%d" % [runner.count_breakers_online(), Kits.BREAKERS_REQUIRED]
+	# Один счётчик, но он про разное: сперва про ворота, потом про пролом.
+	var online := runner.count_breakers_online()
+	if not runner.gate_open():
+		_breaker_label.text = "Щиты %d/%d — до ворот" % [online, Kits.GATE_BREAKERS]
+	elif not runner.breach_open():
+		var left := 0
+		for breaker in runner.finale_breakers():
+			if not breaker.online:
+				left += 1
+		_breaker_label.text = "Старый город: щитов осталось %d" % left
+	else:
+		_breaker_label.text = "Пролом открыт"
 
 	for i in mini(_figurines.size(), runner.guests.size()):
 		var guest := runner.guests[i]
