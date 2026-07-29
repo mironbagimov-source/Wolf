@@ -40,48 +40,11 @@ func _ready() -> void:
 	# Мимо поросли: свой квартал не зарастает у неё перед лицом.
 	collision_mask = LAYER_WORLD
 
-	setup_body(kit.color, kit.scale, false)
-	_add_silhouette()
+	setup_body(kit.mesh, kit.color, kit.scale, false)
 
 	if is_player:
 		attach_camera()
 		set_eye_height(EYE_HEIGHT * (1.18 if kind == "roger" else 1.0))
-
-
-## Метки силуэта: смеющаяся маска, венец из шипов, якорная цепь. Все трое ходят
-## на одном риге, различать их нужно с дистанции тумана.
-func _add_silhouette() -> void:
-	var mark := MeshInstance3D.new()
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-
-	match kind:
-		"trickster":
-			var mask := SphereMesh.new()
-			mask.radius = 0.13
-			mask.height = 0.3
-			mark.mesh = mask
-			mark.position = Vector3(0, 1.56, -0.14)
-			mark.scale = Vector3(1.0, 1.0, 0.45)   # маска, а не шар на лице
-			material.albedo_color = Color("e8e2d4")
-		"witch":
-			var crown := TorusMesh.new()
-			crown.inner_radius = 0.13
-			crown.outer_radius = 0.2
-			mark.mesh = crown
-			mark.position = Vector3(0, 1.76, 0)
-			material.albedo_color = Color("3fbf55")
-		_:
-			var chain := TorusMesh.new()
-			chain.inner_radius = 0.28
-			chain.outer_radius = 0.36
-			mark.mesh = chain
-			mark.position = Vector3(0, 1.28, 0)
-			mark.rotation.x = PI * 0.44
-			material.albedo_color = Color("aab2bd")
-
-	mark.material_override = material
-	attach_to_body(mark)
 
 
 func damage_mul() -> float:

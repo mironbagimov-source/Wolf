@@ -40,7 +40,7 @@ func _ready() -> void:
 	# держится вся её способность.
 	collision_mask = LAYER_WORLD | LAYER_THICKET
 
-	setup_body(Kits.GUEST_COLOR, 1.0, not is_player)
+	setup_body(Kits.GUEST_MESH, Kits.GUEST_COLOR, 1.0, not is_player)
 
 	_flashlight = SpotLight3D.new()
 	_flashlight.light_color = Color("fff2cf")

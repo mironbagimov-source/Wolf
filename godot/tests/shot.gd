@@ -45,6 +45,43 @@ func _shots() -> void:
 	await _step(30)
 	await _save("godot-killer.png")
 
+	# Все четверо в ряд — сравнить силуэты. Место выбрано пустое, свет свой:
+	# это витрина моделей, а не кадр из матча.
+	var lamp := OmniLight3D.new()
+	lamp.light_energy = 6.0
+	lamp.omni_range = 26.0
+	lamp.light_color = Color("ffd9b0")
+	lamp.position = Vector3(17.0, 3.4, 1.0)
+	add_child(lamp)
+
+	var row_z := -3.0
+	for i in runner.guests.size():
+		_park(runner.guests[i], Vector2(-40, -40), PI)
+	_park(runner.guests[0], Vector2(13.5, row_z), PI)
+	runner.guests[0].play_pose("Idle")
+
+	var extra: Array[Killer] = []
+	for pair in [["trickster", 16.0], ["witch", 18.5], ["roger", 21.0]]:
+		var body := Killer.new()
+		body.runner = runner
+		body.setup(pair[0])
+		runner._actors_root.add_child(body)
+		_park(body, Vector2(pair[1], row_z), PI)
+		body.play_pose("Idle")
+		extra.append(body)
+	_park(runner.killer, Vector2(-40, -40), PI)
+
+	await _step(20)
+	_look_from(Vector3(17.2, 1.75, 3.4), Vector3(17.2, 1.0, row_z))
+	await _step(20)
+	await _save("godot-cast.png")
+
+	for body in extra:
+		body.queue_free()
+	lamp.queue_free()
+	_park(runner.killer, Vector2(0, 12), PI)
+	await _step(4)
+
 	# Гость на крюке — узловой момент матча.
 	var hook := runner.hooks[4]
 	var victim := runner.guests[1]

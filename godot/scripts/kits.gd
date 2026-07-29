@@ -38,6 +38,7 @@ const GUEST := {
 const KILLERS := {
 	"trickster": {
 		"name": "Трикстер",
+		"mesh": "trickster",
 		"color": Color("d0405a"),
 		"scale": 1.0,
 		"speed": 3.8,
@@ -52,6 +53,7 @@ const KILLERS := {
 	},
 	"witch": {
 		"name": "Ведьма",
+		"mesh": "witch",
 		"color": Color("57a35d"),
 		"scale": 1.02,
 		"speed": 3.5,
@@ -65,6 +67,7 @@ const KILLERS := {
 	},
 	"roger": {
 		"name": "Весёлый Роджер",
+		"mesh": "roger",
 		"color": Color("8f98a6"),
 		"scale": 1.24,
 		"speed": 3.05,
@@ -79,6 +82,7 @@ const KILLERS := {
 const KILLER_ORDER: Array[String] = ["trickster", "witch", "roger"]
 
 const GUEST_COLOR := Color("d8c08a")
+const GUEST_MESH := "guest"
 
 ## Гости — не случайные жертвы, а должники. Имя всплывает в подсказке
 ## («Поднять Марго Ланд»), «за что» — на финальном экране.

@@ -16,10 +16,10 @@ const LAYER_GUEST := 2
 const LAYER_KILLER := 4
 const LAYER_THICKET := 8
 
-## Риг персонажа: Soldier из примеров three.js (MIT, см. assets/LICENSE.md).
-## Один и тот же скелет на всех — стороны различаются покраской, ростом и
-## метками силуэта, как и в браузерной версии.
-const CHARACTER := preload("res://assets/soldier.glb")
+## Четыре модели на одном скелете, слепленные скриптом
+## tools/blender_cast.py. Файл один, поэтому анимации не дублируются: при
+## спавне остаётся нужный меш, остальные удаляются.
+const CAST := preload("res://assets/cast.glb")
 const MODEL_YAW_OFFSET := PI   ## риг смотрит в +Z, игра — в -Z
 const POSES := ["Idle", "Walk", "Run"]
 
@@ -45,7 +45,7 @@ var _anim: AnimationPlayer
 var _pose := ""
 
 
-func setup_body(tint: Color, body_scale: float, with_health_bar: bool) -> void:
+func setup_body(mesh_name: String, tint: Color, body_scale: float, with_health_bar: bool) -> void:
 	_tint = tint
 
 	var shape := CollisionShape3D.new()
@@ -61,7 +61,7 @@ func setup_body(tint: Color, body_scale: float, with_health_bar: bool) -> void:
 	_body_pivot = Node3D.new()
 	add_child(_body_pivot)
 
-	if not _build_model(tint, body_scale):
+	if not _build_model(mesh_name, tint, body_scale):
 		_build_capsules(tint, body_scale)
 
 	head = Node3D.new()
@@ -84,8 +84,8 @@ func setup_body(tint: Color, body_scale: float, with_health_bar: bool) -> void:
 
 ## Риг — прогрессивное улучшение: если модель не подгрузилась, тело всё равно
 ## должно быть, иначе матч превращается в невидимок.
-func _build_model(tint: Color, body_scale: float) -> bool:
-	var instance := CHARACTER.instantiate() as Node3D
+func _build_model(mesh_name: String, tint: Color, body_scale: float) -> bool:
+	var instance := CAST.instantiate() as Node3D
 	if instance == null:
 		return false
 
@@ -93,11 +93,22 @@ func _build_model(tint: Color, body_scale: float) -> bool:
 	instance.rotation.y = MODEL_YAW_OFFSET
 	_body_pivot.add_child(instance)
 
+	# В файле лежат все четыре тела на общем скелете — лишние убираем, иначе на
+	# каждом госте будет висеть ещё и Ведьма с Роджером.
+	var kept := false
 	for mesh_node in _find_meshes(instance):
+		if mesh_node.name != mesh_name:
+			mesh_node.queue_free()
+			continue
+		kept = true
 		if mesh_node.mesh == null:
 			continue
 		for surface in mesh_node.mesh.get_surface_count():
-			mesh_node.set_surface_override_material(surface, _tint_of(mesh_node, surface, tint))
+			mesh_node.set_surface_override_material(surface, _own_material(mesh_node, surface, tint))
+	if not kept:
+		push_warning("В cast.glb нет меша «%s» — тело собрано из капсул." % mesh_name)
+		instance.queue_free()
+		return false
 
 	_anim = instance.find_child("AnimationPlayer", true, false)
 	if _anim:
@@ -110,20 +121,21 @@ func _build_model(tint: Color, body_scale: float) -> bool:
 	return true
 
 
-## Текстуру рига оставляем, цвет только подмешиваем: полная заливка тинтом
-## превращает солдата в силуэт.
-func _tint_of(mesh_node: MeshInstance3D, surface: int, tint: Color) -> StandardMaterial3D:
+## Цвет модели авторский — из Blender, перекрашивать его нечем. Своя копия
+## материала нужна ради подсветки состояний: вспышка от удара и зелень от плюща
+## не должны расползаться на всех, кто делит тот же материал.
+func _own_material(mesh_node: MeshInstance3D, surface: int, tint: Color) -> StandardMaterial3D:
 	var source := mesh_node.get_active_material(surface)
 	var material: StandardMaterial3D
 	if source is StandardMaterial3D:
 		material = (source as StandardMaterial3D).duplicate()
 	else:
 		material = StandardMaterial3D.new()
+		material.albedo_color = tint
 
-	material.albedo_color = Color.WHITE.lerp(tint, 0.6)
 	material.emission_enabled = true
 	material.emission = tint
-	material.emission_energy_multiplier = 0.12
+	material.emission_energy_multiplier = 0.08
 	_materials.append(material)
 	return material
 
@@ -303,7 +315,7 @@ func sync_materials(pulse: float, pulse_color: Color) -> void:
 			material.emission_energy_multiplier = pulse
 		else:
 			material.emission = _tint
-			material.emission_energy_multiplier = 0.12
+			material.emission_energy_multiplier = 0.08
 
 
 func sync_health_bar(visible_now: bool) -> void:
