@@ -269,6 +269,7 @@ func _spawn_cast() -> void:
 		guest.index = i
 		guest.guest_name = Kits.ROSTER[i].name
 		guest.guilt = Kits.ROSTER[i].sin
+		guest.skin = load(Kits.ROSTER[i].skin) as BodySkin
 		if not guest.is_player:
 			guest.brain = GuestBrain.new()
 		_actors_root.add_child(guest)

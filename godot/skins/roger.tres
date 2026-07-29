@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="BodySkin" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/body_skin.gd" id="1_c4m3j"]
+
+[resource]
+script = ExtResource("1_c4m3j")
+parts = {
+"roger_canvas": Color(0.2901961, 0.29411766, 0.3019608, 1),
+"roger_dark": Color(0.105882354, 0.10980392, 0.12156863, 1),
+"roger_iron": Color(0.41960785, 0.43529412, 0.45490196, 1)
+}
+fallback = Color(0.2901961, 0.29411766, 0.3019608, 1)
+accent = Color(0.56078434, 0.59607846, 0.6509804, 1)
+pattern = "rust"
+pattern_strength = 0.7
+pattern_seed = 13
+texture_scale = 1.7
+metal_parts = PackedStringArray("roger_iron")
+glow_parts = PackedStringArray()

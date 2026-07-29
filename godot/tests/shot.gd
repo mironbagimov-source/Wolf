@@ -56,9 +56,8 @@ func _shots() -> void:
 
 	var row_z := -3.0
 	for i in runner.guests.size():
-		_park(runner.guests[i], Vector2(-40, -40), PI)
-	_park(runner.guests[0], Vector2(13.5, row_z), PI)
-	runner.guests[0].play_pose("Idle")
+		_park(runner.guests[i], Vector2(9.0 + i * 2.5, row_z + 2.6), PI)
+		runner.guests[i].play_pose("Idle")
 
 	var extra: Array[Killer] = []
 	for pair in [["trickster", 16.0], ["witch", 18.5], ["roger", 21.0]]:
@@ -75,6 +74,18 @@ func _shots() -> void:
 	_look_from(Vector3(17.2, 1.75, 3.4), Vector3(17.2, 1.0, row_z))
 	await _step(20)
 	await _save("godot-cast.png")
+
+	# Четверо гостей в ряд: у каждого свой скин, и это не украшение — по нему
+	# в матче узнают, кого тащат на крюк.
+	for i in runner.guests.size():
+		_park(runner.guests[i], Vector2(14.6 + i * 2.2, row_z), PI)
+		runner.guests[i].play_pose("Idle")
+	for body in extra:
+		_park(body, Vector2(-40, -40), PI)
+	await _step(16)
+	_look_from(Vector3(17.9, 1.7, 2.6), Vector3(17.9, 1.0, row_z))
+	await _step(16)
+	await _save("godot-guests.png")
 
 	for body in extra:
 		body.queue_free()

@@ -11,6 +11,7 @@ var life := 0.0
 var runner: MatchRunner
 
 var _materials: Array[StandardMaterial3D] = []
+var _anim: AnimationPlayer
 
 
 func build(at: Vector2, facing: float, lifetime: float) -> void:
@@ -18,45 +19,21 @@ func build(at: Vector2, facing: float, lifetime: float) -> void:
 	life = lifetime
 	position = Vector3(at.x, 0.0, at.y)
 
-	var tint: Color = Kits.KILLERS.trickster.color
+	# Тем же сборщиком, что и настоящий Трикстер: двойник обязан быть неотличим,
+	# а значит и модель, и скин у него те же самые.
+	var kit: Dictionary = Kits.KILLERS.trickster
+	var built := Actor.build_cast_model(kit.mesh, load(kit.skin) as BodySkin, kit.scale)
+	if built.is_empty():
+		return
 
-	var body := MeshInstance3D.new()
-	var body_mesh := CapsuleMesh.new()
-	body_mesh.height = 1.5
-	body_mesh.radius = 0.32
-	body.mesh = body_mesh
-	body.position.y = 0.85
-	body.material_override = _material(tint)
-	add_child(body)
+	add_child(built.root)
+	_materials.assign(built.materials)
+	for material in _materials:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 
-	var skull := MeshInstance3D.new()
-	var skull_mesh := SphereMesh.new()
-	skull_mesh.radius = 0.24
-	skull_mesh.height = 0.48
-	skull.mesh = skull_mesh
-	skull.position.y = 1.68
-	skull.material_override = _material(tint)
-	add_child(skull)
-
-	var mask := MeshInstance3D.new()
-	var mask_mesh := SphereMesh.new()
-	mask_mesh.radius = 0.2
-	mask_mesh.height = 0.44
-	mask.mesh = mask_mesh
-	mask.position = Vector3(0, 1.66, -0.16)
-	mask.material_override = _material(Color("e8e2d4"))
-	add_child(mask)
-
-
-func _material(tint: Color) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = tint
-	material.emission_enabled = true
-	material.emission = tint
-	material.emission_energy_multiplier = 0.24
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_materials.append(material)
-	return material
+	_anim = built.anim
+	if _anim and _anim.has_animation("Run"):
+		_anim.play("Run", 0.2)
 
 
 func tick(delta: float) -> void:

@@ -181,13 +181,16 @@ class Body:
 			slot = material_slots[material_key]
 
 			offset = len(combined.verts)
+			faces_before = len(combined.faces)
 			combined.from_mesh(bmesh_to_mesh(part))
 			combined.verts.ensure_lookup_table()
 			combined.faces.ensure_lookup_table()
 
-			for face in combined.faces:
-				if face.index >= 0 and all(v.index >= offset for v in face.verts):
-					face.material_index = slot
+			# Отмечаем ровно те грани, что приехали с этой деталью. Проверять
+			# «все вершины новые» нельзя: индексы после from_mesh перевыдаются,
+			# и тогда вся модель уезжает в один материал.
+			for face in combined.faces[faces_before:]:
+				face.material_index = slot
 
 			groups.setdefault(bone, []).extend(range(offset, len(combined.verts)))
 			part.free()

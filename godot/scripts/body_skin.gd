@@ -1,0 +1,123 @@
+class_name BodySkin
+extends Resource
+
+## Внешний вид одного тела: цвет каждой детали плюс узор поверх.
+##
+## Модели приезжают из Blender без развёртки — UV на них нет вовсе. Поэтому
+## текстура кладётся трипланарной проекцией: движок сам проецирует её с трёх
+## сторон, и никакая развёртка не нужна. Сам узор рисуется здесь же, кодом, а не
+## лежит картинкой — так его можно править цифрами и пересобирать одной командой.
+##
+## Скины — обычные ресурсы Godot (`skins/*.tres`): открываются в редакторе,
+## правятся мышью, лежат в репозитории текстом.
+##
+## Класс называется BodySkin, а не Skin: `Skin` занят самим движком (там это
+## привязка меша к скелету), и своё объявление молча проигрывает встроенному.
+
+const TEXTURE_SIZE := 96
+
+## Имя материала модели -> цвет. Имена задаёт tools/blender_cast.py:
+## guest_cloth, trick_bone, witch_thorn, roger_iron и так далее.
+@export var parts: Dictionary = {}
+
+## Цвет для детали, которой нет в `parts` — чтобы новая деталь не стала чёрной.
+@export var fallback := Color("8a8a8a")
+
+## Акцент роли: им подсвечиваются состояния (вспышка от удара, зелень плюща).
+@export var accent := Color("ffffff")
+
+@export_enum("grime", "diamonds", "moss", "rust", "weave")
+var pattern := "grime"
+
+@export_range(0.0, 1.0) var pattern_strength := 0.5
+@export var pattern_seed := 1
+@export_range(0.2, 6.0) var texture_scale := 2.0
+@export_range(0.0, 1.0) var roughness := 0.9
+
+## Детали, которые металлические, и детали, которые светятся в темноте.
+@export var metal_parts := PackedStringArray()
+@export var glow_parts := PackedStringArray()
+@export var glow := Color.BLACK
+@export_range(0.0, 4.0) var glow_energy := 0.0
+
+static var _textures := {}
+
+
+## Материал для одной детали модели. Каждый вызов отдаёт свою копию: подсветка
+## состояний правит материал на месте, и делить его между телами нельзя.
+func material_for(part: String) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = parts.get(part, fallback)
+	material.albedo_texture = _pattern_texture()
+	material.uv1_triplanar = true
+	material.uv1_scale = Vector3.ONE * texture_scale
+	# Резкий фильтр под стать лоу-поли: мыла тут не надо.
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	material.roughness = roughness
+	material.metallic = 0.75 if metal_parts.has(part) else 0.0
+
+	material.emission_enabled = true
+	if glow_energy > 0.0 and glow_parts.has(part):
+		material.emission = glow
+		material.emission_energy_multiplier = glow_energy
+	else:
+		material.emission = accent
+		material.emission_energy_multiplier = 0.06
+	return material
+
+
+func _pattern_texture() -> Texture2D:
+	var key := "%s|%d|%.2f" % [pattern, pattern_seed, pattern_strength]
+	if _textures.has(key):
+		return _textures[key]
+
+	var image := Image.create(TEXTURE_SIZE, TEXTURE_SIZE, false, Image.FORMAT_RGB8)
+	var noise := FastNoiseLite.new()
+	noise.seed = pattern_seed
+	noise.frequency = 0.06
+	noise.fractal_octaves = 3
+
+	var fine := FastNoiseLite.new()
+	fine.seed = pattern_seed + 7
+	fine.frequency = 0.28
+
+	for y in TEXTURE_SIZE:
+		for x in TEXTURE_SIZE:
+			var value := _sample(x, y, noise, fine)
+			# Узор только затемняет: цвет детали задаётся albedo_color, а текстура
+			# на него умножается. Светлее белого она стать не должна.
+			var shade := clampf(1.0 - value * pattern_strength, 0.15, 1.0)
+			image.set_pixel(x, y, Color(shade, shade, shade))
+
+	var texture := ImageTexture.create_from_image(image)
+	_textures[key] = texture
+	return texture
+
+
+## Сколько грязи в этой точке: 0 — чисто, 1 — совсем темно.
+func _sample(x: int, y: int, noise: FastNoiseLite, fine: FastNoiseLite) -> float:
+	var blot := (noise.get_noise_2d(x, y) + 1.0) * 0.5
+	var speck := (fine.get_noise_2d(x, y) + 1.0) * 0.5
+
+	match pattern:
+		"diamonds":
+			# Арлекин: ромбы по диагонали, потрёпанные шумом.
+			var cell := 16.0
+			var diamond := fposmod((x + y) / cell, 2.0) < 1.0
+			var check := fposmod((x - y) / cell, 2.0) < 1.0
+			return (0.85 if diamond == check else 0.05) + blot * 0.25
+		"moss":
+			# Мох пятнами и прожилки, сползающие вниз.
+			var vein := absf(sin((x + blot * 22.0) * 0.35)) < 0.22
+			return clampf(blot * 1.5 - 0.35, 0.0, 1.0) + (0.35 if vein else 0.0)
+		"rust":
+			# Потёки ржавчины: длинные вертикальные, короткие поперёк.
+			var streak := (noise.get_noise_2d(x * 3.0, y * 0.4) + 1.0) * 0.5
+			return clampf(streak * 1.4 - 0.3, 0.0, 1.0) + speck * 0.2
+		"weave":
+			# Парусина: переплетение нитей плюс общая затёртость.
+			var thread := 0.5 if (x / 3) % 2 == (y / 3) % 2 else 0.0
+			return thread * 0.5 + blot * 0.5
+		_:
+			# Тряпьё: рваные пятна и мелкая грязь.
+			return clampf(blot * 1.3 - 0.2, 0.0, 1.0) * 0.8 + speck * 0.25

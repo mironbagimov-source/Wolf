@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="BodySkin" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/body_skin.gd" id="1_gj411"]
+
+[resource]
+script = ExtResource("1_gj411")
+parts = {
+"steel": Color(0.6039216, 0.6392157, 0.6784314, 1),
+"trick_bone": Color(0.9019608, 0.87058824, 0.8156863, 1),
+"trick_dark": Color(0.11764706, 0.039215688, 0.050980393, 1),
+"trick_red": Color(0.5568628, 0.08627451, 0.13333334, 1)
+}
+fallback = Color(0.5568628, 0.08627451, 0.13333334, 1)
+accent = Color(0.8156863, 0.2509804, 0.3529412, 1)
+pattern = "diamonds"
+pattern_seed = 2
+texture_scale = 2.8
+metal_parts = PackedStringArray("steel")
+glow_parts = PackedStringArray("trick_bone")
+glow = Color(1, 0.9137255, 0.84705883, 1)
+glow_energy = 0.6

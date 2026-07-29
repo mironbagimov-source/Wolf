@@ -40,7 +40,7 @@ func _ready() -> void:
 	# Мимо поросли: свой квартал не зарастает у неё перед лицом.
 	collision_mask = LAYER_WORLD
 
-	setup_body(kit.mesh, kit.color, kit.scale, false)
+	setup_body(kit.mesh, load(kit.skin) as BodySkin, kit.scale, false)
 
 	if is_player:
 		attach_camera()

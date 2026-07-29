@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="BodySkin" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/body_skin.gd" id="1_h5qjv"]
+
+[resource]
+script = ExtResource("1_h5qjv")
+parts = {
+"guest_cloth": Color(0.3529412, 0.3254902, 0.2784314, 1),
+"guest_dark": Color(0.13725491, 0.12941177, 0.105882354, 1),
+"guest_skin": Color(0.70980394, 0.57254905, 0.43529412, 1)
+}
+fallback = Color(0.3529412, 0.3254902, 0.2784314, 1)
+accent = Color(0.8666667, 0.8156863, 0.7058824, 1)
+pattern = "weave"
+pattern_strength = 0.45
+pattern_seed = 5
+texture_scale = 2.6
+metal_parts = PackedStringArray()
+glow_parts = PackedStringArray()

@@ -27,6 +27,7 @@ var hooked_on = null                      ## Hook, на котором виси�
 var progress_ui := 0.0                    ## что показывать в полосе прогресса
 
 var brain                                 ## GuestBrain у ботов, null у игрока
+var skin: BodySkin                        ## ставится в MatchRunner до входа в дерево
 var _flashlight: SpotLight3D
 var _mark_timer := 0.0
 
@@ -40,7 +41,7 @@ func _ready() -> void:
 	# держится вся её способность.
 	collision_mask = LAYER_WORLD | LAYER_THICKET
 
-	setup_body(Kits.GUEST_MESH, Kits.GUEST_COLOR, 1.0, not is_player)
+	setup_body(Kits.GUEST_MESH, skin, 1.0, not is_player)
 
 	_flashlight = SpotLight3D.new()
 	_flashlight.light_color = Color("fff2cf")

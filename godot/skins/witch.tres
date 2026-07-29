@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="BodySkin" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/body_skin.gd" id="1_vo2ge"]
+
+[resource]
+script = ExtResource("1_vo2ge")
+parts = {
+"witch_dark": Color(0.07058824, 0.105882354, 0.07058824, 1),
+"witch_green": Color(0.13333334, 0.2509804, 0.12156863, 1),
+"witch_thorn": Color(0.3529412, 0.65882355, 0.36078432, 1)
+}
+fallback = Color(0.13333334, 0.2509804, 0.12156863, 1)
+accent = Color(0.34117648, 0.6392157, 0.3647059, 1)
+pattern = "moss"
+pattern_strength = 0.65
+pattern_seed = 8
+metal_parts = PackedStringArray()
+glow_parts = PackedStringArray("witch_thorn")
+glow = Color(0.43529412, 0.8784314, 0.47843137, 1)
+glow_energy = 0.9

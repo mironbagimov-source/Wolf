@@ -45,8 +45,8 @@ var _anim: AnimationPlayer
 var _pose := ""
 
 
-func setup_body(mesh_name: String, tint: Color, body_scale: float, with_health_bar: bool) -> void:
-	_tint = tint
+func setup_body(mesh_name: String, skin: BodySkin, body_scale: float, with_health_bar: bool) -> void:
+	_tint = skin.accent if skin else Color.WHITE
 
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
@@ -61,8 +61,8 @@ func setup_body(mesh_name: String, tint: Color, body_scale: float, with_health_b
 	_body_pivot = Node3D.new()
 	add_child(_body_pivot)
 
-	if not _build_model(mesh_name, tint, body_scale):
-		_build_capsules(tint, body_scale)
+	if not _build_model(mesh_name, skin, body_scale):
+		_build_capsules(_tint, body_scale)
 
 	head = Node3D.new()
 	head.position.y = EYE_HEIGHT
@@ -84,19 +84,35 @@ func setup_body(mesh_name: String, tint: Color, body_scale: float, with_health_b
 
 ## Риг — прогрессивное улучшение: если модель не подгрузилась, тело всё равно
 ## должно быть, иначе матч превращается в невидимок.
-func _build_model(mesh_name: String, tint: Color, body_scale: float) -> bool:
+func _build_model(mesh_name: String, skin: BodySkin, body_scale: float) -> bool:
+	var built := build_cast_model(mesh_name, skin, body_scale)
+	if built.is_empty():
+		return false
+
+	_body_pivot.add_child(built.root)
+	_materials.assign(built.materials)
+	_anim = built.anim
+	if _anim:
+		play_pose("Idle")
+	return true
+
+
+## Общий сборщик тела: достаёт из cast.glb нужный меш, красит его скином и
+## отдаёт материалы наружу. Нужен и живым телам, и двойникам Трикстера —
+## двойник обязан быть неотличим, а значит собирается тем же кодом.
+static func build_cast_model(mesh_name: String, skin: BodySkin, body_scale: float) -> Dictionary:
 	var instance := CAST.instantiate() as Node3D
 	if instance == null:
-		return false
+		return {}
 
 	instance.scale = Vector3.ONE * body_scale
 	instance.rotation.y = MODEL_YAW_OFFSET
-	_body_pivot.add_child(instance)
 
 	# В файле лежат все четыре тела на общем скелете — лишние убираем, иначе на
 	# каждом госте будет висеть ещё и Ведьма с Роджером.
+	var materials: Array[StandardMaterial3D] = []
 	var kept := false
-	for mesh_node in _find_meshes(instance):
+	for mesh_node in _all_meshes(instance):
 		if mesh_node.name != mesh_name:
 			mesh_node.queue_free()
 			continue
@@ -104,48 +120,33 @@ func _build_model(mesh_name: String, tint: Color, body_scale: float) -> bool:
 		if mesh_node.mesh == null:
 			continue
 		for surface in mesh_node.mesh.get_surface_count():
-			mesh_node.set_surface_override_material(surface, _own_material(mesh_node, surface, tint))
-	if not kept:
-		push_warning("В cast.glb нет меша «%s» — тело собрано из капсул." % mesh_name)
-		instance.queue_free()
-		return false
+			var source := mesh_node.get_active_material(surface)
+			var part: String = source.resource_name if source else ""
+			var material := skin.material_for(part) if skin else StandardMaterial3D.new()
+			mesh_node.set_surface_override_material(surface, material)
+			materials.append(material)
 
-	_anim = instance.find_child("AnimationPlayer", true, false)
-	if _anim:
+	if not kept:
+		push_warning("В cast.glb нет меша «%s»." % mesh_name)
+		instance.queue_free()
+		return {}
+
+	var anim := instance.find_child("AnimationPlayer", true, false) as AnimationPlayer
+	if anim:
 		# glTF отдаёт клипы без зацикливания — шаг делается один раз и замирает.
 		for pose in POSES:
-			if _anim.has_animation(pose):
-				_anim.get_animation(pose).loop_mode = Animation.LOOP_LINEAR
-		play_pose("Idle")
+			if anim.has_animation(pose):
+				anim.get_animation(pose).loop_mode = Animation.LOOP_LINEAR
 
-	return true
-
-
-## Цвет модели авторский — из Blender, перекрашивать его нечем. Своя копия
-## материала нужна ради подсветки состояний: вспышка от удара и зелень от плюща
-## не должны расползаться на всех, кто делит тот же материал.
-func _own_material(mesh_node: MeshInstance3D, surface: int, tint: Color) -> StandardMaterial3D:
-	var source := mesh_node.get_active_material(surface)
-	var material: StandardMaterial3D
-	if source is StandardMaterial3D:
-		material = (source as StandardMaterial3D).duplicate()
-	else:
-		material = StandardMaterial3D.new()
-		material.albedo_color = tint
-
-	material.emission_enabled = true
-	material.emission = tint
-	material.emission_energy_multiplier = 0.08
-	_materials.append(material)
-	return material
+	return {"root": instance, "materials": materials, "anim": anim}
 
 
-func _find_meshes(node: Node) -> Array[MeshInstance3D]:
+static func _all_meshes(node: Node) -> Array[MeshInstance3D]:
 	var out: Array[MeshInstance3D] = []
 	if node is MeshInstance3D:
 		out.append(node)
 	for child in node.get_children():
-		out.append_array(_find_meshes(child))
+		out.append_array(_all_meshes(child))
 	return out
 
 

@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="BodySkin" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/body_skin.gd" id="1_iwx8p"]
+
+[resource]
+script = ExtResource("1_iwx8p")
+parts = {
+"guest_cloth": Color(0.42745098, 0.24705882, 0.25882354, 1),
+"guest_dark": Color(0.15294118, 0.101960786, 0.10980392, 1),
+"guest_skin": Color(0.73333335, 0.58431375, 0.45882353, 1)
+}
+fallback = Color(0.42745098, 0.24705882, 0.25882354, 1)
+accent = Color(0.8784314, 0.65882355, 0.627451, 1)
+pattern_seed = 19
+texture_scale = 2.4
+metal_parts = PackedStringArray()
+glow_parts = PackedStringArray()
