@@ -139,6 +139,17 @@ const KEREN_DASH_CD_MUL := 0.55
 const KEREN_PARRY_BONUS := 0.12    # к окну парирования
 const SYNTHLUNGS_REGEN_MUL := 1.7
 
+# --- Гражданские: сколько их и что с ними можно делать ---------------------
+const CIV_COUNT := 14             # башня набита людьми, а не шестью болванчиками
+const CIV_INTERACT_RANGE := 2.4
+const REVIVE_TIME := 3.5          # поднять лежачего из агонии (гражданский)
+const REVIVE_HP_FRAC := 0.4
+const INTERROGATE_TIME := 2.6     # расколоть свидетеля (наёмник)
+const FOLLOW_RANGE := 3.2         # ближе этого ведомый стоит, дальше — догоняет
+const FOLLOW_MAX := 26.0          # дальше — отстал и разбежался
+const DRAG_SPEED_MUL := 0.62      # псих тащит жертву медленнее
+const BOT_REVIVE_TIME := 5.0      # бот-медтех возится дольше игрока
+
 # --- Objectives ----------------------------------------------------------
 # --- Полиция вызывается с терминалов; если отряд перебили — MAX-TAC ------
 const POLICE_ARRIVE_TIME := 45.0  # ехать от вызова до штурма (WOLF_POLICE override)

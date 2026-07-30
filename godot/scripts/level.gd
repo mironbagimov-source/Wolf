@@ -121,8 +121,13 @@ static func build_district(root: Node3D) -> void:
 	var spawns := _group(root, "Spawns")
 	var spawn_sets := {
 		"Killer": [Vector3(-2, 0, -19), Vector3(2, 0, -19)],
+		# Люди рассыпаны по всей высоте: лавки, фудкорт, номера, офисы, аркада.
 		"Survivor": [Vector3(-15, H, 18), Vector3(15, 2 * H, -18), Vector3(0, 3 * H, 14),
-			Vector3(-20, 4 * H, 10), Vector3(18, 5 * H, -10), Vector3(-15, 6 * H, 0)],
+			Vector3(-20, 4 * H, 10), Vector3(18, 5 * H, -10), Vector3(-15, 6 * H, 0),
+			Vector3(20, H, -8), Vector3(-24, 2 * H, 6), Vector3(10, 3 * H, -14),
+			Vector3(-18, 5 * H, 16), Vector3(22, 7 * H, 12), Vector3(-10, 8 * H, -16),
+			Vector3(16, 9 * H, 4), Vector3(-22, 11 * H, -6), Vector3(6, 12 * H, 16),
+			Vector3(-16, 13 * H, 8)],
 		"Cannibal": [Vector3(-15, 15 * H, 0), Vector3(4, 15 * H, 10), Vector3(-4, 15 * H, -10), Vector3(15, 14 * H, 0)],
 	}
 	for prefix: String in spawn_sets:

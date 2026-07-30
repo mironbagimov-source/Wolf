@@ -43,7 +43,8 @@ var patrol_points: Array = []
 var bomb_site := Vector3.ZERO      # где лежит взрывчатка (или куда выпала)
 var bomb_spots: Array = []         # кандидаты спавна [{pos, desc}]
 var bomb_hints: Array = []         # разведка наёмника: 3 возможных места
-var _hint_beacons: Array = []      # жёлтые маяки на кандидатах
+var _hint_beacons: Array = []      # [{desc, node}] жёлтые маяки на кандидатах
+var bomb_true_desc := ""           # настоящее место закладки (для допроса)
 var bomb_carried := false          # игрок несёт взрывчатку
 var bomb_pickup: Node3D = null     # визуал брикетов
 var evac_pos := Vector3.ZERO
@@ -72,6 +73,10 @@ var _bait_beacon: MeshInstance3D = null
 # Риппердок-станции: [{pos, implant, where, node, used}] + текущая операция.
 var ripper_points: Array = []
 var _surgery := {}                 # {station, t, phase} пока идёт вживление
+# Возня с гражданскими: подъём из агонии / допрос (держать E).
+var _act_kind := ""                # "revive" | "interrogate"
+var _act_target: WolfChar = null
+var _act_t := 0.0
 
 var elevator: WolfElevator = null
 var _captured := false
@@ -87,6 +92,7 @@ var _test_shot := ""
 var _test_t := 0.0
 var _test_staged := false
 var _test_shot_taken := false
+var _test_hints_before := 0
 var _test_yaw_before := 0.0
 
 const RESULT_COPY := {
@@ -244,6 +250,9 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 	blueprints = 0
 	_loot_msg_t = 0.0
 	_surgery = {}
+	_act_kind = ""
+	_act_target = null
+	_act_t = 0.0
 	for l: Dictionary in loot_bodies:
 		l["looted"] = false
 	for r: Dictionary in ripper_points:
@@ -253,14 +262,15 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 			var arm := chair.get_node_or_null("SurgeryArm") as Node3D
 			if arm != null:
 				arm.position.y = 2.05
-	for b in _hint_beacons:
-		(b as Node).queue_free()
-	_hint_beacons.clear()
+	_clear_beacons()
 	bomb_hints.clear()
+	bomb_true_desc = ""
 	if not bomb_spots.is_empty():
 		var true_spot: Dictionary = bomb_spots.pick_random()
 		bomb_site = true_spot["pos"]
-		# Разведка: настоящее место + два ложных, перемешаны.
+		bomb_true_desc = str(true_spot["desc"])
+		# Разведка: настоящее место + два ложных, перемешаны. Свидетелей
+		# можно расколоть — допрос вычёркивает ложные точки (см. _do_interrogate).
 		var decoys := bomb_spots.filter(func(x: Dictionary) -> bool: return x != true_spot)
 		decoys.shuffle()
 		var hints: Array = [true_spot, decoys[0], decoys[1]]
@@ -268,7 +278,7 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 		for h: Dictionary in hints:
 			bomb_hints.append(h["desc"])
 			if faction == "killer":
-				_hint_beacons.append(_spawn_beacon(h["pos"]))
+				_hint_beacons.append({"desc": h["desc"], "node": _spawn_beacon(h["pos"])})
 	if bomb_pickup != null:
 		bomb_pickup.global_position = bomb_site
 		bomb_pickup.visible = true
@@ -284,7 +294,7 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 
 	# Каждый архетип носит свою модель: игрок — выбранную, боты чередуются.
 	var civ_spawns := _spawn_positions("Survivor")
-	for i in 6:
+	for i in WolfCfg.CIV_COUNT:
 		var is_human := faction == "survivor" and i == 0
 		var v := arche_index % 2 if is_human else i % 2  # боты чередуют оба облика
 		var cv := _spawn_char("survivor", civ_spawns[i % civ_spawns.size()], is_human, false, v)
@@ -1102,6 +1112,10 @@ func _kill(target: WolfChar) -> void:
 
 
 func _find_execute_target(e: WolfChar) -> WolfChar:
+	# Схваченного добивают без порога здоровья — он уже в твоих руках.
+	if e.carrying != null and is_instance_valid(e.carrying) and not e.carrying.is_dead \
+			and not e.carrying.being_executed:
+		return e.carrying
 	var best: WolfChar = null
 	var best_d := INF
 	for t: WolfChar in entities:
@@ -1543,6 +1557,44 @@ func _bot_civilian(e: WolfChar, delta: float) -> void:
 	var threat := _nearest_threat(e.global_position)
 	var in_zone := _in_safe_zone(e.global_position)
 
+	# Ведомый: тебя позвали — идёшь следом, пока не отстал и не убили.
+	var lead: WolfChar = e.follow_target
+	if lead != null and (not is_instance_valid(lead) or lead.is_dead
+			or lead.global_position.distance_to(e.global_position) > WolfCfg.FOLLOW_MAX):
+		e.follow_target = null
+		lead = null
+	if lead != null and (threat[0] == null or threat[1] > 5.0):
+		e.crouching = false
+		var d_lead := lead.global_position.distance_to(e.global_position)
+		if d_lead > WolfCfg.FOLLOW_RANGE:
+			e.sprinting = d_lead > 7.0
+			_bot_goto(e, lead.global_position, delta)
+		else:
+			e.move_input = Vector2.ZERO
+			e.desired_yaw = _yaw_toward(lead.global_position.x - e.global_position.x,
+					lead.global_position.z - e.global_position.z)
+		return
+
+	# Свой своего вытаскивает: рядом лежит раненый и психов не видно — поднимаем.
+	if threat[0] == null or threat[1] > 9.0:
+		var hurt := _downed_near(e, 7.0)
+		if hurt != null:
+			var d_hurt := hurt.global_position.distance_to(e.global_position)
+			if d_hurt > 1.6:
+				e.revive_t = 0.0
+				_bot_goto(e, hurt.global_position, delta)
+			else:
+				e.move_input = Vector2.ZERO
+				e.crouching = true
+				e.desired_yaw = _yaw_toward(hurt.global_position.x - e.global_position.x,
+						hurt.global_position.z - e.global_position.z)
+				e.revive_t += delta
+				if e.revive_t >= WolfCfg.BOT_REVIVE_TIME:
+					e.revive_t = 0.0
+					_do_revive(e, hurt)
+			return
+	e.revive_t = 0.0
+
 	if in_zone and (threat[0] == null or threat[1] > 5.0):
 		e.move_input = Vector2.ZERO
 		e.crouching = true
@@ -1791,6 +1843,8 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 		speed *= WolfCfg.CROUCH_SPEED_MUL
 	if e.winding:
 		speed *= 0.35
+	if e.carrying != null:
+		speed *= WolfCfg.DRAG_SPEED_MUL  # с телом на руках не разбежишься
 
 	if not e.is_player:
 		e.rotation.y = lerp_angle(e.rotation.y, e.desired_yaw, minf(1.0, delta * 10.0))
@@ -1859,6 +1913,10 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 	if not e.is_player:
 		return
 
+	# Гражданские идут первыми: поднять, позвать, допросить, схватить.
+	if _civ_actions(e, delta):
+		return
+
 	# Doors: toggle with E (psycho player breaks them with strikes instead).
 	if e.interact_pressed and e.faction != "cannibal":
 		var fwd := _fwd(e)
@@ -1905,9 +1963,7 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 				bomb_carried = true
 				if bomb_pickup != null:
 					bomb_pickup.visible = false
-				for b in _hint_beacons:
-					(b as Node).queue_free()
-				_hint_beacons.clear()
+				_clear_beacons()
 		else:
 			var shaft_d := Vector2(e.global_position.x - 9.5, e.global_position.z).length()
 			if shaft_d <= WolfCfg.BOMB_PLANT_RANGE and e.interact_held:
@@ -1921,6 +1977,208 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 						bomb_pickup.visible = true
 			else:
 				bomb_progress = maxf(0.0, bomb_progress - delta * 2.0)
+
+
+# ---------------------------------------------------------------------------
+# гражданские: поднять из агонии, позвать за собой, допросить, утащить
+# ---------------------------------------------------------------------------
+
+func _clear_beacons() -> void:
+	for b: Dictionary in _hint_beacons:
+		var n: Node = b["node"]
+		if n != null and is_instance_valid(n):
+			n.queue_free()
+	_hint_beacons.clear()
+
+
+## Ближайший гражданский, с которым можно что-то сделать.
+func _civ_target(e: WolfChar) -> WolfChar:
+	var best: WolfChar = null
+	var best_d := WolfCfg.CIV_INTERACT_RANGE
+	for t: WolfChar in entities:
+		if t == e or t.faction != "survivor" or t.is_dead or t.is_bait or t.being_executed:
+			continue
+		var dp := t.global_position - e.global_position
+		if absf(dp.y) > 2.2:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
+## Все действия игрока над гражданскими. Возвращает true, если нажатие/
+## удержание E ушло сюда (чтобы не сработали двери, лут и взрывчатка).
+func _civ_actions(p: WolfChar, delta: float) -> bool:
+	# Псих уже кого-то тащит: E — отпустить.
+	if p.carrying != null and is_instance_valid(p.carrying):
+		if p.interact_pressed:
+			_release_grab(p)
+			return true
+		return false
+
+	# Идёт удержание (подъём/допрос).
+	if _act_kind != "":
+		var t := _act_target
+		var alive: bool = t != null and is_instance_valid(t) and not t.is_dead
+		var near: bool = alive and t.global_position.distance_to(p.global_position) <= WolfCfg.CIV_INTERACT_RANGE + 1.0
+		if not p.interact_held or not near or p.stagger_t > 0.0:
+			_act_kind = ""
+			_act_target = null
+			_act_t = 0.0
+			return false
+		_act_t += delta
+		p.move_input = Vector2.ZERO
+		var need: float = WolfCfg.REVIVE_TIME if _act_kind == "revive" else WolfCfg.INTERROGATE_TIME
+		if _act_t >= need:
+			if _act_kind == "revive":
+				_do_revive(p, t)
+			else:
+				_do_interrogate(p, t)
+			_act_kind = ""
+			_act_target = null
+			_act_t = 0.0
+		return true
+
+	var civ := _civ_target(p)
+	if civ == null:
+		return false
+	match p.faction:
+		"survivor":
+			if civ.downed:
+				if p.interact_held:
+					_act_kind = "revive"
+					_act_target = civ
+					_act_t = 0.0
+					p.play_oneshot("Kneel")
+					return true
+			elif p.interact_pressed:
+				# Позвать за собой / отпустить: гуртом до безопасной комнаты.
+				if civ.follow_target == p:
+					civ.follow_target = null
+					_loot_msg = "«Ждите здесь»"
+				else:
+					civ.follow_target = p
+					civ.exhausted = false
+					_loot_msg = "«За мной!» — ведомых: %d" % (_followers(p) + 1)
+				_loot_msg_t = 3.0
+				p.play_oneshot("Interact")
+				return true
+		"killer":
+			if not civ.downed and not civ.interrogated and p.interact_held:
+				_act_kind = "interrogate"
+				_act_target = civ
+				_act_t = 0.0
+				p.play_oneshot("Interact")
+				return true
+		"cannibal":
+			if p.interact_pressed:
+				_grab(p, civ)
+				return true
+	return false
+
+
+## Ближайший лежачий в агонии (кого можно поднять).
+func _downed_near(e: WolfChar, radius: float) -> WolfChar:
+	var best: WolfChar = null
+	var best_d := radius
+	for t: WolfChar in entities:
+		if t == e or t.faction != "survivor" or not t.downed or t.is_dead or t.being_executed:
+			continue
+		var dp := t.global_position - e.global_position
+		if absf(dp.y) > 2.5:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
+func _followers(p: WolfChar) -> int:
+	var n := 0
+	for e: WolfChar in entities:
+		if e.follow_target == p and not e.is_dead:
+			n += 1
+	return n
+
+
+## Поднять из агонии: свой своего вытаскивает.
+func _do_revive(healer: WolfChar, t: WolfChar) -> void:
+	t.downed = false
+	t.agony_t = 0.0
+	t.hp = t.max_hp * WolfCfg.REVIVE_HP_FRAC
+	t.revive_anim()
+	t.follow_target = healer if healer.is_player else null
+	if healer.is_player:
+		_loot_msg = "Поднял: «%s» снова на ногах" % (t.char_name if t.char_name != "" else "гражданский")
+		_loot_msg_t = 4.0
+	healer.play_oneshot("Kneel")
+
+
+## Допрос свидетеля: он вычёркивает одно ЛОЖНОЕ место закладки.
+func _do_interrogate(merc: WolfChar, t: WolfChar) -> void:
+	t.interrogated = true
+	t.follow_target = null
+	t.stagger_t = maxf(t.stagger_t, 0.25)   # оттолкнул и отпустил
+	t.play_oneshot("Hit")
+	var wrong: Array = bomb_hints.filter(func(h: String) -> bool: return h != bomb_true_desc)
+	if wrong.is_empty():
+		_loot_msg = "Он повторяет то же: %s" % bomb_true_desc
+	else:
+		var drop: String = wrong.pick_random()
+		bomb_hints.erase(drop)
+		for i in range(_hint_beacons.size() - 1, -1, -1):
+			var b: Dictionary = _hint_beacons[i]
+			if str(b["desc"]) == drop:
+				var n: Node = b["node"]
+				if n != null and is_instance_valid(n):
+					n.queue_free()
+				_hint_beacons.remove_at(i)
+		if bomb_hints.size() <= 1:
+			_loot_msg = "РАСКОЛОЛСЯ: заряд точно там — %s" % bomb_true_desc
+		else:
+			_loot_msg = "Вычеркнул: «%s». Осталось: %s" % [drop, " · ".join(bomb_hints)]
+	_loot_msg_t = 6.0
+
+
+## Схватить жертву: псих тащит её за собой, она не может ни бежать, ни бить.
+func _grab(grabber: WolfChar, victim: WolfChar) -> void:
+	if grabber.carrying != null:
+		_release_grab(grabber)
+	victim.is_grabbed = true
+	victim.grabbed_by = grabber
+	victim.follow_target = null
+	victim.move_input = Vector2.ZERO
+	victim.charging = false
+	grabber.carrying = victim
+	victim.play_oneshot("Hit")
+
+
+func _release_grab(grabber: WolfChar) -> void:
+	var v: WolfChar = grabber.carrying
+	grabber.carrying = null
+	if v != null and is_instance_valid(v):
+		v.is_grabbed = false
+		v.grabbed_by = null
+
+
+## Жертву волочат перед собой; если тащить некого — хват спадает.
+func _tick_drags(_delta: float) -> void:
+	for e: WolfChar in entities:
+		var v: WolfChar = e.carrying
+		if v == null:
+			continue
+		if not is_instance_valid(v) or v.is_dead or e.is_dead or e.downed or v.being_executed:
+			_release_grab(e)
+			continue
+		var fwd := _fwd(e)
+		v.global_position = e.global_position + fwd * 0.95
+		v.velocity = Vector3.ZERO
+		v.move_input = Vector2.ZERO
+		v.rotation.y = e.rotation.y
+		v.desired_yaw = e.rotation.y
 
 
 # ---------------------------------------------------------------------------
@@ -2267,6 +2525,28 @@ func _prompt_for(p: WolfChar) -> String:
 		var imp: Dictionary = WolfCfg.IMPLANTS[str(rs["implant"])]
 		var frac := clampf(float(_surgery["t"]) / float(imp["time"]), 0.0, 1.0)
 		return "ОПЕРАЦИЯ: %s — %d%% (не отпускай E, ты беспомощен)" % [imp["name"], int(frac * 100.0)]
+	# Возня с гражданскими важнее прочих подсказок.
+	if _act_kind != "":
+		var need: float = WolfCfg.REVIVE_TIME if _act_kind == "revive" else WolfCfg.INTERROGATE_TIME
+		var label := "ПОДНИМАЮ" if _act_kind == "revive" else "ДОПРОС"
+		return "%s… %d%% (держи E)" % [label, int(clampf(_act_t / need, 0.0, 1.0) * 100.0)]
+	if p.carrying != null and is_instance_valid(p.carrying):
+		return "ТАЩИШЬ ЖЕРТВУ · [F] добить · [E] бросить"
+	var civ := _civ_target(p)
+	if civ != null:
+		match p.faction:
+			"survivor":
+				if civ.downed:
+					return "[держать E] ПОДНЯТЬ раненого"
+				return "[E] «Ждите здесь»" if civ.follow_target == p else "[E] ПОЗВАТЬ ЗА СОБОЙ"
+			"killer":
+				if civ.downed:
+					return "Раненый — ему не до тебя"
+				if civ.interrogated:
+					return "Этот уже всё рассказал"
+				return "[держать E] ДОПРОСИТЬ — вычеркнет ложное место закладки"
+			"cannibal":
+				return "[E] СХВАТИТЬ и утащить"
 	if _loot_msg_t > 0.0:
 		return _loot_msg
 	var ri := _nearest_ripper(p.global_position)
@@ -2351,6 +2631,11 @@ func _update_hud() -> void:
 		stance.append("Ножи %d" % p.knives)
 	if blueprints > 0 and p.faction in ["cannibal", "killer"]:
 		stance.append("Чертежи %d/3" % blueprints)
+	var followers := _followers(p)
+	if followers > 0:
+		stance.append("Ведомых: %d" % followers)
+	if p.carrying != null and is_instance_valid(p.carrying):
+		stance.append("тащит жертву")
 	if not p.implants.is_empty():
 		var names: Array = []
 		for id: String in p.implants:
@@ -2403,6 +2688,7 @@ func _physics_process(delta: float) -> void:
 	_tick_executions(delta)
 	_tick_bait(delta)
 	_tick_surgery(delta)
+	_tick_drags(delta)
 	_loot_msg_t = maxf(0.0, _loot_msg_t - delta)
 	# Conditions like "merc stands in the evac zone" change without anyone
 	# dying, so the win check runs every tick, not only on kill events.
@@ -2498,6 +2784,12 @@ func _run_test(delta: float) -> void:
 			_test_implant(delta)
 		"dermal":
 			_test_dermal(delta)
+		"revive":
+			_test_revive(delta)
+		"interrogate":
+			_test_interrogate(delta)
+		"grab":
+			_test_grab(delta)
 		"loadout":
 			if _test_t > 0.6 and not _test_staged:
 				_test_staged = true
@@ -2648,6 +2940,95 @@ func _test_lift(_delta: float) -> void:
 		get_tree().quit(0)
 	elif _test_staged and _test_t > 20.0:
 		print("TEST RESULT: lift FAIL y=%.1f in_shaft=%s" % [player.global_position.y, str(_in_shaft(player.global_position))])
+		get_tree().quit(1)
+
+
+## Гражданский поднимает лежачего соседа: держать E — тот встаёт из агонии.
+func _test_revive(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("survivor", 0, -1)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor" and not e.is_player)[0]
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		_damage(_duel_bot, 999.0, null)   # уронили в агонию
+	elif _test_staged and not _test_shot_taken:
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = true                  # держим
+		Input.parse_input_event(ev)
+		if not _duel_bot.downed and _duel_bot.hp > 0.0:
+			_test_shot_taken = true
+			var ok := not _duel_bot.is_dead and _duel_bot.hp > 1.0
+			print("TEST RESULT: revive поднят hp=%.0f %s" % [_duel_bot.hp, "OK" if ok else "FAIL"])
+			get_tree().quit(0 if ok else 1)
+		elif _test_t > 14.0:
+			print("TEST RESULT: revive FAIL downed=%s" % str(_duel_bot.downed))
+			get_tree().quit(1)
+
+
+## Допрос свидетеля наёмником: одна из ложных точек закладки вычёркивается.
+func _test_interrogate(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		_test_hints_before = bomb_hints.size()
+		player.global_position = Vector3(-18, 0.2, 12)
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
+	elif _test_staged and not _test_shot_taken:
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		_duel_bot.move_input = Vector2.ZERO
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		if _duel_bot.interrogated:
+			_test_shot_taken = true
+			var ok := bomb_hints.size() == _test_hints_before - 1 and bomb_hints.has(bomb_true_desc)
+			print("TEST RESULT: interrogate подсказок %d→%d правда_на_месте=%s %s" % [
+				_test_hints_before, bomb_hints.size(), str(bomb_hints.has(bomb_true_desc)), "OK" if ok else "FAIL"])
+			get_tree().quit(0 if ok else 1)
+		elif _test_t > 14.0:
+			print("TEST RESULT: interrogate FAIL — не расколол")
+			get_tree().quit(1)
+
+
+## Псих хватает жертву [E], тащит и добивает [F] без порога здоровья.
+func _test_grab(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("cannibal", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
+		_duel_bot.global_position = player.global_position + _fwd(player) * 1.2
+	elif _test_staged and player.carrying == null and _test_t < 8.0:
+		_duel_bot.global_position = player.global_position + _fwd(player) * 1.2
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = fmod(_test_t, 0.4) < 0.2
+		Input.parse_input_event(ev)
+	elif player.carrying != null and not _test_shot_taken:
+		_test_shot_taken = true
+		if _test_shot != "":
+			await _save_shot()
+		var fev := InputEventKey.new()    # [F] по схваченному
+		fev.keycode = KEY_F
+		fev.physical_keycode = KEY_F
+		fev.pressed = true
+		Input.parse_input_event(fev)
+	elif _test_shot_taken and _test_t > 12.0:
+		var ok := _duel_bot.is_dead
+		print("TEST RESULT: grab жертва_добита=%s %s" % [str(_duel_bot.is_dead), "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+	elif _test_t > 18.0:
+		print("TEST RESULT: grab FAIL carrying=%s" % str(player.carrying != null))
 		get_tree().quit(1)
 
 
