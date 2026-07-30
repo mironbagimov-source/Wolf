@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Считалка"
 run/main_scene="res://scenes/main.tscn"
-config/features=PackedStringArray("4.5", "Forward Plus")
+config/features=PackedStringArray("4.5", "GL Compatibility")
 
 [display]
 
@@ -105,5 +105,12 @@ secondary={
 3d_physics/layer_4="thicket"
 
 [rendering]
+
+# Совместимый рендер (OpenGL3) по умолчанию: Forward+/Vulkan есть не на всякой
+# видеокарте, и на старой карте игра просто открывалась чёрным экраном. OpenGL3
+# тянут все. Плата — нет SSAO/SSIL (они только в Forward+); свет, туман,
+# свечение, карты нормалей и материалы работают и здесь.
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
 
 environment/defaults/default_clear_color=Color(0.02, 0.024, 0.04, 1)
