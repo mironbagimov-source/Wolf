@@ -27,14 +27,14 @@ const REGIONS := [
 	{
 		"id": "neutral", "title": "Перекрёсток", "danger": 0.12,
 		"rect": {"min_x": -32.0, "max_x": 32.0, "min_z": -28.0, "max_z": 30.0},
-		"ambient": Color("2b3346"), "energy": 1.3, "fog": 0.014,
-		"sun": 0.8, "sun_color": Color("6b7a9c"), "sky": Color("07080d"),
+		"ambient": Color("39445e"), "energy": 1.7, "fog": 0.014,
+		"sun": 1.15, "sun_color": Color("8492b4"), "sky": Color("0b0d16"),
 	},
 	{
 		"id": "catacombs", "title": "Катакомбы", "danger": 0.72,
 		"rect": {"min_x": -108.0, "max_x": -40.0, "min_z": -40.0, "max_z": 34.0},
-		"ambient": Color("1d2130"), "energy": 0.85, "fog": 0.05,
-		"sun": 0.3, "sun_color": Color("55607e"), "sky": Color("040509"),
+		"ambient": Color("2a2f42"), "energy": 1.2, "fog": 0.045,
+		"sun": 0.7, "sun_color": Color("6470a0"), "sky": Color("07080f"),
 	},
 	{
 		"id": "jungle", "title": "Джунгли", "danger": 0.6,
@@ -51,8 +51,8 @@ const REGIONS := [
 	{
 		"id": "oldcity", "title": "Старый город", "danger": 0.5,
 		"rect": {"min_x": -48.0, "max_x": 48.0, "min_z": -92.0, "max_z": -36.0},
-		"ambient": Color("262a3a"), "energy": 1.2, "fog": 0.024,
-		"sun": 0.7, "sun_color": Color("6b76a0"), "sky": Color("0a0b12"),
+		"ambient": Color("363c52"), "energy": 1.55, "fog": 0.022,
+		"sun": 1.05, "sun_color": Color("7d88b6"), "sky": Color("11131e"),
 	},
 ]
 

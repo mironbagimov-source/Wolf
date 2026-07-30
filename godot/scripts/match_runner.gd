@@ -152,8 +152,8 @@ func _build_environment() -> void:
 	_env.background_mode = Environment.BG_COLOR
 	_env.background_color = Color("05060a")
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	_env.ambient_light_color = Color("2b3346")
-	_env.ambient_light_energy = 1.25
+	_env.ambient_light_color = Color("39445e")
+	_env.ambient_light_energy = 1.7
 	_env.fog_enabled = true
 	_env.fog_light_color = Color("06070c")
 	_env.fog_density = 0.016
@@ -186,7 +186,7 @@ func _build_environment() -> void:
 
 	_sun = DirectionalLight3D.new()
 	_sun.light_color = Color("6b7a9c")
-	_sun.light_energy = 0.8
+	_sun.light_energy = 1.15
 	_sun.rotation_degrees = Vector3(-50, 30, 0)
 	_level_root.add_child(_sun)
 

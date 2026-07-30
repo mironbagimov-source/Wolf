@@ -47,6 +47,13 @@ static func material(profile: String, colour: Color, scale := 1.0) -> StandardMa
 	mat.roughness_texture = _rough(profile, spec)
 	mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 
+	# Рисованная подача: свет ступенями. Контур ставим только на стволы (bark) —
+	# на шестистах стенах он был бы шумом и лишними отрисовками.
+	mat.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+	mat.specular_mode = BaseMaterial3D.SPECULAR_TOON
+	if profile == "bark":
+		mat.next_pass = BodySkin._ink(0.06)
+
 	_materials[key] = mat
 	return mat
 

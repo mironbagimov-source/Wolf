@@ -78,7 +78,30 @@ func material_for(part: String) -> StandardMaterial3D:
 	else:
 		material.emission = accent
 		material.emission_energy_multiplier = 0.06
+
+	# Рисованная подача: свет ложится ступенями (toon), а не гладким градиентом,
+	# и по силуэту идёт чёрный контур — так лоу-поли читается как мультяшный
+	# рисунок, а не как «дешёвое 3D».
+	material.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+	material.specular_mode = BaseMaterial3D.SPECULAR_TOON
+	material.next_pass = _ink(0.045)
 	return material
+
+
+## Контур: инвертированная оболочка. Второй проход рисует чуть раздутую модель
+## изнутри чёрным — снаружи остаётся ободок. Один материал на всех, кэшируется.
+static func _ink(width: float) -> StandardMaterial3D:
+	var key := "ink|%.3f" % width
+	if _textures.has(key):
+		return _textures[key]
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color("07070b")
+	m.cull_mode = BaseMaterial3D.CULL_FRONT
+	m.grow = true
+	m.grow_amount = width
+	_textures[key] = m
+	return m
 
 
 ## Высотное поле узора: одно на скин, из него делаются и цвет, и рельеф, и
