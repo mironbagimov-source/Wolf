@@ -44,7 +44,6 @@ func _init() -> void:
 	var chars := [
 		["survivor", false, 0, "res://scenes/chars/survivor.tscn"],
 		["survivor", false, 1, "res://scenes/chars/survivor_b.tscn"],
-		["survivor", false, 2, "res://scenes/chars/survivor_c.tscn"],
 		["cannibal", false, 0, "res://scenes/chars/psycho.tscn"],
 		["cannibal", false, 1, "res://scenes/chars/psycho_b.tscn"],
 		["cannibal", true, 0, "res://scenes/chars/alpha.tscn"],

@@ -14,7 +14,6 @@ const KnifeScene := preload("res://scripts/knife.gd")
 const CHAR_SCENE_PATHS := {
 	"survivor_a": "res://scenes/chars/survivor.tscn",
 	"survivor_b": "res://scenes/chars/survivor_b.tscn",
-	"survivor_c": "res://scenes/chars/survivor_c.tscn",
 	"cannibal_a": "res://scenes/chars/psycho.tscn",
 	"cannibal_b": "res://scenes/chars/psycho_b.tscn",
 	"leader": "res://scenes/chars/alpha.tscn",
@@ -30,10 +29,8 @@ var menu_cam: Camera3D
 var player_cam: Camera3D = null
 var flashlight: SpotLight3D = null
 var viewmodel: Node3D = null
-var _vm_muzzle: Node3D = null       # кончик ствола — сюда лепится вспышка
-var _vm_rest_pos := Vector3.ZERO    # базовая поза viewmodel (для отдачи)
+var _vm_rest_pos := Vector3.ZERO    # базовая поза viewmodel (для замаха/удара)
 var _vm_rest_rot := Vector3.ZERO
-var _recoil := 0.0                  # накопленный подброс камеры от стрельбы
 
 var mode := "menu"
 var entities: Array = []
@@ -91,6 +88,7 @@ func _ready() -> void:
 	randomize()
 	district = $District
 	_collect_layout()
+	_flicker_lights = get_tree().get_nodes_in_group("Flicker")
 
 	menu_cam = $MenuCamera
 	menu_cam.position = Vector3(3, 5, -25)
@@ -197,7 +195,7 @@ func _in_safe_zone(pos: Vector3) -> bool:
 # match lifecycle
 # ---------------------------------------------------------------------------
 
-func _start_match(faction: String, arche_index: int, weapon_index: int, loadout := {}) -> void:
+func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout := {}) -> void:
 	for e in entities:
 		e.queue_free()
 	for k in knives:
@@ -242,7 +240,7 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, loadout 
 	var civ_spawns := _spawn_positions("Survivor")
 	for i in 6:
 		var is_human := faction == "survivor" and i == 0
-		var v := arche_index % 2 if is_human else i % 3  # боты носят все три облика
+		var v := arche_index % 2 if is_human else i % 2  # боты чередуют оба облика
 		var cv := _spawn_char("survivor", civ_spawns[i % civ_spawns.size()], is_human, false, v)
 		if not is_human and _caller == null:
 			_caller = cv  # этот бот пойдёт звонить в полицию
@@ -275,11 +273,6 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, loadout 
 	player.apply_archetype(WolfCfg.CHARACTERS[faction][arche_index])
 	if weapon_index >= 0:
 		player.set_weapon(WolfCfg.WEAPONS[faction][weapon_index])
-	if faction == "killer":
-		player.firearm_primary = WolfCfg.FIREARMS["primary"][clampi(int(loadout.get("primary", 0)), 0, 2)]
-		player.firearm_secondary = WolfCfg.FIREARMS["secondary"][clampi(int(loadout.get("secondary", 0)), 0, 1)]
-		player.ammo = {1: int(player.firearm_primary["ammo"]), 2: int(player.firearm_secondary["ammo"])}
-		player.weapon_slot = 1
 	_setup_player_camera()
 
 	mode = "playing"
@@ -340,28 +333,27 @@ func _build_viewmodel() -> void:
 	if old != null:
 		old.free()
 	viewmodel = null
-	_vm_muzzle = null
 	if player.faction == "survivor":
 		return
 	viewmodel = Node3D.new()
 	viewmodel.name = "Viewmodel"
-	var wid := ""
-	var is_gun := player.faction == "killer" and player.weapon_slot != 3
-	if is_gun:
-		var gun: Dictionary = player.firearm_primary if player.weapon_slot == 1 else player.firearm_secondary
-		wid = str(gun.get("id", "pistol"))
-	else:
-		wid = str(player.weapon.get("id", "machete"))
-	var wroot := _weapon_model(wid)
-	viewmodel.add_child(wroot)
-	_vm_arms(viewmodel, wid, is_gun)
-	if is_gun:
-		var long_gun := player.weapon_slot == 1
-		viewmodel.position = Vector3(0.21, -0.23, -0.50) if long_gun else Vector3(0.24, -0.22, -0.40)
-		viewmodel.rotation_degrees = Vector3(0, -2, 0)
+	var wid := str(player.weapon.get("id", "machete"))
+	viewmodel.add_child(_weapon_model(wid))
+	_vm_arms(viewmodel, wid)
+	if wid == "mantis":
+		viewmodel.position = Vector3(0.0, -0.22, -0.30)  # имплант — по центру
+		viewmodel.rotation_degrees = Vector3.ZERO
 	else:
 		viewmodel.position = Vector3(0.30, -0.26, -0.36)
 		viewmodel.rotation_degrees = Vector3(0, -8, 0)
+	# Слабая подсветка оружия и рук — иначе в аварийном полумраке модель
+	# превращается в чёрный силуэт.
+	var fill := OmniLight3D.new()
+	fill.light_color = Color(0.85, 0.9, 1.0)
+	fill.light_energy = 0.5
+	fill.omni_range = 1.6
+	fill.position = Vector3(0.1, 0.25, 0.15)
+	viewmodel.add_child(fill)
 	_vm_rest_pos = viewmodel.position
 	_vm_rest_rot = viewmodel.rotation_degrees
 	player_cam.add_child(viewmodel)
@@ -424,86 +416,65 @@ func _weapon_model(wid: String) -> Node3D:
 	var grip_m := _vm_mat(Color(0.08, 0.08, 0.09), 0.1, 0.8)
 	var wood := _vm_mat(Color(0.30, 0.19, 0.11), 0.0, 0.7)
 	var blade_m := _vm_mat(Color(0.75, 0.80, 0.90), 0.95, 0.2)
-	var muzzle_z := 0.0
+	var blood_m := _vm_mat(Color(0.38, 0.03, 0.04), 0.1, 0.55)
 	match wid:
-		"smg":
-			_vm_box(w, Vector3(0, 0.01, -0.10), Vector3(0.07, 0.09, 0.34), dark)
-			_vm_cyl(w, Vector3(0, 0.02, -0.36), 0.016, 0.22, light)
-			_vm_cyl(w, Vector3(0, 0.02, -0.50), 0.023, 0.10, dark)  # глушитель
-			_vm_box(w, Vector3(0, -0.11, -0.05), Vector3(0.045, 0.16, 0.07), grip_m, Vector3(-8, 0, 0))
-			_vm_box(w, Vector3(0, -0.09, 0.08), Vector3(0.045, 0.12, 0.06), grip_m, Vector3(-14, 0, 0))
-			_vm_box(w, Vector3(0, 0.005, 0.24), Vector3(0.05, 0.05, 0.16), light)  # приклад
-			_vm_box(w, Vector3(0, 0.075, -0.06), Vector3(0.02, 0.03, 0.10), dark)  # целик
-			_vm_glow(w, Vector3(0.037, 0.02, -0.10), Vector3(0.004, 0.012, 0.20), Color(0.1, 0.9, 1.0))
-			muzzle_z = -0.56
-		"shotgun":
-			_vm_cyl(w, Vector3(0, 0.03, -0.30), 0.024, 0.44, light)
-			_vm_cyl(w, Vector3(0, -0.025, -0.28), 0.019, 0.32, dark)   # трубчатый магазин
-			_vm_box(w, Vector3(0, -0.06, -0.30), Vector3(0.062, 0.05, 0.13), wood)  # цевьё
-			_vm_box(w, Vector3(0, 0.0, -0.01), Vector3(0.075, 0.10, 0.22), dark)
-			_vm_box(w, Vector3(0, -0.02, 0.18), Vector3(0.06, 0.09, 0.20), wood, Vector3(6, 0, 0))
-			_vm_glow(w, Vector3(0.039, 0.0, -0.01), Vector3(0.004, 0.012, 0.12), Color(1.0, 0.35, 0.1))
-			muzzle_z = -0.54
-		"rifle":
-			_vm_cyl(w, Vector3(0, 0.02, -0.42), 0.017, 0.55, light)
-			_vm_box(w, Vector3(0, 0.02, -0.70), Vector3(0.045, 0.045, 0.07), dark)  # дульный тормоз
-			_vm_box(w, Vector3(0, 0.0, -0.06), Vector3(0.07, 0.10, 0.30), dark)
-			_vm_cyl(w, Vector3(0, 0.095, -0.05), 0.026, 0.16, dark)  # оптика
-			_vm_box(w, Vector3(0, -0.10, -0.02), Vector3(0.05, 0.13, 0.08), grip_m, Vector3(-14, 0, 0))
-			_vm_box(w, Vector3(0, -0.09, 0.10), Vector3(0.045, 0.12, 0.06), grip_m, Vector3(-12, 0, 0))
-			_vm_box(w, Vector3(0, -0.005, 0.24), Vector3(0.055, 0.08, 0.18), dark)
-			_vm_glow(w, Vector3(0.037, 0.0, -0.06), Vector3(0.004, 0.012, 0.22), Color(0.9, 0.2, 1.0))
-			muzzle_z = -0.74
-		"pistol":
-			_vm_box(w, Vector3(0, 0.02, -0.08), Vector3(0.05, 0.055, 0.20), light)  # затвор
-			_vm_cyl(w, Vector3(0, 0.02, -0.185), 0.012, 0.035, dark)
-			_vm_box(w, Vector3(0, -0.02, -0.06), Vector3(0.048, 0.035, 0.16), dark)
-			_vm_box(w, Vector3(0, -0.085, 0.015), Vector3(0.045, 0.12, 0.06), grip_m, Vector3(-12, 0, 0))
-			_vm_box(w, Vector3(0, -0.045, -0.045), Vector3(0.012, 0.008, 0.07), dark)  # скоба
-			_vm_glow(w, Vector3(0.027, 0.02, -0.05), Vector3(0.004, 0.010, 0.10), Color(0.1, 0.9, 1.0))
-			muzzle_z = -0.21
-		"revolver":
-			_vm_cyl(w, Vector3(0, 0.025, -0.15), 0.015, 0.19, light)
-			_vm_box(w, Vector3(0, 0.055, -0.13), Vector3(0.02, 0.015, 0.20), light)  # верхняя планка
-			_vm_cyl(w, Vector3(0, 0.01, -0.015), 0.034, 0.06, dark)  # барабан
-			_vm_box(w, Vector3(0, -0.015, 0.03), Vector3(0.04, 0.05, 0.08), dark)
-			_vm_box(w, Vector3(0, -0.075, 0.055), Vector3(0.038, 0.10, 0.055), wood, Vector3(-20, 0, 0))
-			_vm_glow(w, Vector3(0.02, 0.01, -0.015), Vector3(0.004, 0.010, 0.05), Color(1.0, 0.75, 0.1))
-			muzzle_z = -0.26
+		"mantis":
+			# Клинки богомола: изогнутые лезвия из креплений на обоих предплечьях.
+			for s: float in [-1.0, 1.0]:
+				var arm_x := 0.17 * s
+				_vm_box(w, Vector3(arm_x, -0.035, -0.06), Vector3(0.055, 0.05, 0.18), dark)   # крепление
+				_vm_box(w, Vector3(arm_x, 0.0, -0.10), Vector3(0.04, 0.03, 0.10), light)      # шарнир
+				_vm_box(w, Vector3(arm_x, -0.005, -0.27), Vector3(0.014, 0.045, 0.32), blade_m, Vector3(-7, 0, 2.0 * s))
+				_vm_box(w, Vector3(arm_x, 0.045, -0.50), Vector3(0.011, 0.037, 0.28), blade_m, Vector3(-24, 0, 2.0 * s))
+				_vm_box(w, Vector3(arm_x, 0.125, -0.66), Vector3(0.008, 0.028, 0.20), blade_m, Vector3(-43, 0, 2.0 * s))
+				_vm_glow(w, Vector3(arm_x, 0.015, -0.27), Vector3(0.006, 0.010, 0.30), Color(1.0, 0.62, 0.1))
+				_vm_glow(w, Vector3(arm_x, 0.065, -0.50), Vector3(0.005, 0.008, 0.26), Color(1.0, 0.55, 0.08))
 		"katana":
-			_vm_box(w, Vector3(0, 0.01, -0.42), Vector3(0.008, 0.030, 0.72), blade_m)
-			_vm_box(w, Vector3(0, 0.022, -0.70), Vector3(0.007, 0.012, 0.14), blade_m, Vector3(0, 0, 0))
-			_vm_cyl(w, Vector3(0, 0.01, -0.045), 0.042, 0.010, dark)  # цуба
-			_vm_box(w, Vector3(0, 0.01, 0.075), Vector3(0.024, 0.028, 0.22), _vm_mat(Color(0.35, 0.06, 0.08), 0.1, 0.6))
-			_vm_glow(w, Vector3(0.006, 0.028, -0.42), Vector3(0.002, 0.004, 0.70), Color(1.0, 0.15, 0.25))
+			_vm_box(w, Vector3(0, 0.01, -0.42), Vector3(0.008, 0.032, 0.72), blade_m)
+			_vm_box(w, Vector3(0, 0.024, -0.72), Vector3(0.007, 0.014, 0.16), blade_m, Vector3(-6, 0, 0))  # скос острия
+			_vm_box(w, Vector3(0, -0.004, -0.42), Vector3(0.010, 0.008, 0.70), light)  # обух
+			_vm_cyl(w, Vector3(0, 0.01, -0.045), 0.046, 0.012, dark)  # цуба
+			_vm_box(w, Vector3(0, 0.01, 0.085), Vector3(0.026, 0.030, 0.24), _vm_mat(Color(0.35, 0.06, 0.08), 0.1, 0.6))
+			for k in 4:  # оплётка рукояти
+				_vm_box(w, Vector3(0, 0.011, 0.015 + k * 0.05), Vector3(0.03, 0.033, 0.012), grip_m)
+			_vm_glow(w, Vector3(0.006, 0.030, -0.42), Vector3(0.002, 0.004, 0.70), Color(1.0, 0.15, 0.25))
 		"sledge":
-			_vm_cyl(w, Vector3(0, 0, -0.22), 0.020, 0.62, wood)
-			_vm_box(w, Vector3(0, 0, -0.53), Vector3(0.26, 0.095, 0.095), light)
-			_vm_box(w, Vector3(0, 0, -0.53), Vector3(0.28, 0.05, 0.05), dark)
-			_vm_glow(w, Vector3(0, 0.05, -0.53), Vector3(0.20, 0.006, 0.02), Color(1.0, 0.55, 0.1))
+			_vm_cyl(w, Vector3(0, 0, -0.24), 0.021, 0.66, wood)
+			_vm_box(w, Vector3(0, 0, 0.10), Vector3(0.05, 0.05, 0.10), grip_m)      # обмотка хвата
+			_vm_box(w, Vector3(0, 0, -0.56), Vector3(0.27, 0.10, 0.10), light)      # боёк
+			_vm_box(w, Vector3(0, 0, -0.56), Vector3(0.29, 0.055, 0.055), dark)     # стяжки
+			_vm_box(w, Vector3(0.145, 0, -0.56), Vector3(0.015, 0.11, 0.11), dark)  # ударная кромка
+			_vm_box(w, Vector3(-0.10, 0.045, -0.55), Vector3(0.07, 0.012, 0.06), blood_m)  # засохшее
+			_vm_glow(w, Vector3(0, 0.052, -0.56), Vector3(0.20, 0.006, 0.02), Color(1.0, 0.55, 0.1))
 		"claws":
 			for k in 3:
-				_vm_box(w, Vector3(-0.05 + 0.05 * k, 0, -0.24), Vector3(0.010, 0.024, 0.44),
-						blade_m, Vector3(0, 6.0 - 6.0 * k, 0))
-			_vm_box(w, Vector3(0, -0.01, 0.0), Vector3(0.13, 0.05, 0.09), dark)  # крепление
+				_vm_box(w, Vector3(-0.05 + 0.05 * k, 0, -0.26), Vector3(0.011, 0.026, 0.48),
+						blade_m, Vector3(-4, 6.0 - 6.0 * k, 0))
+				_vm_box(w, Vector3(-0.05 + 0.05 * k, 0.028, -0.44), Vector3(0.009, 0.020, 0.14),
+						blade_m, Vector3(-22, 6.0 - 6.0 * k, 0))
+			_vm_box(w, Vector3(0, -0.012, 0.0), Vector3(0.14, 0.055, 0.10), dark)  # крепление
+			_vm_glow(w, Vector3(0, 0.02, 0.0), Vector3(0.10, 0.008, 0.05), Color(1.0, 0.2, 0.15))
 		"rebar":
-			_vm_cyl(w, Vector3(0, 0, -0.28), 0.021, 0.78, _vm_mat(Color(0.35, 0.22, 0.16), 0.6, 0.8))
-			_vm_cyl(w, Vector3(0.02, 0.02, -0.55), 0.011, 0.16, light, Vector3(90, 0, 35))
-			_vm_cyl(w, Vector3(-0.02, 0.01, -0.42), 0.011, 0.13, light, Vector3(90, 0, -28))
-			_vm_box(w, Vector3(0, 0, 0.08), Vector3(0.045, 0.045, 0.16), grip_m)  # обмотка
+			_vm_cyl(w, Vector3(0, 0, -0.28), 0.022, 0.80, _vm_mat(Color(0.35, 0.22, 0.16), 0.6, 0.8))
+			_vm_cyl(w, Vector3(0.02, 0.02, -0.56), 0.012, 0.18, light, Vector3(90, 0, 35))
+			_vm_cyl(w, Vector3(-0.02, 0.01, -0.42), 0.012, 0.15, light, Vector3(90, 0, -28))
+			_vm_box(w, Vector3(0.01, 0.02, -0.62), Vector3(0.05, 0.03, 0.06), blood_m)  # ошмётки
+			_vm_box(w, Vector3(0, 0, 0.08), Vector3(0.048, 0.048, 0.18), grip_m)  # обмотка
 		"cleaver":
-			_vm_box(w, Vector3(0, 0.035, -0.24), Vector3(0.013, 0.15, 0.36), blade_m)
-			_vm_box(w, Vector3(0, 0.005, 0.02), Vector3(0.024, 0.032, 0.16), wood)
+			_vm_box(w, Vector3(0, 0.035, -0.25), Vector3(0.014, 0.16, 0.38), blade_m)
+			_vm_box(w, Vector3(0, 0.10, -0.25), Vector3(0.016, 0.03, 0.38), light)  # обух
+			_vm_box(w, Vector3(0, -0.02, -0.38), Vector3(0.013, 0.05, 0.10), blade_m, Vector3(0, 0, 0))
+			_vm_box(w, Vector3(0, 0.01, -0.18), Vector3(0.016, 0.07, 0.12), blood_m)  # мазок крови
+			_vm_box(w, Vector3(0, 0.005, 0.03), Vector3(0.026, 0.034, 0.18), wood)
+			_vm_cyl(w, Vector3(0, 0.05, -0.10), 0.012, 0.012, light, Vector3(0, 0, 90))  # заклёпка
 		_:  # machete и всё неопознанное
-			_vm_box(w, Vector3(0, 0.02, -0.30), Vector3(0.011, 0.075, 0.52), blade_m)
-			_vm_box(w, Vector3(0, 0.045, -0.52), Vector3(0.010, 0.045, 0.14), blade_m)
-			_vm_box(w, Vector3(0, -0.005, 0.045), Vector3(0.026, 0.045, 0.15), grip_m)
-			_vm_box(w, Vector3(0, 0.005, -0.045), Vector3(0.05, 0.075, 0.015), dark)  # гарда
-	if muzzle_z < 0.0:
-		_vm_muzzle = Node3D.new()
-		_vm_muzzle.name = "Muzzle"
-		_vm_muzzle.position = Vector3(0, 0.02, muzzle_z)
-		w.add_child(_vm_muzzle)
+			_vm_box(w, Vector3(0, 0.02, -0.31), Vector3(0.012, 0.08, 0.54), blade_m)
+			_vm_box(w, Vector3(0, 0.05, -0.54), Vector3(0.010, 0.05, 0.16), blade_m, Vector3(-10, 0, 0))
+			_vm_box(w, Vector3(0, 0.055, -0.31), Vector3(0.013, 0.012, 0.52), light)  # обух
+			_vm_box(w, Vector3(0, 0.005, -0.20), Vector3(0.014, 0.05, 0.10), blood_m)  # мазок крови
+			_vm_box(w, Vector3(0, -0.005, 0.055), Vector3(0.028, 0.048, 0.17), grip_m)
+			_vm_box(w, Vector3(0, 0.005, -0.045), Vector3(0.055, 0.08, 0.016), dark)  # гарда
+			_vm_glow(w, Vector3(0.007, 0.02, -0.31), Vector3(0.002, 0.045, 0.03), Color(0.1, 0.9, 1.0))
 	return w
 
 
@@ -531,30 +502,25 @@ func _vm_arm(parent: Node3D, hand: Vector3, anchor: Vector3, skin: Material, sle
 	_vm_box(parent, hand, Vector3(0.065, 0.05, 0.095), skin, Vector3(-15, 0, 0))
 
 
-## Пара рук под конкретное оружие: правая на рукояти, левая на цевье (для
-## длинных стволов) или поддерживает хват (пистолеты).
-func _vm_arms(parent: Node3D, wid: String, is_gun: bool) -> void:
+## Руки под оружие: одна на рукояти; «Клинки богомола» — оба предплечья с
+## имплантами, кувалда — двуручный хват.
+func _vm_arms(parent: Node3D, wid: String) -> void:
 	var skin: Material = _vm_mat(Color(0.80, 0.60, 0.48), 0.0, 0.75)
 	var sleeve: Material = _vm_mat(Color(0.13, 0.14, 0.18), 0.35, 0.55)
 	if player.faction == "cannibal":
 		skin = _vm_mat(Color(0.66, 0.60, 0.55), 0.0, 0.8)          # бледная кожа
 		sleeve = _vm_mat(Color(0.30, 0.32, 0.36), 0.85, 0.4)       # хром импланта
-	if not is_gun:
-		_vm_arm(parent, Vector3(0.0, -0.045, 0.06), Vector3(0.20, -0.30, 0.42), skin, sleeve)
-		return
 	match wid:
-		"smg":
-			_vm_arm(parent, Vector3(0, -0.13, 0.08), Vector3(0.20, -0.32, 0.40), skin, sleeve)
-			_vm_arm(parent, Vector3(0, -0.14, -0.06), Vector3(-0.17, -0.33, 0.34), skin, sleeve)
-		"shotgun":
-			_vm_arm(parent, Vector3(0, -0.06, 0.16), Vector3(0.20, -0.32, 0.42), skin, sleeve)
-			_vm_arm(parent, Vector3(0, -0.09, -0.30), Vector3(-0.18, -0.34, 0.30), skin, sleeve)
-		"rifle":
-			_vm_arm(parent, Vector3(0, -0.13, 0.10), Vector3(0.20, -0.32, 0.42), skin, sleeve)
-			_vm_arm(parent, Vector3(0, -0.14, -0.04), Vector3(-0.17, -0.33, 0.32), skin, sleeve)
-		_:  # пистолет/револьвер — двуручный хват у рукояти
-			_vm_arm(parent, Vector3(0, -0.12, 0.03), Vector3(0.19, -0.31, 0.40), skin, sleeve)
-			_vm_arm(parent, Vector3(-0.035, -0.13, 0.05), Vector3(-0.16, -0.32, 0.38), skin, sleeve)
+		"mantis":
+			# Имплант: рукав-хром, кулаки сжаты под креплениями клинков.
+			var chrome: Material = _vm_mat(Color(0.32, 0.34, 0.38), 0.9, 0.35)
+			_vm_arm(parent, Vector3(0.17, -0.075, 0.02), Vector3(0.26, -0.26, 0.40), skin, chrome)
+			_vm_arm(parent, Vector3(-0.17, -0.075, 0.02), Vector3(-0.26, -0.26, 0.40), skin, chrome)
+		"sledge":
+			_vm_arm(parent, Vector3(0.0, -0.045, 0.09), Vector3(0.20, -0.30, 0.42), skin, sleeve)
+			_vm_arm(parent, Vector3(0.0, -0.04, -0.03), Vector3(-0.19, -0.31, 0.36), skin, sleeve)
+		_:
+			_vm_arm(parent, Vector3(0.0, -0.045, 0.06), Vector3(0.20, -0.30, 0.42), skin, sleeve)
 
 
 func _back_to_menu() -> void:
@@ -656,8 +622,7 @@ func _update_player_input(delta: float) -> void:
 
 	p.rotation.y -= _look_delta.x * 0.0022
 	_pitch = clampf(_pitch - _look_delta.y * 0.0022, -1.35, 1.35)
-	_recoil = lerpf(_recoil, 0.0, minf(1.0, delta * 9.0))  # ствол опускается сам
-	player_cam.rotation.x = clampf(_pitch + _recoil, -1.45, 1.45)
+	player_cam.rotation.x = _pitch
 	_look_delta = Vector2.ZERO
 
 	if p.is_dead or p.downed:
@@ -695,27 +660,12 @@ func _update_player_input(delta: float) -> void:
 	p.interact_held = _key(KEY_E)
 	p.interact_pressed = _key_pressed_once(KEY_E)
 
-	# Слоты оружия наёмника: 1 — основное, 2 — вторичное, 3 — ближний бой.
-	if p.faction == "killer":
-		for pair: Array in [[KEY_1, 1], [KEY_2, 2], [KEY_3, 3]]:
-			if _key_pressed_once(pair[0] as Key) and p.weapon_slot != pair[1]:
-				p.weapon_slot = pair[1]
-				p.charging = false
-				_build_viewmodel()
-
-
 	if p.faction == "survivor" and _key_pressed_once(KEY_F):
 		p.flashlight_on = not p.flashlight_on
 		if flashlight != null:
 			flashlight.light_energy = 4.0 if p.flashlight_on else 0.0
 
-	var use_gun := p.faction == "killer" and p.weapon_slot != 3
-	if use_gun:
-		p.is_blocking = false
-		p.charging = false
-		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and p.cd_attack <= 0.0:
-			_fire_gun(p)
-	elif p.faction != "survivor":
+	if p.faction != "survivor":
 		p.is_blocking = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not p.charging
 		# Charge-and-release melee: tap = quick strike, hold = charged strike.
 		var lmb := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or (_key(KEY_SPACE) and not _in_shaft(p.global_position))
@@ -744,44 +694,6 @@ func _update_player_input(delta: float) -> void:
 ## Внутри прозрачной грав-шахты лифта (движение по вертикали свободное).
 func _in_shaft(pos: Vector3) -> bool:
 	return pos.x > 8.0 and pos.x < 11.0 and absf(pos.z) < 1.5
-
-
-## Хитскан-выстрел из активного ствола игрока. Гремит: психи слышат.
-func _fire_gun(p: WolfChar) -> void:
-	var gun: Dictionary = p.firearm_primary if p.weapon_slot == 1 else p.firearm_secondary
-	if gun.is_empty():
-		return
-	if int(p.ammo.get(p.weapon_slot, 0)) <= 0:
-		p.cd_attack = 0.35  # сухой щелчок
-		return
-	p.ammo[p.weapon_slot] = int(p.ammo[p.weapon_slot]) - 1
-	p.cd_attack = float(gun["cd"])
-	p.gunshot_t = WolfCfg.GUNSHOT_NOISE_T
-	_alert_psychos(p.global_position)
-	# Импакт выстрела: подброс камеры (тяжёлый ствол бьёт сильнее), рывок
-	# модели назад и вспышка на срезе ствола.
-	var kick := 0.006 + float(gun["cd"]) * 0.05
-	_recoil = minf(_recoil + kick, 0.28)
-	_gun_kick(clampf(float(gun["cd"]), 0.0, 1.0))
-	_muzzle_flash()
-	var space := get_world_3d().direct_space_state
-	for i in int(gun["pellets"]):
-		var basis := player_cam.global_transform.basis
-		var spread: float = gun["spread"]
-		var dir := (-basis.z + basis.x * randf_range(-spread, spread) + basis.y * randf_range(-spread, spread)).normalized()
-		var from := player_cam.global_position
-		var q := PhysicsRayQueryParameters3D.create(from, from + dir * float(gun["range"]), 1 | 2 | 4, [p.get_rid()])
-		var hit := space.intersect_ray(q)
-		if hit.is_empty():
-			continue
-		var col: Object = hit["collider"]
-		if col is WolfChar and not (col as WolfChar).is_dead:
-			_damage(col as WolfChar, float(gun["dmg"]), p)
-		elif col is WolfDoor and not (col as WolfDoor).is_broken:
-			(col as WolfDoor).damage(float(gun["dmg"]))
-			_spark_burst(hit["position"] as Vector3)
-		else:
-			_spark_burst(hit["position"] as Vector3)
 
 
 ## Выстрел слышен по округе: психи без цели побегут проверять точку.
@@ -863,10 +775,12 @@ func _player_strike(p: WolfChar) -> void:
 	_kick_viewmodel(charged)
 	var dmg_mul := 1.0 + charge_frac * (WolfCfg.CHARGE_DMG_MAX_MUL - 1.0)
 	# Удар из спринта — выпад вперёд с увеличенной досягаемостью (CP2077).
+	# «Клинки богомола» превращают выпад в полноценный рывок богомола.
 	if p.sprinting and p.move_input.y > 0.5:
+		var mantis := str(p.weapon.get("id", "")) == "mantis"
 		p.dash_dir = -p.basis.z
-		p.dash_t = 0.16
-		p.reach_bonus = 0.5
+		p.dash_t = 0.30 if mantis else 0.16
+		p.reach_bonus = 1.2 if mantis else 0.5
 	_deliver_strike(p, dmg_mul, charged)
 	p.reach_bonus = 0.0
 
@@ -966,6 +880,7 @@ func _try_hit_door(e: WolfChar) -> void:
 		if Vector2(fwd.x, fwd.z).dot(Vector2(dp.x, dp.z).normalized()) < 0.4:
 			continue
 		door.damage(WolfCfg.CONFIG[e.faction]["attack_damage"] * e.weapon.get("dmg", 1.0))
+		_spark_burst(door.global_position + Vector3(0, 1.2, 0))
 		return
 
 
@@ -978,50 +893,7 @@ func _kick_viewmodel(charged: bool) -> void:
 	tween.tween_property(viewmodel, "rotation_degrees", _vm_rest_rot, 0.22)
 
 
-## Отдача огнестрела: модель дёргается назад-вверх и возвращается.
-func _gun_kick(strength: float) -> void:
-	if viewmodel == null:
-		return
-	var tween := create_tween()
-	tween.tween_property(viewmodel, "position", _vm_rest_pos + Vector3(0, 0.012, 0.02 + 0.05 * strength), 0.04)
-	tween.parallel().tween_property(viewmodel, "rotation_degrees", _vm_rest_rot + Vector3(3.0 + 7.0 * strength, 0, 0), 0.04)
-	tween.tween_property(viewmodel, "position", _vm_rest_pos, 0.16)
-	tween.parallel().tween_property(viewmodel, "rotation_degrees", _vm_rest_rot, 0.16)
-
-
-## Вспышка на срезе ствола: короткий свет в мир + огненный квад на дуле.
-func _muzzle_flash() -> void:
-	if _vm_muzzle == null:
-		return
-	var l := OmniLight3D.new()
-	l.light_color = Color(1.0, 0.72, 0.32)
-	l.light_energy = 2.4
-	l.omni_range = 8.0
-	l.position = _vm_muzzle.global_position
-	add_child(l)
-	var q := MeshInstance3D.new()
-	var quad := QuadMesh.new()
-	quad.size = Vector2(0.20, 0.20)
-	q.mesh = quad
-	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(1.0, 0.85, 0.4, 0.9)
-	m.emission_enabled = true
-	m.emission = Color(1.0, 0.7, 0.25)
-	m.emission_energy_multiplier = 4.0
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	q.material_override = m
-	q.rotation.z = randf_range(0.0, TAU)
-	_vm_muzzle.add_child(q)
-	get_tree().create_timer(0.05).timeout.connect(func() -> void:
-		if is_instance_valid(l):
-			l.queue_free()
-		if is_instance_valid(q):
-			q.queue_free())
-
-
-## Искры от попадания пули в стену/дверь.
+## Искры от удара по двери/металлу.
 func _spark_burst(pos: Vector3) -> void:
 	var p := CPUParticles3D.new()
 	p.one_shot = true
@@ -1969,16 +1841,9 @@ func _update_hud() -> void:
 	var stance: Array = []
 	if p.char_name != "":
 		stance.append(p.char_name)
-	if p.faction == "cannibal":
+	if p.faction in ["cannibal", "killer"]:
 		stance.append(p.weapon.get("name", ""))
 	if p.faction == "killer":
-		var slots := [
-			"[1] %s (%d)" % [p.firearm_primary.get("name", "—"), int(p.ammo.get(1, 0))],
-			"[2] %s (%d)" % [p.firearm_secondary.get("name", "—"), int(p.ammo.get(2, 0))],
-			"[3] %s" % p.weapon.get("name", ""),
-		]
-		slots[p.weapon_slot - 1] = "► " + slots[p.weapon_slot - 1]
-		stance.append("  ".join(slots))
 		stance.append("Ножи %d" % p.knives)
 	if p.crouching:
 		stance.append("присед")
@@ -2030,7 +1895,25 @@ func _physics_process(delta: float) -> void:
 	_store_prev_input()
 
 
+var _flicker_lights: Array = []
+var _flicker_t := 0.0
+
+
+## Аварийное питание: лампы из группы Flicker дёргаются и изредка гаснут.
+func _tick_flicker(delta: float) -> void:
+	_flicker_t -= delta
+	if _flicker_t > 0.0:
+		return
+	_flicker_t = randf_range(0.06, 0.24)
+	for n in _flicker_lights:
+		var l := n as OmniLight3D
+		if l == null or not is_instance_valid(l):
+			continue
+		l.light_energy = 0.0 if randf() < 0.16 else randf_range(0.45, 1.7)
+
+
 func _process(delta: float) -> void:
+	_tick_flicker(delta)
 	if _test_mode != "":
 		_run_test(delta)
 
@@ -2063,7 +1946,10 @@ func _run_test(delta: float) -> void:
 		"merc", "club", "rooms":
 			if _test_t > 0.5 and mode == "menu":
 				var faction := "cannibal" if _test_mode == "club" else "killer"
-				_start_match(faction, 0, 0)
+				var wi := 0  # WOLF_WEAPON: индекс оружия из WEAPONS (скрины моделей)
+				if OS.get_environment("WOLF_WEAPON") != "":
+					wi = int(OS.get_environment("WOLF_WEAPON"))
+				_start_match(faction, 0, wi)
 			elif mode == "playing" and _test_t > 1.6 and not _test_staged:
 				_test_staged = true
 				if _test_mode == "rooms":
@@ -2085,8 +1971,8 @@ func _run_test(delta: float) -> void:
 			_test_agony(delta)
 		"bomb":
 			_test_bomb(delta)
-		"gun":
-			_test_gun(delta)
+		"stairs":
+			_test_stairs(delta)
 		"loadout":
 			if _test_t > 0.6 and not _test_staged:
 				_test_staged = true
@@ -2132,7 +2018,6 @@ func _test_duel(_delta: float) -> void:
 		_test_staged = true
 		# Isolated corner: away from the merc allies who otherwise "help".
 		player.global_position = Vector3(-18, 0.2, 12)
-		player.weapon_slot = 3
 		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
 		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
 		var ev := InputEventMouseButton.new()
@@ -2157,7 +2042,6 @@ func _test_charged(_delta: float) -> void:
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
 		player.global_position = Vector3(-18, 0.2, 12)
-		player.weapon_slot = 3
 		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
 		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
 		_duel_bot.bot_block_t = 30.0
@@ -2242,31 +2126,28 @@ func _test_lift(_delta: float) -> void:
 		get_tree().quit(1)
 
 
-## Огнестрел: очередь из ПП должна снять психу заметно здоровья и потратить
-## патроны.
-func _test_gun(_delta: float) -> void:
+## Аварийная лестница проходима: игрок с нижней площадки шагает вверх по
+## маршу и набирает высоту без лифта.
+func _test_stairs(_delta: float) -> void:
 	if _test_t > 0.5 and mode == "menu":
 		_start_match("killer", 0, 0)
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
-		player.global_position = Vector3(-18, 0.2, 12)
-		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
-		var ev := InputEventMouseButton.new()
-		ev.button_index = MOUSE_BUTTON_LEFT
+		player.global_position = Vector3(-28.6, 0.3, 12.6)
+		player.rotation.y = PI  # лицом на север — вверх по нижнему маршу
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_W
+		ev.physical_keycode = KEY_W
 		ev.pressed = true
 		Input.parse_input_event(ev)
-	elif _test_staged and not _test_shot_taken:
-		_duel_bot.global_position = player.global_position + _fwd(player) * 6.0
-		_duel_bot.velocity = Vector3.ZERO
-		_duel_bot.cd_attack = 10.0
-		_duel_bot.winding = false
-		if _test_t > 3.2:
-			_test_shot_taken = true
-			var loss := _duel_bot.max_hp - _duel_bot.hp
-			var used: int = 90 - int(player.ammo.get(1, 0))
-			var ok := loss > 20.0 and used >= 4 and player.weapon_slot == 1
-			print("TEST RESULT: gun loss=%.0f ammo_used=%d slot=%d %s" % [loss, used, player.weapon_slot, "OK" if ok else "FAIL"])
-			get_tree().quit(0 if ok else 1)
+	elif _test_staged and _test_t > 5.2 and not _test_shot_taken:
+		_test_shot_taken = true
+		if _test_shot != "":
+			await _save_shot()
+		var y := player.global_position.y
+		var ok := y > 1.8
+		print("TEST RESULT: stairs y=%.2f %s" % [y, "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
 
 
 ## Полный цикл контракта: найти взрывчатку (случайный спот), подобрать [E],
@@ -2385,7 +2266,6 @@ func _test_parry(_delta: float) -> void:
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
 		player.global_position = Vector3(-18, 0.2, 12)
-		player.weapon_slot = 3
 		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
 		_duel_bot.global_position = player.global_position + _fwd(player) * 1.8
 	elif _test_staged and _duel_bot != null and not _test_shot_taken:

@@ -229,60 +229,19 @@ func _build_weaponselect() -> void:
 func open_weaponselect(faction: String, char_index: int) -> void:
 	charselect.visible = false
 	weaponselect.visible = true
-	_ws_title.text = "Снаряжение — " + WolfCfg.FACTION_NAME[faction]
+	_ws_title.text = "Оружие — " + WolfCfg.FACTION_NAME[faction]
 	_ws_title.add_theme_color_override("font_color", WolfCfg.FACTION_COLOR[faction])
 	for child in _ws_box.get_children():
 		child.queue_free()
 	_ws_go.visible = false
-	for c in _ws_go.pressed.get_connections():
-		_ws_go.pressed.disconnect(c["callable"])
-	if faction == "cannibal":
-		var weapons: Array = WolfCfg.WEAPONS[faction]
-		for i in weapons.size():
-			var w: Dictionary = weapons[i]
-			var stats := "урон ×%.2f · скорость ×%.2f" % [w["dmg"], w["speed"]]
-			var b := _card_button(_ws_box, w["name"], stats, w["desc"], WolfCfg.FACTION_COLOR[faction])
-			b.pressed.connect(func() -> void: weapon_picked.emit(faction, char_index, i, {}))
-		return
-
-	# Наёмник: основное [1] + вторичное [2] + ближний бой [3], затем «В БОЙ».
-	var sel := {"primary": 0, "secondary": 0, "melee": 0}
-	var groups := [
-		["ОСНОВНОЕ  [1]", "primary", WolfCfg.FIREARMS["primary"]],
-		["ВТОРИЧНОЕ  [2]", "secondary", WolfCfg.FIREARMS["secondary"]],
-		["БЛИЖНИЙ БОЙ  [3]", "melee", WolfCfg.WEAPONS["killer"]],
-	]
-	for g: Array in groups:
-		var col := VBoxContainer.new()
-		col.add_theme_constant_override("separation", 6)
-		_ws_box.add_child(col)
-		var head := Label.new()
-		head.text = g[0]
-		head.add_theme_font_size_override("font_size", 15)
-		head.add_theme_color_override("font_color", WolfCfg.FACTION_COLOR[faction])
-		col.add_child(head)
-		var opts: Array = g[2]
-		var btns: Array = []
-		for i in opts.size():
-			var w: Dictionary = opts[i]
-			var b := Button.new()
-			b.text = ("► " if i == 0 else "   ") + str(w["name"])
-			b.tooltip_text = str(w.get("desc", ""))
-			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.add_theme_font_size_override("font_size", 16)
-			b.custom_minimum_size = Vector2(220, 0)
-			col.add_child(b)
-			btns.append(b)
-			var slot: String = g[1]
-			var idx := i
-			b.pressed.connect(func() -> void:
-				sel[slot] = idx
-				for j in btns.size():
-					(btns[j] as Button).text = ("► " if j == idx else "   ") + str((opts[j] as Dictionary)["name"]))
-	_ws_go.visible = true
-	_ws_go.pressed.connect(func() -> void:
-		weapon_picked.emit(faction, char_index, sel["melee"],
-			{"primary": sel["primary"], "secondary": sel["secondary"]}))
+	# Хоррор-правка: огнестрела больше нет — обе боевые стороны выбирают
+	# только ближний бой (у наёмников в списке имплант «Клинки богомола»).
+	var weapons: Array = WolfCfg.WEAPONS[faction]
+	for i in weapons.size():
+		var w: Dictionary = weapons[i]
+		var stats := "урон ×%.2f · скорость ×%.2f" % [w["dmg"], w["speed"]]
+		var b := _card_button(_ws_box, w["name"], stats, w["desc"], WolfCfg.FACTION_COLOR[faction])
+		b.pressed.connect(func() -> void: weapon_picked.emit(faction, char_index, i, {}))
 
 
 func _build_hud() -> void:

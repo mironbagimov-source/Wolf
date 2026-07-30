@@ -1,8 +1,9 @@
 class_name WolfLevel
-## Megabuilding tower, v4 — «Арасака-тауэр»: SIXTEEN 5m floors (80m of
-## building), 60x44m footprint, full-height atrium, and NO stairs — the glass
-## elevator is the only way between floors (bots ride a freight lift, see
-## main._bot_goto). Zones:
+## Megabuilding tower, v5 — «Арасака-тауэр» после ЧП: SIXTEEN 5m floors,
+## 60x44m footprint, full-height atrium, the glass grav-shaft AND two dark
+## emergency stairwells in opposite corners (bots ride a freight lift, see
+## main._bot_goto). Свет аварийный: полумрак, мерцающие лампы, кровь на полу
+## и надписи выживших. Zones:
 ##   L1      лобби: вход/эвакуация
 ##   L2-L3   торговые галереи
 ##   L4      фудкорт
@@ -30,9 +31,11 @@ const H := WolfCfg.FLOOR_H       # 5.0
 const FLOORS := WolfCfg.FLOORS   # 16
 const WALL := 0.4
 
-# Holes in every upper slab: the atrium and the elevator shaft. No stairs.
+# Holes in every upper slab: atrium, elevator shaft and the two stairwells.
 const ATRIUM := [-6.0, 6.0, -4.0, 4.0]        # x0,x1,z0,z1
 const ELEV := [8.0, 11.0, -1.5, 1.5]
+const STAIR_W := [-30.0, -25.4, 12.0, 19.4]   # аварийная лестница, СЗ угол
+const STAIR_E := [25.4, 30.0, -19.4, -12.0]   # аварийная лестница, ЮВ угол
 
 ## Где боты ждут грузовой лифт (перед южной дверью шахты), per-floor y.
 const LIFT_WAIT := Vector3(9.5, 0.0, -3.0)
@@ -53,8 +56,14 @@ static func build_environment(root: Node3D) -> void:
 	env.sky = sky
 
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.62, 0.62, 0.67)
-	env.ambient_light_energy = 1.15
+	env.ambient_light_color = Color(0.46, 0.47, 0.55)
+	env.ambient_light_energy = 0.55
+
+	# Хоррор-дымка: дешёвый экспоненциальный туман глушит дальние этажи.
+	env.fog_enabled = true
+	env.fog_light_color = Color(0.045, 0.05, 0.075)
+	env.fog_density = 0.011
+	env.fog_sky_affect = 0.0
 
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 6.0
@@ -81,6 +90,8 @@ static func build_district(root: Node3D) -> void:
 	_shell(geometry)
 	_slabs_and_railings(geometry)
 	_elevator_shaft(geometry)
+	_stairwell(geometry, -1.0, 1.0)   # СЗ угол
+	_stairwell(geometry, 1.0, -1.0)   # ЮВ угол
 	_city_windows(geometry)
 
 	_floor_lobby(geometry)
@@ -100,6 +111,7 @@ static func build_district(root: Node3D) -> void:
 	_floor_offices(geometry, 14)
 	_floor_club(root, geometry, 15)
 	_lights(geometry)
+	_horror(geometry)
 
 	# Кабины больше нет — лифт это прозрачная ГРАВ-ШАХТА: шагни внутрь,
 	# SPACE тянет вверх, без ввода плавно опускает (см. main.gd).
@@ -204,7 +216,7 @@ static func _shell(parent: Node3D) -> void:
 
 
 static func _slab_rects() -> Array:
-	var holes := [ATRIUM, ELEV]
+	var holes := [ATRIUM, ELEV, STAIR_W, STAIR_E]
 	var zs: Array = [Z0, Z1]
 	for h: Array in holes:
 		for z in [h[2], h[3]]:
@@ -270,6 +282,57 @@ static func _elevator_shaft(parent: Node3D) -> void:
 	for corner: Array in [[ELEV[0] + 0.35, ELEV[2] + 0.35], [ELEV[1] - 0.35, ELEV[2] + 0.35],
 			[ELEV[0] + 0.35, ELEV[3] - 0.35], [ELEV[1] - 0.35, ELEV[3] - 0.35]]:
 		_panel(parent, Vector3(corner[0], total_h / 2, corner[1]), Vector3(0.07, total_h, 0.07), _grav_beam_mat(), "GravBeam")
+
+
+## Аварийная лестница в углу башни: два марша-рампы с площадками на пролёт,
+## закрытая шахта с дверным проёмом на каждом этаже и красной аварийкой.
+## Локальная раскладка задана для угла (+x, +z) и зеркалится sx/sz = ±1.
+static func _stairwell(parent: Node3D, sx: float, sz: float) -> void:
+	var total_h := H * FLOORS
+	var conc := _mat_concrete()
+	var metal := _mat_metal()
+	# Локальные координаты (для sx=+1, sz=+1): шахта x 25.4..30, z 12..19.4.
+	var lane_a := 28.6   # марш нижней половины пролёта
+	var lane_b := 26.5   # марш верхней половины
+	var run := 4.3       # горизонтальный пробег марша (13.7 -> 18.0)
+	var ang := rad_to_deg(atan2(2.5, run))
+	var ramp_len := sqrt(run * run + 2.5 * 2.5) + 0.15
+
+	# Глухие стены шахты (во всю высоту).
+	_solid(parent, Vector3(sx * 27.7, total_h / 2, sz * 12.1), Vector3(4.6, total_h, 0.2), conc, "StairS")
+	_solid(parent, Vector3(sx * 27.7, total_h / 2, sz * 19.3), Vector3(4.6, total_h, 0.2), conc, "StairN")
+
+	for f in FLOORS:
+		var y: float = H * f
+		# Площадка входа (южная) — на неё же приходит верхний марш снизу.
+		_solid(parent, Vector3(sx * 27.6, y - 0.15, sz * 12.95), Vector3(4.1, 0.3, 1.5), conc, "StairLand%d" % f)
+		# Стена с дверным проёмом на этаж: сегменты вокруг проёма z 12.4..13.5.
+		_solid(parent, Vector3(sx * 25.5, y + H / 2, sz * 16.45), Vector3(0.2, H, 5.9), conc, "StairWallA%d" % f)
+		_solid(parent, Vector3(sx * 25.5, y + H / 2, sz * 12.2), Vector3(0.2, H, 0.4), conc, "StairWallB%d" % f)
+		_solid(parent, Vector3(sx * 25.5, y + 2.2 + (H - 2.2) / 2, sz * 12.95), Vector3(0.2, H - 2.2, 1.1), conc, "StairLintel%d" % f)
+		# Красная аварийка: полоса над дверью снаружи + плафон внутри.
+		_emissive(parent, Vector3(sx * 25.34, y + 2.5, sz * 12.95), Vector3(0.06, 0.3, 1.1), NEON_RED, 1.5, "StairSign%d" % f)
+		_emissive(parent, Vector3(sx * 27.6, y + 2.6, sz * 19.14), Vector3(2.6, 0.14, 0.06), NEON_RED, 1.4, "StairLamp%d" % f)
+		if f == FLOORS - 1:
+			continue  # с последнего этажа маршей вверх нет
+		# Нижний марш: с этажа y на межэтажную площадку y+2.5.
+		var ra := _solid(parent, Vector3(sx * lane_a, y + 1.10, sz * 15.85), Vector3(1.9, 0.3, ramp_len), metal, "StairRampA%d" % f)
+		ra.rotation_degrees.x = -ang * sz
+		# Межэтажная площадка (северная).
+		_solid(parent, Vector3(sx * 27.6, y + 2.35, sz * 18.65), Vector3(4.1, 0.3, 1.3), conc, "StairMid%d" % f)
+		# Верхний марш: с площадки y+2.5 на следующий этаж.
+		var rb := _solid(parent, Vector3(sx * lane_b, y + 3.60, sz * 15.85), Vector3(1.9, 0.3, ramp_len), metal, "StairRampB%d" % f)
+		rb.rotation_degrees.x = ang * sz
+		# Перила-разделитель между маршами.
+		_solid(parent, Vector3(sx * 27.55, y + 2.0, sz * 15.85), Vector3(0.1, 4.4, 4.3), _mat_glass(), "StairDivider%d" % f)
+	# Тусклый красный свет — каждый четвёртый этаж.
+	for f in range(1, FLOORS, 4):
+		var l := OmniLight3D.new()
+		l.position = Vector3(sx * 27.6, H * f + 2.4, sz * 15.8)
+		l.light_color = Color(1.0, 0.22, 0.18)
+		l.light_energy = 1.1
+		l.omni_range = 10.0
+		parent.add_child(l)
 
 
 static func _city_windows(parent: Node3D) -> void:
@@ -431,25 +494,94 @@ static func _floor_club(root: Node3D, parent: Node3D, f: int) -> void:
 
 
 static func _lights(parent: Node3D) -> void:
-	# Три мощные лампы на этаж (лимит совместимого рендера и FPS).
+	# Аварийное питание: свет ПРИГЛУШЁН, часть ламп болезненно-зелёные, и на
+	# каждом этаже одна лампа мерцает (группа Flicker дёргается в main.gd).
+	var sickly := Color(0.82, 0.90, 0.74)
 	for f in FLOORS:
 		var y: float = H * f + H - 0.5
-		for pos: Array in [[-16.0, -11.0], [16.0, -11.0], [0.0, 12.0]]:
-			_emissive(parent, Vector3(pos[0], y + 0.3, pos[1]), Vector3(3.0, 0.08, 0.7), WARM_WHITE, 1.6)
+		var lamps: Array = [[-16.0, -11.0], [16.0, -11.0], [0.0, 12.0]]
+		for i in lamps.size():
+			var pos: Array = lamps[i]
+			var col: Color = sickly if (f + i) % 3 == 0 else WARM_WHITE
+			_emissive(parent, Vector3(pos[0], y + 0.3, pos[1]), Vector3(3.0, 0.08, 0.7), col, 0.9)
 			var l := OmniLight3D.new()
 			l.position = Vector3(pos[0], y, pos[1])
-			l.light_color = WARM_WHITE
-			l.light_energy = 3.4
-			l.omni_range = 24.0
+			l.light_color = col
+			l.light_energy = 1.6
+			l.omni_range = 19.0
+			if i == (f % 3):
+				l.add_to_group("Flicker", true)
 			parent.add_child(l)
-	# Атриумные акценты — каждый четвёртый этаж.
+	# Атриумные акценты — каждый четвёртый этаж, еле живые.
 	for f in range(3, FLOORS, 4):
 		var l := OmniLight3D.new()
 		l.position = Vector3(0, H * f + 2.0, 0)
 		l.light_color = Color(0.6, 0.85, 1.0)
-		l.light_energy = 1.3
+		l.light_energy = 0.8
 		l.omni_range = 11.0
 		parent.add_child(l)
+
+
+## Следы бойни: кровь на полу и стенах, мешки с телами, надписи выживших,
+## оборванные кабели. Чистая геометрия — без света и коллизий.
+static func _horror(parent: Node3D) -> void:
+	var blood := StandardMaterial3D.new()
+	blood.albedo_color = Color(0.30, 0.012, 0.02)
+	blood.roughness = 0.25
+	var bag_mat := StandardMaterial3D.new()
+	bag_mat.albedo_color = Color(0.10, 0.10, 0.115)
+	bag_mat.roughness = 0.9
+	var cable_mat := StandardMaterial3D.new()
+	cable_mat.albedo_color = Color(0.06, 0.06, 0.07)
+	cable_mat.roughness = 0.7
+
+	# Лужи-мазки на полу (y чуть выше плиты, случайный разворот).
+	var smears := [
+		[Vector3(-6, 0, -10), 1.5, 25.0], [Vector3(4.5, 0, -16.5), 1.0, 130.0],
+		[Vector3(-18, H, 14), 1.3, 70.0], [Vector3(10, 3 * H, 16), 1.7, 10.0],
+		[Vector3(-10, 5 * H, 18.4), 1.1, 95.0], [Vector3(18, 9 * H, -8), 1.4, 40.0],
+		[Vector3(-12, 11 * H, 12), 1.2, 160.0], [Vector3(-20, 15 * H, -2), 1.9, 55.0],
+		[Vector3(-27.6, 2 * H, 13.0), 1.0, 80.0], [Vector3(27.6, 7 * H, -13.0), 1.0, 15.0],
+	]
+	for s: Array in smears:
+		var m := _panel(parent, (s[0] as Vector3) + Vector3(0, 0.02, 0), Vector3(s[1] as float, 0.015, (s[1] as float) * 0.62), blood, "Blood")
+		m.rotation_degrees.y = s[2] as float
+	# Потёки на стенах: у двери западной лестницы и в лобби.
+	_panel(parent, Vector3(-25.32, 2 * H + 1.1, 13.6), Vector3(0.05, 1.5, 0.8), blood, "BloodWall")
+	_panel(parent, Vector3(-3.0, 1.0, -19.75), Vector3(1.2, 1.8, 0.05), blood, "BloodWall")
+
+	# Мешки с телами — застёгнутые, вдоль стен.
+	for b: Array in [[Vector3(-24, 0, -16), 15.0], [Vector3(-23, 0, -14.6), -8.0],
+			[Vector3(14, 3 * H, -19.2), 80.0], [Vector3(-6, 15 * H, -19.0), 100.0]]:
+		var bag := _panel(parent, (b[0] as Vector3) + Vector3(0, 0.14, 0), Vector3(0.62, 0.28, 1.9), bag_mat, "BodyBag")
+		bag.rotation_degrees.y = b[1] as float
+		_panel(parent, (b[0] as Vector3) + Vector3(0, 0.29, 0), Vector3(0.05, 0.012, 1.7), cable_mat, "BagZip").rotation_degrees.y = b[1] as float
+
+	# Надписи выживших (красным по стенам).
+	var notes := [
+		[Vector3(0, 2.4, 21.2), 180.0, "ОНИ ВНИЗУ"],
+		[Vector3(-29.6, 3 * H + 2.4, 4.0), 90.0, "НЕ СПИ"],
+		[Vector3(29.6, 9 * H + 2.4, 2.0), -90.0, "ВЫХОДА НЕТ"],
+		[Vector3(6, 15 * H + 2.6, 21.2), 180.0, "МЫ ПРОСТО МЯСО"],
+		[Vector3(-25.32, 5 * H + 1.9, 15.5), 90.0, "ВНИЗ НЕ ХОДИ"],
+	]
+	for n: Array in notes:
+		var lbl := Label3D.new()
+		lbl.text = n[2] as String
+		lbl.font_size = 220
+		lbl.pixel_size = 0.004
+		lbl.modulate = Color(0.62, 0.04, 0.05)
+		lbl.outline_size = 0
+		lbl.position = n[0] as Vector3
+		lbl.rotation_degrees.y = n[1] as float
+		parent.add_child(lbl)
+
+	# Оборванные кабели из потолков.
+	for c: Array in [[Vector3(-8, H, 2), 12.0], [Vector3(12, 4 * H, -6), -9.0],
+			[Vector3(-2, 8 * H, 8), 15.0], [Vector3(20, 12 * H, 4), -14.0], [Vector3(-16, 14 * H, -4), 8.0]]:
+		var y_top: float = (c[0] as Vector3).y + H - 0.35
+		var cab := _panel(parent, Vector3((c[0] as Vector3).x, y_top - 0.7, (c[0] as Vector3).z), Vector3(0.035, 1.4, 0.035), cable_mat, "Cable")
+		cab.rotation_degrees.z = c[1] as float
 
 
 # ---------------------------------------------------------------------------

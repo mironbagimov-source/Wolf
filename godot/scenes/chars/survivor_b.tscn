@@ -1,43 +1,43 @@
 [gd_scene load_steps=7 format=3]
 
-[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_2khjs"]
-[ext_resource type="PackedScene" path="res://assets/characters/bodies/ch45.fbx" id="2_oluiv"]
-[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_survivor_b.res" id="3_m6udr"]
+[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_aqr57"]
+[ext_resource type="PackedScene" path="res://assets/characters/bodies/ch45.fbx" id="2_chnkw"]
+[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_survivor_b.res" id="3_hohu3"]
 
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_o7c6o"]
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_aunae"]
 radius = 0.4
 height = 1.8
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_wq0rc"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_b1s26"]
 albedo_color = Color(1, 1, 0, 1)
 emission_enabled = true
 emission = Color(1, 1, 0, 1)
 emission_energy_multiplier = 4.0
 
-[sub_resource type="BoxMesh" id="BoxMesh_og6co"]
+[sub_resource type="BoxMesh" id="BoxMesh_c070m"]
 size = Vector3(0.16, 0.16, 0.16)
 
 [node name="Survivor B" type="CharacterBody3D"]
-script = ExtResource("1_2khjs")
+script = ExtResource("1_aqr57")
 faction = "survivor"
 is_leader = false
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_o7c6o")
+shape = SubResource("CapsuleShape3D_aunae")
 
 [node name="Visual" type="Node3D" parent="."]
 
-[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_oluiv")]
+[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_chnkw")]
 transform = Transform3D(-0.908239, 0, -7.94007e-08, 0, 0.908239, 0, 7.94007e-08, 0, -0.908239, 0, 0, 0)
 
 [node name="AnimationPlayer" type="AnimationPlayer" parent="Visual"]
 libraries = {
-"": ExtResource("3_m6udr")
+"": ExtResource("3_hohu3")
 }
 
 [node name="Telegraph" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3, 0)
 visible = false
-material_override = SubResource("StandardMaterial3D_wq0rc")
-mesh = SubResource("BoxMesh_og6co")
+material_override = SubResource("StandardMaterial3D_b1s26")
+mesh = SubResource("BoxMesh_c070m")

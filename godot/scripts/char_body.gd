@@ -75,12 +75,7 @@ var lift_t := 0.0     # >0: едет грузовым лифтом (см. main._
 var lift_target_y := 0.0
 var desired_yaw := 0.0  # боты доворачиваются плавно, а не рывком
 
-# Огнестрел наёмника: [1] основное, [2] вторичное, [3] ближний бой.
-var firearm_primary := {}
-var firearm_secondary := {}
-var weapon_slot := 3
-var ammo := {1: 0, 2: 0}
-var gunshot_t := 0.0    # недавно стрелял — психи слышат издалека
+var gunshot_t := 0.0    # недавно стрелял (полиция) — психи слышат издалека
 
 # Агония гражданских: лежит с нулём HP, добиваем [F] или встаёт от дефиба.
 var downed := false
@@ -335,9 +330,8 @@ func flash_materials(delta: float) -> void:
 ## Каждому архетипу — своя модель (файлы кладёт владелец проекта, см.
 ## bodies/LICENSE.md). Вариант "a" — первый архетип фракции, "b" — второй.
 const BODY_FILES := {
-	"survivor_a": "michelle.glb",     # Курьер — Michelle
+	"survivor_a": "medea.fbx",        # Курьер — Medea
 	"survivor_b": "ch45.fbx",         # Медтех — Ch45 (гражданский!)
-	"survivor_c": "medea.fbx",        # третий облик для толпы ботов
 	"cannibal_a": "xbot.fbx",         # Мясник — X Bot
 	"cannibal_b": "xbot.fbx",         # Богомол — X Bot (нужна своя модель — пришли)
 	"killer_a": "erika.fbx",          # Клинок — Erika
