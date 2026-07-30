@@ -129,10 +129,11 @@ func _sense(killer: Killer) -> Guest:
 	for guest in killer.runner.guests:
 		if not guest.in_play():
 			continue
-		if guest.state == Guest.State.CARRIED or guest.state == Guest.State.HOOKED:
+		if guest.state == Guest.State.CARRIED or guest.state == Guest.State.HOOKED \
+				or guest.state == Guest.State.UNCONSCIOUS:
 			continue
 
-		var radius := Kits.SENSE_BASE + guest.noise()
+		var radius := Kits.SENSE_BASE * killer.gmod("sense_mul", 1.0) + guest.noise()
 		if killer.kind == "witch":
 			# Корни чувствуют шаги: тот, кто рядом с её порослью, открыт всюду.
 			for plant in killer.runner.plants:

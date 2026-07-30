@@ -19,6 +19,7 @@ var running := false
 var player_side := "guest"
 var killer_kind := "trickster"
 var player_guest := 0        ## кем из четверых играет человек
+var purchases: Array = []    ## что игрок купил в магазине (id товаров)
 
 var walls: Array = []
 var doorways: Array = []
@@ -427,6 +428,8 @@ func _spawn_cast() -> void:
 		guest.trait_name = entry.trait
 		guest.trait_text = entry.trait_text
 		guest.mods = entry.mods
+		if guest.is_player:
+			guest.gear = Kits.loadout_mods("guest", purchases)
 		guest.skin = load(entry.skin) as BodySkin
 		if not guest.is_player:
 			guest.brain = GuestBrain.new()
@@ -439,6 +442,8 @@ func _spawn_cast() -> void:
 	killer.runner = self
 	killer.is_player = player_side == "killer"
 	killer.setup(killer_kind)
+	if killer.is_player:
+		killer.gear = Kits.loadout_mods("killer", purchases)
 	if not killer.is_player:
 		killer.brain = KillerBrain.new()
 	_actors_root.add_child(killer)
@@ -706,7 +711,9 @@ func report_escaped(_guest: Guest) -> void:
 	_check_end()
 
 
-func report_lost(guest: Guest) -> void:
+## Тела бессмертны — это не «выбыл», а «упал без сознания». Строка считалки
+## всё равно ложится: одним стало меньше на ногах, пусть и на время.
+func report_knockout(guest: Guest) -> void:
 	if lost < Kits.RHYME.size():
 		rhyme_line.emit(Kits.RHYME[lost])
 	lost += 1
@@ -726,24 +733,31 @@ func _topple_figurine(index: int) -> void:
 	material.emission = Color.BLACK
 
 
+## Аномалия переписала развязку. Убить нельзя — можно только уложить всех разом.
+## Убийца побеждает, когда все, кто ещё в игре, лежат без сознания одновременно
+## (они очнутся — но матч уже сошёлся). Выжившие побеждают, как только хоть один
+## уходит в пролом.
 func _check_end() -> void:
 	if not running:
 		return
 
-	# За гостя матч заканчивается вместе с тобой: считалка идёт дальше без тебя.
-	if player_side == "guest" and player_guest < guests.size():
-		var me := guests[player_guest]
-		if me.state == Guest.State.GONE:
-			_finish("player_dead")
-			return
-		if me.state == Guest.State.ESCAPED:
-			_finish("guests")
-			return
-
-	if guests_in_play() > 0:
+	if escaped > 0:
+		_finish("guests")
 		return
 
-	_finish("guests" if escaped > 0 else "killer")
+	var recoverable := 0     # стоят, ползут, на крюке — ещё могут подняться
+	var unconscious := 0
+	for guest in guests:
+		match guest.state:
+			Guest.State.ESCAPED:
+				pass
+			Guest.State.UNCONSCIOUS:
+				unconscious += 1
+			_:
+				recoverable += 1
+
+	if recoverable == 0 and unconscious > 0:
+		_finish("killer")
 
 
 func _finish(outcome: String) -> void:

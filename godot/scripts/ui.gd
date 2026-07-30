@@ -5,6 +5,7 @@ extends CanvasLayer
 ## матч (MatchRunner) о нём вообще ничего не знает — только шлёт сигналы.
 
 signal side_picked(side: String, kind: String)
+signal shop_confirmed(side: String, kind: String, purchases: Array)
 signal restart_requested()
 
 const INK := Color("c8c3b8")
@@ -14,6 +15,13 @@ const EMBER := Color("c9862f")
 var _menu: Control
 var _hud: Control
 var _end: Control
+var _shop: Control
+var _shop_coin: Label
+var _shop_rows: VBoxContainer
+var _shop_side := "guest"
+var _pending_side := "guest"
+var _pending_kind := ""
+var _shop_selected: Array = []
 
 var _state_label: Label
 var _hp_bar: ProgressBar
@@ -40,6 +48,7 @@ var _rhyme_timer := 0.0
 func _ready() -> void:
 	_build_menu()
 	_build_hud()
+	_build_shop()
 	_build_end()
 	show_menu()
 
@@ -226,6 +235,101 @@ func _build_hud() -> void:
 	_hud.add_child(crosshair)
 
 
+## Магазин: экран между выбором стороны и матчем. Обе стороны тратят монеты на
+## снаряжение — товары складываются в `gear` игрока.
+func _build_shop() -> void:
+	_shop = _full_screen_panel(Color(0.02, 0.02, 0.03, 0.97))
+
+	var column := VBoxContainer.new()
+	column.set_anchors_preset(Control.PRESET_CENTER)
+	column.anchor_left = 0.5
+	column.anchor_right = 0.5
+	column.anchor_top = 0.5
+	column.anchor_bottom = 0.5
+	column.offset_left = -360
+	column.offset_right = 360
+	column.offset_top = -260
+	column.offset_bottom = 260
+	column.add_theme_constant_override("separation", 8)
+	_shop.add_child(column)
+
+	column.add_child(_label("СНАРЯЖЕНИЕ", 30, INK, HORIZONTAL_ALIGNMENT_CENTER))
+	_shop_coin = _label("", 18, EMBER, HORIZONTAL_ALIGNMENT_CENTER)
+	column.add_child(_shop_coin)
+
+	_shop_rows = VBoxContainer.new()
+	_shop_rows.add_theme_constant_override("separation", 6)
+	column.add_child(_shop_rows)
+
+	var go := Button.new()
+	go.text = "В бой"
+	go.custom_minimum_size = Vector2(220, 46)
+	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	go.pressed.connect(func() -> void:
+		shop_confirmed.emit(_pending_side, _pending_kind, _shop_selected.duplicate()))
+	column.add_child(go)
+
+
+## Открыть магазин для выбранной стороны. `shop_side` — из чьего прайса брать
+## («guest»/«killer»), `play_side`/`kind` — что запускать после закупки.
+func open_shop(shop_side: String, play_side: String, kind: String) -> void:
+	_shop_side = shop_side
+	_pending_side = play_side
+	_pending_kind = kind
+	_shop_selected.clear()
+
+	for child in _shop_rows.get_children():
+		child.queue_free()
+
+	for item in Kits.shop_for(shop_side):
+		var button := Button.new()
+		button.toggle_mode = true
+		button.custom_minimum_size = Vector2(680, 52)
+		button.add_theme_font_size_override("font_size", 13)
+		button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var id: String = item.id
+		button.toggled.connect(func(on: bool) -> void: _toggle_item(id, on, button))
+		_shop_rows.add_child(button)
+		_label_shop_button(button, item, false)
+
+	_menu.visible = false
+	_shop.visible = true
+	_hud.visible = false
+	_end.visible = false
+	_refresh_coins()
+
+
+func _toggle_item(id: String, on: bool, button: Button) -> void:
+	var item := Kits.shop_item(_shop_side, id)
+	if on:
+		if _spent() + int(item.cost) > Kits.START_COINS:
+			button.button_pressed = false   # не хватает монет
+			return
+		if not _shop_selected.has(id):
+			_shop_selected.append(id)
+	else:
+		_shop_selected.erase(id)
+	_label_shop_button(button, item, on)
+	_refresh_coins()
+
+
+func _label_shop_button(button: Button, item: Dictionary, owned: bool) -> void:
+	var mark := "✓ " if owned else ""
+	button.text = "%s%s — %d монет\n%s" % [mark, item.name, int(item.cost), item.desc]
+	button.add_theme_color_override("font_color", EMBER if owned else INK)
+
+
+func _spent() -> int:
+	var total := 0
+	for id in _shop_selected:
+		total += int(Kits.shop_item(_shop_side, id).cost)
+	return total
+
+
+func _refresh_coins() -> void:
+	_shop_coin.text = "Монет: %d / %d" % [Kits.START_COINS - _spent(), Kits.START_COINS]
+
+
 func _build_end() -> void:
 	_end = _full_screen_panel(Color(0.02, 0.02, 0.03, 0.94))
 
@@ -256,12 +360,14 @@ func _build_end() -> void:
 
 func show_menu() -> void:
 	_menu.visible = true
+	_shop.visible = false
 	_hud.visible = false
 	_end.visible = false
 
 
 func show_match() -> void:
 	_menu.visible = false
+	_shop.visible = false
 	_hud.visible = true
 	_end.visible = false
 	_rhyme.modulate.a = 0.0
@@ -270,6 +376,8 @@ func show_match() -> void:
 
 
 func show_end(title: String, subtitle: String, color: Color) -> void:
+	_menu.visible = false
+	_shop.visible = false
 	_hud.visible = false
 	_end.visible = true
 	_end_title.text = title
@@ -357,10 +465,14 @@ func sync(runner: MatchRunner) -> void:
 
 	for i in mini(_figurines.size(), runner.guests.size()):
 		var guest := runner.guests[i]
-		if guest.state == Guest.State.GONE:
-			_figurines[i].color = Color("3a3a3a")
-		elif guest.state == Guest.State.ESCAPED:
+		# Тела бессмертны: фигурка не гаснет насовсем — тускнеет, пока без
+		# сознания, и загорается снова, когда очнулся.
+		if guest.state == Guest.State.ESCAPED:
 			_figurines[i].color = Color("6f8ba8")
+		elif guest.state == Guest.State.UNCONSCIOUS:
+			_figurines[i].color = Color("6a1e8a")
+		else:
+			_figurines[i].color = Color("d9d2c2")
 
 	_prompt.text = player.prompt()
 	_progress.value = player.progress_ui * 100.0

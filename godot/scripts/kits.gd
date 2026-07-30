@@ -118,6 +118,118 @@ const FINISH_COOLDOWN := 22.0   ## только тем, у кого есть в�
 
 const KILLER_ORDER: Array[String] = ["trickster", "witch", "roger"]
 
+# --- аномалия: бессмертие, импланты, зоны ----------------------------------
+#
+# В этой вселенной выжившие не умирают. Добивание не убивает, а вырубает — и,
+# пока тело без сознания, в него вживляют бяку. Дальше оно само придёт в себя,
+# но с сюрпризом внутри. Свой может успеть вырезать имплант — тогда очнётся
+# чистым.
+
+const KO_REVIVE_TIME := 20.0    ## сам приходит в сознание через столько секунд
+const KO_REVIVE_HP := 55.0      ## с каким здоровьем встаёт
+const IMPLANT_CUT_TIME := 4.5   ## столько напарник вырезает бяку
+
+## Зоны попадания. У каждого тела есть открытый участок кожи (двойной урон) и
+## бронированный (удар гаснет весь). Куда пришёлся удар — считается по углу
+## между убийцей и телом.
+const ZONE_EXPOSED_MUL := 2.0
+const ZONE_ARMOR_MUL := 0.0
+const ZONE_EXPOSED_ARC := 0.9   ## полуширина открытого сектора, радианы
+const ZONE_ARMOR_ARC := 0.9     ## полуширина брони
+
+## Что вживляют. Эффект срабатывает, когда тело приходит в себя само (не вырезали).
+const IMPLANTS := [
+	{
+		"id": "bomb", "name": "Бомба",
+		"desc": "Очнулся — и тут же снова с ног: заряд под рёбрами.",
+	},
+	{
+		"id": "parasite", "name": "Паразит",
+		"desc": "Точит здоровье, пока не вырежут. −4 в секунду.",
+		"drain": 4.0,
+	},
+	{
+		"id": "flay", "name": "Истончитель кожи",
+		"desc": "Брони больше нет — любой удар проходит и бьёт сильнее.",
+	},
+]
+
+const IMPLANT_ORDER: Array[String] = ["bomb", "parasite", "flay"]
+
+
+static func implant(id: String) -> Dictionary:
+	for entry in IMPLANTS:
+		if entry.id == id:
+			return entry
+	return IMPLANTS[0]
+
+
+# --- магазин ---------------------------------------------------------------
+#
+# Закупаются обе стороны перед матчем на монеты. У каждого товара — набор
+# модификаторов (mods), которые складываются в снаряжение игрока.
+
+const START_COINS := 120
+
+const SHOP := {
+	"guest": [
+		{"id": "kevlar", "name": "Кевлар", "cost": 40,
+		 "desc": "Шире бронированный сектор — тяжелее попасть по коже.",
+		 "mods": {"armor_arc": 0.5}},
+		{"id": "scalpel", "name": "Скальпель", "cost": 35,
+		 "desc": "Вырезаешь импланты у своих вдвое быстрее.",
+		 "mods": {"cut_mul": 0.5}},
+		{"id": "lungs", "name": "Второе дыхание", "cost": 30,
+		 "desc": "Больше выносливости — дольше держишь бег.",
+		 "mods": {"stamina_mul": 1.4}},
+		{"id": "medkit", "name": "Полевой набор", "cost": 45,
+		 "desc": "Поднимаешь и вырезаешь одним движением, и быстрее.",
+		 "mods": {"revive_mul": 0.6, "cut_mul": 0.6}},
+	],
+	"killer": [
+		{"id": "whetstone", "name": "Заточка", "cost": 40,
+		 "desc": "+25% к урону всем оружием.",
+		 "mods": {"dmg_mul": 1.25}},
+		{"id": "thermal", "name": "Тепловизор", "cost": 35,
+		 "desc": "Слышишь и чуешь выживших на треть дальше.",
+		 "mods": {"sense_mul": 1.33}},
+		{"id": "toolkit", "name": "Набор хирурга", "cost": 45,
+		 "desc": "Замах добивания короче — вживляешь быстрее.",
+		 "mods": {"windup_mul": 0.55}},
+		{"id": "boots", "name": "Тяжёлые сапоги", "cost": 30,
+		 "desc": "Быстрее в погоне.",
+		 "mods": {"speed_mul": 1.12}},
+	],
+}
+
+
+static func shop_for(side: String) -> Array:
+	return SHOP.get(side, [])
+
+
+static func shop_item(side: String, id: String) -> Dictionary:
+	for entry in shop_for(side):
+		if entry.id == id:
+			return entry
+	return {}
+
+
+## Складывает модификаторы всех купленных товаров в один словарь. Множители
+## перемножаются, прибавки суммируются.
+static func loadout_mods(side: String, ids: Array) -> Dictionary:
+	var out := {}
+	for id in ids:
+		var item := shop_item(side, id)
+		if item.is_empty():
+			continue
+		for key in item.mods:
+			var value: float = item.mods[key]
+			if key.ends_with("_mul"):
+				out[key] = float(out.get(key, 1.0)) * value
+			else:
+				out[key] = float(out.get(key, 0.0)) + value
+	return out
+
 const GUEST_COLOR := Color("d8c08a")
 const GUEST_MESH := "guest"
 

@@ -17,6 +17,7 @@ func _ready() -> void:
 	add_child(ui)
 
 	ui.side_picked.connect(_on_side_picked)
+	ui.shop_confirmed.connect(_on_shop_confirmed)
 	ui.restart_requested.connect(_on_restart)
 	runner.ended.connect(_on_ended)
 	runner.rhyme_line.connect(func(text: String) -> void: ui.speak_rhyme(text))
@@ -30,7 +31,15 @@ func _process(_delta: float) -> void:
 		ui.sync(runner)
 
 
+## Сторона выбрана — сперва магазин, а не сразу бой. За гостя закупается сам
+## игрок-гость, за убийцу — прайс убийцы.
 func _on_side_picked(side: String, kind: String) -> void:
+	ui.open_shop(side, side, kind)
+
+
+## Закупились — теперь в бой. Купленное уедет в снаряжение игрока.
+func _on_shop_confirmed(side: String, kind: String, purchases: Array) -> void:
+	runner.purchases = purchases
 	runner.start(side, kind)
 	ui.show_match()
 	_capture_mouse()
@@ -68,17 +77,11 @@ func _on_ended(result: String) -> void:
 	match result:
 		"guests":
 			title = "Кто-то вышел"
-			subtitle = "Через пролом ушли: %d из %d." % [runner.escaped, runner.guests.size()]
+			subtitle = "Через пролом ушли из руин: %d." % runner.escaped
 			colour = Color("d8c08a")
-		"player_dead":
-			var me := runner.guests[runner.player_guest]
-			title = "Твоя фигурка разбита"
-			subtitle = "%s — %s. В руинах ещё остались живые: %d." % [
-				me.guest_name, me.guilt, runner.guests_in_play()
-			]
 		_:
-			title = "Считалка сошлась"
-			subtitle = "Из руин не вышел никто."
+			title = "Все уложены"
+			subtitle = "Убийца свалил без сознания всех разом. Они очнутся — но не в этот раз."
 
 	ui.show_end(title, subtitle, colour)
 

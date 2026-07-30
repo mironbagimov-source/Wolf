@@ -124,7 +124,9 @@ func _rescue(guest: Guest) -> bool:
 
 func _lift(guest: Guest) -> bool:
 	for other in guest.runner.guests:
-		if other == guest or not other.is_downed() or other.carried_by:
+		# Поднять сбитого или вырезать бяку из отключённого — оба зовут своих.
+		var recoverable: bool = other.is_downed() or other.state == Guest.State.UNCONSCIOUS
+		if other == guest or not recoverable or other.carried_by:
 			continue
 		if guest.runner.killer and guest.runner.killer.flat_position().distance_to(other.flat_position()) < 10.0:
 			continue

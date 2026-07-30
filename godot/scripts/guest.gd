@@ -7,7 +7,7 @@ extends Actor
 ## Кончившееся здоровье не убивает — оно кладёт на землю, и именно там матч
 ## решается. Оттуда либо поднимет свой, либо унесут на крюк.
 
-enum State {STANDING, DOWNED, CARRIED, HOOKED, ESCAPED, GONE}
+enum State {STANDING, DOWNED, CARRIED, HOOKED, ESCAPED, GONE, UNCONSCIOUS}
 
 var state: State = State.STANDING
 var guest_name := "Гость"
@@ -19,8 +19,19 @@ var index := 0
 var trait_name := ""
 var trait_text := ""
 var mods := {}
+var gear := {}          ## купленное в магазине; складывается с чертой
 var stamina_max := 5.0
 var self_lifts := 0
+
+## Аномалия: тело бессмертно. Добивание не убивает — вырубает и вживляет бяку.
+var ko_timer := 0.0                 ## сколько ещё без сознания
+var implant := ""                   ## что внутри; "" — чисто
+var parasite := 0.0                 ## сколько ещё точит паразит
+var armor_stripped := false         ## истончитель снял броню
+
+## Зоны попадания: открытый участок кожи (×2) и бронированный (гасит удар).
+## `weak_local` — где именно на теле кожа, в системе координат самого тела.
+var weak_local := 0.0
 
 var stamina := 0.0
 var exhausted := false
@@ -46,6 +57,9 @@ func _ready() -> void:
 	stamina_max = Kits.GUEST.stamina_max * mod("stamina_mul", 1.0)
 	stamina = stamina_max
 	self_lifts = int(mod("self_lift", 0.0))
+	# Открытый участок кожи у каждого свой, но не со спины и не в упор спереди —
+	# по бокам, чтобы убийце пришлось заходить, а не бить в лоб.
+	weak_local = [PI * 0.5, -PI * 0.5, PI * 0.75, -PI * 0.75][index % 4]
 	collision_layer = LAYER_GUEST
 	# Гость упирается в поросль Ведьмы, убийца — нет. На этой асимметрии
 	# держится вся её способность.
@@ -65,8 +79,26 @@ func _ready() -> void:
 		attach_camera()
 
 
+## Модификатор из черты (mods) и снаряжения (gear) вместе. Множители (…_mul)
+## перемножаются, прибавки складываются.
 func mod(key: String, fallback: float) -> float:
-	return float(mods.get(key, fallback))
+	var has_trait: bool = mods.has(key)
+	var has_gear: bool = gear.has(key)
+	if not has_trait and not has_gear:
+		return fallback
+	if key.ends_with("_mul"):
+		var v := 1.0
+		if has_trait:
+			v *= float(mods[key])
+		if has_gear:
+			v *= float(gear[key])
+		return v
+	var s := 0.0
+	if has_trait:
+		s += float(mods[key])
+	if has_gear:
+		s += float(gear[key])
+	return s
 
 
 func in_play() -> bool:
@@ -116,12 +148,16 @@ func _physics_process(delta: float) -> void:
 			set_eye_height(1.9)
 			play_pose("Idle")
 			return
+		State.UNCONSCIOUS:
+			_tick_unconscious(delta)
+			return
 		State.ESCAPED, State.GONE:
 			return
 
 	_tick_stamina(delta)
 	_tick_bleed(delta)
 	_tick_revive(delta)
+	_tick_parasite(delta)
 
 	apply_movement(delta)
 	_leave_marks(delta)
@@ -165,7 +201,22 @@ func _tick_bleed(delta: float) -> void:
 		return
 	bleed -= delta
 	if bleed <= 0.0:
-		die()
+		# Бессмертие: истёк не значит умер. Просто вырубается — но без импланта,
+		# это ведь не добивание.
+		knock_out(null, "")
+
+
+## Паразит точит здоровье очнувшегося, пока его не свалит с ног (там он и
+## сгорает). Свой мог вырезать бяку заранее — тогда паразита нет вовсе.
+func _tick_parasite(delta: float) -> void:
+	if parasite <= 0.0 or state != State.STANDING:
+		return
+	parasite -= delta
+	hp -= Kits.implant("parasite").drain * delta
+	flash(0.04)
+	if hp <= 0.0:
+		parasite = 0.0
+		go_down()
 
 
 func _tick_revive(delta: float) -> void:
@@ -218,12 +269,39 @@ func _leave_marks(delta: float) -> void:
 func take_damage(amount: float, source: Killer = null, quiet := false) -> void:
 	if not in_play() or state != State.STANDING:
 		return
+	# Направленный удар убийцы проходит через зону: бронированный сектор гасит его
+	# в ноль, открытая кожа удваивает. Урон от поросли и прочего (quiet) — мимо
+	# зон, он общий.
+	if source and not quiet:
+		var mul := zone_mul(source.flat_position())
+		if mul <= 0.0:
+			flash(0.05)   # звякнуло по броне
+			return
+		amount *= mul
 	hp -= amount
 	flash()
 	if not quiet and source:
 		source.on_dealt_damage(amount)
 	if hp <= 0.0:
 		go_down()
+
+
+## Множитель урона по тому месту тела, куда пришёлся удар из точки `from`.
+## Истончённая кожа (имплант) — брони нет вообще, всё проходит и сильнее.
+func zone_mul(from: Vector2) -> float:
+	if armor_stripped:
+		return 1.6
+	var delta := from - flat_position()
+	if delta.length_squared() < 0.0001:
+		return 1.0
+	var local := wrapf(Actor.yaw_toward(delta.x, delta.y) - yaw, -PI, PI)
+	var to_skin := absf(wrapf(local - weak_local, -PI, PI))
+	var to_armor := absf(wrapf(local - (weak_local + PI), -PI, PI))
+	if to_skin < Kits.ZONE_EXPOSED_ARC:
+		return Kits.ZONE_EXPOSED_MUL
+	if to_armor < Kits.ZONE_ARMOR_ARC + mod("armor_arc", 0.0):
+		return Kits.ZONE_ARMOR_MUL
+	return 1.0
 
 
 func go_down() -> void:
@@ -285,19 +363,63 @@ func escape() -> void:
 	runner.report_escaped(self)
 
 
+## Раньше это была смерть. Теперь — обморок: тело бессмертно, добивание лишь
+## вырубает и оставляет внутри имплант. Само придёт в себя через KO_REVIVE_TIME,
+## если раньше не поднимет и не вычистит свой.
 func die() -> void:
-	if not in_play():
+	knock_out(null, "")
+
+
+func knock_out(source: Killer, implant_id: String) -> void:
+	if not in_play() or state == State.UNCONSCIOUS:
 		return
-	# Тот, кто нёс это тело, дальше его не несёт.
 	if carried_by and is_instance_valid(carried_by):
 		carried_by.forget_carried()
 	if hooked_on:
 		hooked_on.captive = null
 		hooked_on = null
 	carried_by = null
-	state = State.GONE
-	visible = false
-	runner.report_lost(self)
+	parasite = 0.0
+	implant = implant_id
+	state = State.UNCONSCIOUS
+	ko_timer = Kits.KO_REVIVE_TIME
+	revive_progress = 0.0
+	lay_down(PI * 0.5)
+	runner.report_knockout(self)
+
+
+func _tick_unconscious(delta: float) -> void:
+	set_eye_height(0.45)
+	lay_down(PI * 0.5)
+	play_pose("Idle")
+	sync_materials(absf(_pulse()) * 0.4, Color("6a1e8a"))
+	sync_health_bar(false)
+	_tick_revive(delta)   # прогресс тает, если свой отошёл, не докрутив
+	ko_timer -= delta
+	if ko_timer <= 0.0:
+		revive_from_ko(false)   # очнулся сам — с имплантом внутри
+
+
+## Приходит в себя. `cut` — свой успел вырезать бяку; тогда чисто. Иначе имплант
+## срабатывает.
+func revive_from_ko(cut: bool) -> void:
+	state = State.STANDING
+	hp = Kits.KO_REVIVE_HP
+	bleed = 0.0
+	revive_progress = 0.0
+	lay_down(0.0)
+	if cut or implant == "":
+		implant = ""
+		return
+	match implant:
+		"bomb":
+			flash(0.4)
+			go_down()               # очнулся — и сразу опять с ног
+		"parasite":
+			parasite = 8.0          # точит, пока не свалит или не вырежут
+		"flay":
+			armor_stripped = true   # брони нет до конца матча
+	implant = ""
 
 
 # --- взаимодействия ---
@@ -321,15 +443,25 @@ func _run_interactions(delta: float) -> void:
 		return
 
 	for other in runner.guests:
-		if other == self or not other.is_downed() or other.carried_by:
+		if other == self or other.carried_by:
+			continue
+		var ko: bool = other.state == State.UNCONSCIOUS
+		if not other.is_downed() and not ko:
 			continue
 		if flat_position().distance_to(other.flat_position()) > Kits.INTERACT_RANGE:
 			continue
-		other.revive_progress += delta / mod("revive_mul", 1.0)
+		# Поднять сбитого — одно; вырезать бяку из отключённого — дольше, зато
+		# он очнётся чистым, без сработавшего импланта.
+		var need: float = Kits.IMPLANT_CUT_TIME if ko else Kits.GUEST.revive_time
+		var rate: float = mod("cut_mul", 1.0) if ko else mod("revive_mul", 1.0)
+		other.revive_progress += delta / rate
 		other.revive_touched = true
-		progress_ui = clampf(other.revive_progress / Kits.GUEST.revive_time, 0.0, 1.0)
-		if other.revive_progress >= Kits.GUEST.revive_time:
-			other.lift_up(Kits.GUEST.revive_hp)
+		progress_ui = clampf(other.revive_progress / need, 0.0, 1.0)
+		if other.revive_progress >= need:
+			if ko:
+				other.revive_from_ko(true)
+			else:
+				other.lift_up(Kits.GUEST.revive_hp)
 		return
 
 	for breaker in runner.breakers:
@@ -385,6 +517,9 @@ func prompt() -> String:
 			if self_lifts > 0:
 				return "[E] Встать самому (%d%%)" % int(progress_ui * 100.0)
 			return "Ползи. Кто-то из своих может тебя поднять."
+		State.UNCONSCIOUS:
+			var what: String = Kits.implant(implant).name if implant != "" else "ничего"
+			return "Без сознания (%dс). Внутри: %s — свой может вырезать." % [ceili(ko_timer), what]
 
 	for plant in runner.plants:
 		if plant.near(flat_position(), 1.3):
@@ -393,8 +528,13 @@ func prompt() -> String:
 		if hook.captive and hook.captive != self and flat_position().distance_to(hook.spot) <= Kits.INTERACT_RANGE:
 			return "[E] Снять с крюка"
 	for other in runner.guests:
-		if other != self and other.is_downed() and not other.carried_by \
-				and flat_position().distance_to(other.flat_position()) <= Kits.INTERACT_RANGE:
+		if other == self or other.carried_by:
+			continue
+		if flat_position().distance_to(other.flat_position()) > Kits.INTERACT_RANGE:
+			continue
+		if other.state == State.UNCONSCIOUS:
+			return "[E] Вырезать имплант из %s (держать)" % other.guest_name
+		if other.is_downed():
 			return "[E] Поднять %s" % other.guest_name
 	for breaker in runner.breakers:
 		if not breaker.online and flat_position().distance_to(breaker.spot) <= Kits.INTERACT_RANGE:
@@ -431,8 +571,14 @@ func state_text() -> String:
 			return "На крюке"
 		State.CARRIED:
 			return "Тебя несут"
+		State.UNCONSCIOUS:
+			return "Без сознания (%dс)" % ceili(ko_timer)
 		State.DOWNED:
 			return "На земле — истекаешь (%dс)" % ceili(bleed)
+	if parasite > 0.0:
+		return "Паразит точит!"
+	if armor_stripped:
+		return "Кожа истончена — брони нет"
 	if rooted > 0.0:
 		return "Опутан"
 	return "Ранен" if is_injured() else "Цел"

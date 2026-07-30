@@ -25,6 +25,22 @@ var cd_finish := 0.0        ## откат добивания у тех, кому
 var progress_ui := 0.0
 
 var brain                   ## KillerBrain у бота, null у игрока
+var gear := {}              ## купленное в магазине
+var _implant_rota := 0      ## какой имплант вживит следующим
+
+
+## Модификатор снаряжения. Множители (…_mul) перемножаются, прибавки складываются.
+func gmod(key: String, fallback: float) -> float:
+	if not gear.has(key):
+		return fallback
+	return float(gear[key])
+
+
+## Что вживить очередной жертве. Крутим по кругу, чтобы в матче попадались все.
+func next_implant() -> String:
+	var id: String = Kits.IMPLANT_ORDER[_implant_rota % Kits.IMPLANT_ORDER.size()]
+	_implant_rota += 1
+	return id
 
 
 func setup(killer_kind: String) -> void:
@@ -61,7 +77,7 @@ func speed_mul() -> float:
 
 
 func current_speed() -> float:
-	var speed: float = kit.speed * speed_mul()
+	var speed: float = kit.speed * speed_mul() * gmod("speed_mul", 1.0)
 	if intent.sprint:
 		speed *= kit.sprint_mul
 	if carrying:
@@ -144,7 +160,7 @@ func _use_powers() -> void:
 func _melee(weapon: Dictionary) -> void:
 	var target := pick_in_cone(weapon.range, weapon.arc, false, false)
 	if target:
-		target.take_damage(weapon.dmg * damage_mul(), self)
+		target.take_damage(weapon.dmg * damage_mul() * gmod("dmg_mul", 1.0), self)
 
 
 ## Крюк Трикстера — не оружие, а поводок: возвращает беглеца в дистанцию ножа.
@@ -337,13 +353,14 @@ func _run_interactions(delta: float) -> void:
 		channel_time = 0.0
 
 	channel_time += delta
-	progress_ui = clampf(channel_time / Kits.FINISH_WINDUP, 0.0, 1.0)
+	var windup: float = Kits.FINISH_WINDUP * gmod("windup_mul", 1.0)
+	progress_ui = clampf(channel_time / windup, 0.0, 1.0)
 	# Корни держат жертву, пока идёт замах: иначе сбитый гость просто отполз бы,
 	# и способности бы не существовало.
 	target.rooted = maxf(target.rooted, 0.25)
 	target.flash(0.05)
 
-	if channel_time >= Kits.FINISH_WINDUP:
+	if channel_time >= windup:
 		channel_target = null
 		channel_time = 0.0
 		if kit.can_carry:
@@ -351,8 +368,8 @@ func _run_interactions(delta: float) -> void:
 		runner.begin_finisher(self, target)
 
 
-## Добивание убирает гостя навсегда и минует крюк — но стоит пяти секунд
-## неподвижности. Тем, у кого крюк есть, оно ещё и на откате.
+## Добивание не убивает (тела бессмертны) — вырубает и вживляет имплант. Минует
+## крюк, но стоит пяти секунд неподвижности; у кого крюк есть — ещё и на откате.
 func can_finish() -> bool:
 	return not kit.can_carry or cd_finish <= 0.0
 

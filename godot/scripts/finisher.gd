@@ -143,11 +143,14 @@ func _advance() -> void:
 func _finish() -> void:
 	running = false
 	var doomed := victim
+	var who := killer
 	_release()
-	# Тело исчезает вместе с постановкой: то, что от него осталось, лежать
-	# отдельным реквизитом не должно.
+	# Тело бессмертно: добивание не убивает, а вырубает — и оставляет внутри
+	# имплант, который выбрал убийца. Дальше жертва либо очнётся с ним сама, либо
+	# свой успеет его вырезать.
 	if is_instance_valid(doomed):
-		doomed.die()
+		var id := who.next_implant() if is_instance_valid(who) else ""
+		doomed.knock_out(who, id)
 	queue_free()
 
 

@@ -31,6 +31,8 @@ func _run_all() -> void:
 	await _case_world()
 	await _case_finishers()
 	await _case_traits()
+	await _case_anomaly()
+	await _case_shop()
 	await _case_bots_play()
 	await _case_escape()
 
@@ -74,7 +76,7 @@ func _case_trickster_chain() -> void:
 
 	hook.timer = Kits.HOOK_TIME - 0.02
 	await _step(6)
-	_check(guest.state == Guest.State.GONE, "крюк доработал")
+	_check(guest.state == Guest.State.UNCONSCIOUS, "крюк доработал — без сознания (бессмертие)")
 	_check(rhyme_heard.size() == 1, "считалка сказала строку")
 	if rhyme_heard.size() > 0:
 		print("    строка: %s..." % rhyme_heard[0].substr(0, 46))
@@ -220,7 +222,8 @@ func _case_finishers() -> void:
 		_check(beats.size() == kit.finisher.stages.size(),
 			"%s: сыграны все такты (%d из %d)" % [kit.name, beats.size(), kit.finisher.stages.size()])
 		_check(not killer.pinned and runner.finisher == null, "%s: управление вернулось" % kit.name)
-		_check(guest.state == Guest.State.GONE, "%s: гость выбыл" % kit.name)
+		_check(guest.state == Guest.State.UNCONSCIOUS, "%s: жертва вырублена (бессмертие)" % kit.name)
+		_check(guest.implant != "", "%s: внутрь вживлён имплант «%s»" % [kit.name, Kits.implant(guest.implant).name])
 
 
 ## Черты выживших: у каждого своя, и каждая обязана что-то менять в числах.
@@ -243,6 +246,86 @@ func _case_traits() -> void:
 	_check(nina.bleed > margo.bleed, "но она дольше держится на земле (%.0fс против %.0fс)" % [nina.bleed, margo.bleed])
 	_check(kostya.stamina_max > margo.stamina_max, "Костя бежит дольше")
 	_check(kostya.self_lifts == 1 and margo.self_lifts == 0, "и один раз встаёт сам")
+
+
+## Аномалия: бессмертие, импланты, зоны попадания.
+func _case_anomaly() -> void:
+	print("\nАномалия: бессмертие, импланты, зоны")
+	await _fresh("killer", "trickster")
+	var killer := runner.killer
+	var guest := runner.guests[1]
+
+	# Зоны: бьём в открытую кожу (×2) и в броню (×0), считаем множитель напрямую.
+	# Направления строим в той же системе, что и zone_mul (forward_of + yaw).
+	_place(guest, Vector2(0, 0), 0.0)
+	var skin_dir := guest.flat_position() + Actor.forward_of(guest.weak_local) * 3.0
+	var armor_dir := guest.flat_position() + Actor.forward_of(guest.weak_local + PI) * 3.0
+	_check(guest.zone_mul(skin_dir) == Kits.ZONE_EXPOSED_MUL, "удар по коже — двойной урон")
+	_check(guest.zone_mul(armor_dir) == Kits.ZONE_ARMOR_MUL, "удар по броне — гаснет в ноль")
+
+	# Броня действительно не пропускает урон.
+	guest.hp = 100.0
+	_place(killer, armor_dir, Actor.yaw_toward(guest.flat_position().x - armor_dir.x, guest.flat_position().y - armor_dir.y))
+	guest.take_damage(50.0, killer)
+	_check(guest.hp == 100.0, "по броне 50 урона — здоровье цело")
+
+	# Бессмертие: добивание вырубает, не убивает; имплант внутри; сам очнётся.
+	guest.go_down()
+	_put_in_front(killer, guest, 1.2)
+	_check(await _hold_finisher(killer, guest), "добивание вырубило")
+	_check(guest.in_play(), "но выживший в игре — он бессмертен")
+	_check(guest.implant != "", "внутри имплант: %s" % Kits.implant(guest.implant).name)
+
+	# Ждём, пока очнётся сам — имплант должен сработать.
+	guest.ko_timer = 0.05
+	var woke := false
+	for i in 30:
+		await _step(1)
+		if guest.state != Guest.State.UNCONSCIOUS:
+			woke = true
+			break
+	_check(woke, "очнулся сам через таймер")
+	_check(guest.implant == "", "имплант сработал и израсходован")
+
+	# Вырезание: свой поднимает отключённого чисто, без срабатывания.
+	await _fresh("killer", "roger")
+	var k2 := runner.killer
+	var v2 := runner.guests[2]
+	v2.go_down()
+	_put_in_front(k2, v2, 1.2)
+	_check(await _hold_finisher(k2, v2), "второе добивание")
+	v2.revive_from_ko(true)
+	_check(v2.state == Guest.State.STANDING and not v2.armor_stripped and v2.parasite <= 0.0,
+		"вырезали имплант — очнулся чистым")
+
+	# Развязка убийцы: все разом без сознания — победа охотника.
+	await _fresh("killer", "trickster")
+	for g in runner.guests:
+		g.knock_out(runner.killer, "")
+	await _step(3)
+	_check(not runner.running and runner.result == "killer", "всех уложили разом — победа убийцы")
+
+
+## Магазин: обе стороны закупаются, снаряжение меняет числа.
+func _case_shop() -> void:
+	print("\nМагазин: закупка снаряжения")
+	_check(Kits.shop_for("guest").size() >= 3, "у гостя есть товары")
+	_check(Kits.shop_for("killer").size() >= 3, "у убийцы есть товары")
+
+	var kg := Kits.loadout_mods("killer", ["whetstone"])
+	_check(kg.get("dmg_mul", 1.0) > 1.0, "заточка поднимает урон")
+
+	# Купленное реально попадает в снаряжение игрока.
+	runner.purchases = ["whetstone", "boots"]
+	await _fresh("killer", "trickster")
+	_check(runner.killer.gmod("dmg_mul", 1.0) > 1.0, "убийца в бою с заточкой")
+	_check(runner.killer.gmod("speed_mul", 1.0) > 1.0, "и с сапогами")
+
+	runner.purchases = ["kevlar"]
+	await _fresh("guest", "0")
+	_check(runner.guests[0].mod("armor_arc", 0.0) > 0.0, "гость-игрок в кевларе")
+	_check(runner.guests[1].mod("armor_arc", 0.0) == 0.0, "боту снаряжение не досталось")
+	runner.purchases = []
 
 
 func _case_bots_play() -> void:
@@ -308,13 +391,13 @@ func _fresh(side: String, kind: String, keep_brains := false) -> void:
 
 
 ## Держать [E] и ждать, пока замах перейдёт в постановку, а постановка — в
-## смерть. Возвращает false, если за двадцать секунд ничего не случилось.
+## обморок. Возвращает false, если за двадцать секунд ничего не случилось.
 func _hold_finisher(killer: Killer, guest: Guest) -> bool:
 	for i in 1200:
 		if not killer.pinned:
 			killer.intent.interact_held = true
 		await _step(1)
-		if guest.state == Guest.State.GONE:
+		if guest.state == Guest.State.UNCONSCIOUS:
 			return true
 	return false
 
