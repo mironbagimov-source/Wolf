@@ -8,6 +8,8 @@ the project owner), one body per playable archetype:
 - erika.fbx       — "Erika Archer" (Клинок, merc A)
 - heraklios.fbx   — "Heraklios" by A. Dizon (Броня, merc B)
 - pumpkinhulk.fbx — "Pumpkinhulk" by L. Shaw (Альфа)
+- ghoul.fbx       — "Zombiegirl" by W. Kurniawan (Кибер-гуль)
+- vampire.fbx     — "Nightshade" by J. Friedrich (Кибер-вампир, высшая форма)
 
 soldier.glb (../) — "Vanguard" (three.js examples): fallback body and the
 Idle/Walk/Run animation source; clips are retargeted onto every body at bake

@@ -50,6 +50,8 @@ func _init() -> void:
 		["killer", false, 0, "res://scenes/chars/merc.tscn"],
 		["killer", false, 1, "res://scenes/chars/merc_b.tscn"],
 		["police", false, 0, "res://scenes/chars/police.tscn"],
+		["ghoul", false, 0, "res://scenes/chars/ghoul.tscn"],
+		["ghoul", false, 1, "res://scenes/chars/vampire.tscn"],
 	]
 	# UAL: одна библиотека анимаций на всех — ретаргетится на каждое тело.
 	var ual_ap: AnimationPlayer = null

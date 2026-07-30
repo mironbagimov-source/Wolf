@@ -29,6 +29,8 @@ var stamina_fill: ColorRect
 var timer_label: Label
 var dir_chips: Array = []   # [left, right, overhead] ColorRects around the crosshair
 var hitmark: Control        # крестик-хитмаркер вокруг прицела
+var blind_overlay: ColorRect  # залитый слизью экран
+var vampire_unlocked := false # КИБЕР-ВАМПИР открыт мутацией
 
 signal faction_picked(faction: String)
 signal character_picked(faction: String, index: int)
@@ -101,6 +103,13 @@ func _build_vignette() -> void:
 	damage_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(damage_flash)
 
+	# Био-слизь залепила глаза: густая зелёная муть поверх всего.
+	blind_overlay = ColorRect.new()
+	_full_rect(blind_overlay)
+	blind_overlay.color = Color(0.35, 0.75, 0.2, 0.0)
+	blind_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(blind_overlay)
+
 
 func _build_menu() -> void:
 	menu = Control.new()
@@ -133,6 +142,7 @@ func _build_menu() -> void:
 		["survivor", "ГРАЖДАНСКИЙ", "хоррор · без оружия", "Найди безопасную комнату в номерах и дождись полиции."],
 		["cannibal", "КИБЕР-ПСИХ", "реверсивный хоррор", "Перебей всех гражданских, пока не приехала полиция."],
 		["killer", "НАЁМНИК", "рейд · стелс", "Отряд из двоих: заложи бомбу в «Облаках» и уйди через лобби. Психи — лишь помеха."],
+		["ghoul", "КИБЕР-ГУЛЬ", "рост · трапеза", "Жри выживших [F]: с каждым телом ты сильнее. Четыре трапезы — и ты КИБЕР-ВАМПИР."],
 	]
 	for c in cards:
 		var b := _card_button(row, c[1], c[2], c[3], WolfCfg.FACTION_COLOR[c[0]])
@@ -190,6 +200,11 @@ func open_charselect(faction: String) -> void:
 	var chars: Array = WolfCfg.CHARACTERS[faction]
 	for i in chars.size():
 		var c: Dictionary = chars[i]
+		# КИБЕР-ВАМПИР доступен только после первой мутации.
+		if c.get("vampire", false) and not vampire_unlocked:
+			var lock := _card_button(_cs_box, "??? ЗАКРЫТО", "мутация", "Сожри четыре тела за гуля — и высшая форма откроется навсегда.", Color(0.35, 0.4, 0.45))
+			lock.disabled = true
+			continue
 		var b := _card_button(_cs_box, c["name"], c["tag"], c["desc"], WolfCfg.FACTION_COLOR[faction])
 		b.pressed.connect(_on_character.bind(faction, i))
 
@@ -413,6 +428,12 @@ func flash_damage() -> void:
 
 
 ## Короткая вспышка хит-маркера вокруг прицела (урон нанесён).
+## Экран заливает слизью, пока действует ослепление.
+func set_blind(on: bool) -> void:
+	var tw := create_tween()
+	tw.tween_property(blind_overlay, "color:a", 0.88 if on else 0.0, 0.18 if on else 0.6)
+
+
 func show_hitmark() -> void:
 	hitmark.modulate.a = 1.0
 	var tween := create_tween()

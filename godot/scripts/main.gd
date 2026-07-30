@@ -20,6 +20,8 @@ const CHAR_SCENE_PATHS := {
 	"killer_a": "res://scenes/chars/merc.tscn",
 	"killer_b": "res://scenes/chars/merc_b.tscn",
 	"police_a": "res://scenes/chars/police.tscn",
+	"ghoul_a": "res://scenes/chars/ghoul.tscn",
+	"ghoul_b": "res://scenes/chars/vampire.tscn",
 }
 var _char_scenes := {}
 
@@ -74,9 +76,12 @@ var _bait_beacon: MeshInstance3D = null
 var ripper_points: Array = []
 var _surgery := {}                 # {station, t, phase} пока идёт вживление
 # Возня с гражданскими: подъём из агонии / допрос (держать E).
-var _act_kind := ""                # "revive" | "interrogate"
+var _act_kind := ""                # "revive" | "interrogate" | "civimplant"
 var _act_target: WolfChar = null
 var _act_t := 0.0
+var _implant_pick := "bomb"        # что вживляем раненому (клавиши 1/2/3)
+var _vampire_pick := false         # игрок выбрал сразу вампира (разблокировано)
+const UNLOCK_PATH := "user://wolf_unlocks.cfg"
 
 var elevator: WolfElevator = null
 var _captured := false
@@ -93,6 +98,7 @@ var _test_t := 0.0
 var _test_staged := false
 var _test_shot_taken := false
 var _test_hints_before := 0
+var _psycho_probe: WolfChar = null
 var _test_yaw_before := 0.0
 
 const RESULT_COPY := {
@@ -100,6 +106,7 @@ const RESULT_COPY := {
 	"police": ["Башня зачищена", "Отряд добил последнего психа. Выжившие спасены.", "survivor"],
 	"psychos_dead": ["Психи уничтожены", "Наёмники зачистили башню — гражданские спасены.", "killer"],
 	"merc_done": ["Контракт закрыт", "Бомба заложена, наёмники растворились до сирен.", "killer"],
+	"ghoul_win": ["Башня обглодана", "Живых больше нет. Стая сыта.", "ghoul"],
 }
 
 
@@ -119,6 +126,8 @@ func _ready() -> void:
 	ui.character_picked.connect(_on_character_picked)
 	ui.weapon_picked.connect(func(f: String, ci: int, wi: int, lo: Dictionary) -> void: _start_match(f, ci, wi, lo))
 	ui.restart_pressed.connect(_back_to_menu)
+
+	ui.vampire_unlocked = _vampire_is_unlocked()
 
 	_test_mode = OS.get_environment("WOLF_TEST")
 	_test_shot = OS.get_environment("WOLF_SHOT")
@@ -158,6 +167,8 @@ func _apply_graphics(high: bool) -> void:
 
 
 func _on_character_picked(faction: String, char_index: int) -> void:
+	# Третий архетип гуля — сразу высшая форма (открывается мутацией).
+	_vampire_pick = faction == "ghoul" and bool(WolfCfg.CHARACTERS[faction][char_index].get("vampire", false))
 	if faction == "survivor":
 		_start_match(faction, char_index, -1)  # civilians are unarmed
 	else:
@@ -301,6 +312,16 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 		if not is_human and _caller == null:
 			_caller = cv  # этот бот пойдёт звонить в полицию
 
+	# Кибер-гули: четвёртая сторона. Жрут выживших и растут.
+	var ghoul_spawns := _spawn_positions("Cannibal")
+	for i in WolfCfg.GHOUL_COUNT:
+		var is_human := faction == "ghoul" and i == 0
+		var v: int = 1 if (is_human and _vampire_pick) else 0
+		var g := _spawn_char("ghoul", ghoul_spawns[(i + 2) % ghoul_spawns.size()] + Vector3(0, 0, 3.0), is_human, false, v)
+		g.can_execute = true
+		if is_human and _vampire_pick:
+			_become_vampire_stats(g)
+
 	var psycho_spawns := _spawn_positions("Cannibal")
 	for i in 4:
 		var is_human := faction == "cannibal" and i == 0
@@ -327,6 +348,8 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 			m.set_accent(WolfCfg.CHARACTERS["killer"][i % 2]["accent"])
 
 	player.apply_archetype(WolfCfg.CHARACTERS[faction][arche_index])
+	if faction == "ghoul" and _vampire_pick:
+		_become_vampire_stats(player)
 	if weapon_index >= 0:
 		player.set_weapon(WolfCfg.WEAPONS[faction][weapon_index])
 	_setup_player_camera()
@@ -504,6 +527,19 @@ func _weapon_model(wid: String) -> Node3D:
 			_vm_box(w, Vector3(0.145, 0, -0.56), Vector3(0.015, 0.11, 0.11), dark)  # ударная кромка
 			_vm_box(w, Vector3(-0.10, 0.045, -0.55), Vector3(0.07, 0.012, 0.06), blood_m)  # засохшее
 			_vm_glow(w, Vector3(0, 0.052, -0.56), Vector3(0.20, 0.006, 0.02), Color(1.0, 0.55, 0.1))
+		"talons", "fangs":
+			# Кисти самого гуля: длинные когти, у вампира — хромированные.
+			var bone := _vm_mat(Color(0.72, 0.74, 0.66), 0.55, 0.42)
+			if player.is_vampire:
+				bone = _vm_mat(Color(0.86, 0.88, 0.92), 0.95, 0.18)
+			for s2: float in [-1.0, 1.0]:
+				for k in 3:
+					_vm_box(w, Vector3(0.13 * s2 + (k - 1) * 0.035 * s2, -0.01 - k * 0.005, -0.26),
+							Vector3(0.012, 0.03, 0.34 + k * 0.03), bone, Vector3(-6, (4.0 - k * 4.0) * s2, 0))
+				_vm_box(w, Vector3(0.13 * s2, -0.02, -0.04), Vector3(0.075, 0.05, 0.11),
+						_vm_mat(Color(0.42, 0.46, 0.36), 0.1, 0.85))
+			if wid == "fangs":
+				_vm_glow(w, Vector3(0, -0.06, -0.2), Vector3(0.16, 0.006, 0.2), Color(0.55, 1.0, 0.15))
 		"claws":
 			for k in 3:
 				_vm_box(w, Vector3(-0.05 + 0.05 * k, 0, -0.26), Vector3(0.011, 0.026, 0.48),
@@ -595,6 +631,13 @@ func _vm_arms(parent: Node3D, wid: String) -> void:
 	if player.faction == "cannibal":
 		skin = _vm_mat(Color(0.66, 0.60, 0.55), 0.0, 0.8)          # бледная кожа
 		sleeve = _vm_mat(Color(0.30, 0.32, 0.36), 0.85, 0.4)       # хром импланта
+	elif player.faction == "ghoul":
+		if player.is_vampire:
+			skin = _vm_mat(Color(0.72, 0.68, 0.74), 0.15, 0.5)     # мертвенно-серый
+			sleeve = _vm_mat(Color(0.18, 0.05, 0.09), 0.5, 0.4)    # запёкшаяся кровь
+		else:
+			skin = _vm_mat(Color(0.55, 0.62, 0.44), 0.0, 0.85)     # гнилая зелень
+			sleeve = _vm_mat(Color(0.24, 0.22, 0.18), 0.1, 0.9)    # тряпьё
 	# Разжижитель: кожа рук лоснится маслянисто-янтарным.
 	if player.has_implant("dermal"):
 		skin = _vm_mat(Color(0.74, 0.55, 0.34), 0.35, 0.28)
@@ -642,14 +685,15 @@ func _check_win() -> void:
 	if mode != "playing":
 		return
 	if _alive("survivor") == 0:
-		_end_game("civs_dead")
+		_end_game("ghoul_win" if player.faction == "ghoul" else "civs_dead")
 		return
 	# Контракт наёмника — только бомба и отход; психи — просто помеха.
 	if player.faction == "killer":
 		if bomb_planted and _in_zone(player.global_position, evac_pos, evac_half) and not player.is_dead:
 			_end_game("merc_done")
 		return
-	if _alive("cannibal") == 0:
+	# Гражданские в безопасности, только когда вычищены ОБЕ твари.
+	if _alive("cannibal") == 0 and _alive("ghoul") == 0:
 		_end_game("psychos_dead")
 
 
@@ -764,6 +808,14 @@ func _update_player_input(delta: float) -> void:
 		player_cam.position.y = _eye_y
 		return
 
+	# Выбор начинки для раненых: 1 — заряд, 2 — био-слизь, 3 — размягчитель.
+	if p.faction in ["killer", "cannibal", "ghoul"]:
+		for pair: Array in [[KEY_1, "bomb"], [KEY_2, "slime"], [KEY_3, "softener"]]:
+			if _key_pressed_once(pair[0] as Key):
+				_implant_pick = pair[1] as String
+				_loot_msg = "Загружено: %s" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"]
+				_loot_msg_t = 3.0
+
 	if p.faction == "survivor" and _key_pressed_once(KEY_F):
 		p.flashlight_on = not p.flashlight_on
 		if flashlight != null:
@@ -838,11 +890,11 @@ func _try_dash(e: WolfChar, dir2: Vector2) -> void:
 func _hostile(a: WolfChar, b: WolfChar) -> bool:
 	if a.faction == b.faction:
 		return false
-	# Штурмовые отряды дерутся только с психами; граждан и наёмников не трогают.
+	# Штурмовые отряды дерутся с психами и гулями; граждан и наёмников не трогают.
 	if a.faction == "police":
-		return b.faction == "cannibal"
+		return b.faction in ["cannibal", "ghoul"]
 	if b.faction == "police":
-		return a.faction == "cannibal"
+		return a.faction in ["cannibal", "ghoul"]
 	return true
 
 
@@ -975,6 +1027,8 @@ func _deliver_strike(e: WolfChar, dmg_mul: float, charged: bool) -> void:
 	if _fatigued(e):
 		dmg *= WolfCfg.LOW_STAMINA_DMG_MUL
 	_damage(target, dmg, e)
+	if e.is_vampire and not target.is_dead:
+		e.hp = minf(e.max_hp, e.hp + dmg * WolfCfg.VAMPIRE_LIFESTEAL)  # пьёт кровь
 
 
 func _try_hit_door(e: WolfChar) -> void:
@@ -1362,7 +1416,7 @@ func _nearest_living(faction: String, from_pos: Vector3) -> Array:
 
 func _nearest_threat(from_pos: Vector3) -> Array:
 	return _nearest(func(e: WolfChar) -> bool:
-		return (e.faction == "cannibal" or e.faction == "killer") and not e.is_dead, from_pos)
+		return e.faction in ["cannibal", "killer", "ghoul"] and not e.is_dead, from_pos)
 
 
 # ---------------------------------------------------------------------------
@@ -1548,6 +1602,8 @@ func _update_bot(e: WolfChar, delta: float) -> void:
 			_bot_merc(e, delta)
 		"police":
 			_bot_police(e, delta)
+		"ghoul":
+			_bot_ghoul(e, delta)
 	_bot_open_or_break_door(e)
 
 
@@ -1769,6 +1825,10 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.gunshot_t = maxf(0.0, e.gunshot_t - delta)
 	e.dermal_cd = maxf(0.0, e.dermal_cd - delta)
 	e.glued_t = maxf(0.0, e.glued_t - delta)
+	if e.blind_t > 0.0:
+		e.blind_t = maxf(0.0, e.blind_t - delta)
+		if e.blind_t <= 0.0 and e.is_player:
+			ui.set_blind(false)
 	if e.is_blocking or e.bot_block_t > 0.0:
 		e.block_age += delta
 	else:
@@ -1785,6 +1845,11 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 
 	if e.being_executed:
 		e.move_input = Vector2.ZERO
+		return
+
+	# Гуль ест — стоит на месте, пока не насытится (боты через _bot_ghoul).
+	if e.is_player and e.faction == "ghoul" and _tick_feeding(e, delta):
+		e.move_and_slide()
 		return
 
 	# Влип в расплавленную кожу: ни шагу, ни удара, пока не отлепишься.
@@ -1893,10 +1958,14 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.global_position.z = clampf(e.global_position.z, -WolfCfg.BOUND_Z, WolfCfg.BOUND_Z)
 
 	if e.wants_execute and not stunned and e.can_execute:
-		var victim := _find_execute_target(e)
-		if victim != null:
-			_perform_execute(e, victim)
-			e.cd_attack = cfg["attack_cd"]
+		# Гуль сперва проверяет, нет ли под ногами падали: [F] — трапеза.
+		if e.faction == "ghoul" and _feed_target(e) != null:
+			_start_feeding(e)
+		else:
+			var victim := _find_execute_target(e)
+			if victim != null:
+				_perform_execute(e, victim)
+				e.cd_attack = cfg["attack_cd"]
 	e.wants_execute = false
 
 	if e.wants_throw and e.cd_throw <= 0.0 and e.faction == "killer" and e.knives > 0:
@@ -1952,8 +2021,8 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 			var corpse := _nearest_dead_survivor(e)
 			if corpse != null:
 				_make_bait(corpse)
-		if _key_pressed_once(KEY_G) and bait != null and is_instance_valid(bait) and not bait.is_dead:
-			_detonate_bait(e)
+		if _key_pressed_once(KEY_G):
+			_activate_devices(e)
 
 	# Взрывчатка: найти (подбор E), донести до грав-лифта, заложить (держать E).
 	if e.faction == "killer" and not bomb_planted:
@@ -1977,6 +2046,215 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 						bomb_pickup.visible = true
 			else:
 				bomb_progress = maxf(0.0, bomb_progress - delta * 2.0)
+
+
+# ---------------------------------------------------------------------------
+# кибер-гули: трапеза, рост и мутация в вампира
+# ---------------------------------------------------------------------------
+
+## Тело, над которым можно устроить трапезу: труп или лежачий в агонии.
+func _feed_target(e: WolfChar) -> WolfChar:
+	var best: WolfChar = null
+	var best_d := WolfCfg.FEED_RANGE
+	for t: WolfChar in entities:
+		if t == e or t.faction != "survivor" or t.being_executed:
+			continue
+		if not (t.is_dead or t.downed):
+			continue
+		if t.get_meta("eaten", false):
+			continue
+		var dp := t.global_position - e.global_position
+		if absf(dp.y) > 2.2:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
+## Трапеза идёт FEED_TIME секунд; на выходе гуль крепчает, а тело — обглодано.
+func _tick_feeding(e: WolfChar, delta: float) -> bool:
+	if e.feed_t <= 0.0:
+		return false
+	var prey := _feed_target(e)
+	if prey == null:
+		e.feed_t = 0.0
+		return false
+	e.move_input = Vector2.ZERO
+	e.crouching = true
+	e.feed_t -= delta
+	e.desired_yaw = _yaw_toward(prey.global_position.x - e.global_position.x,
+			prey.global_position.z - e.global_position.z)
+	if fmod(e.feed_t, 0.5) < delta:
+		_blood_burst(prey.global_position + Vector3(0, 0.5, 0), 8, 1.6)
+		e.play_oneshot("Kneel")
+	if e.feed_t <= 0.0:
+		_devour(e, prey)
+	return true
+
+
+func _start_feeding(e: WolfChar) -> void:
+	if e.feed_t > 0.0 or _feed_target(e) == null:
+		return
+	e.feed_t = WolfCfg.FEED_TIME
+	e.play_oneshot("Kneel")
+
+
+## Съел тело: +HP, +урон, +скорость. На пороге — мутация в вампира.
+func _devour(e: WolfChar, prey: WolfChar) -> void:
+	prey.set_meta("eaten", true)
+	if prey.downed or not prey.is_dead:
+		_kill(prey)
+	_blood_burst(prey.global_position + Vector3(0, 0.6, 0), 26, 3.2)
+	_blood_pool(prey.global_position)
+	e.feeds += 1
+	e.max_hp += WolfCfg.FEED_HP
+	e.hp = e.max_hp
+	e.dmg_mul += WolfCfg.FEED_DMG
+	e.speed_mul += WolfCfg.FEED_SPEED
+	if e.is_player:
+		_loot_msg = "СЪЕДЕН (%d/%d) — сила растёт" % [e.feeds, WolfCfg.FEEDS_TO_MUTATE]
+		_loot_msg_t = 4.0
+	if e.feeds >= WolfCfg.FEEDS_TO_MUTATE and not e.is_vampire:
+		_mutate(e)
+
+
+## Статы высшей формы (используется и при мутации, и при прямом выборе).
+func _become_vampire_stats(v: WolfChar) -> void:
+	v.is_vampire = true
+	v.max_hp = WolfCfg.VAMPIRE_HP
+	v.hp = WolfCfg.VAMPIRE_HP
+	v.dmg_mul = WolfCfg.VAMPIRE_DMG_MUL
+	v.speed_mul = WolfCfg.VAMPIRE_SPEED_MUL
+	v.can_execute = true
+	v.char_name = "КИБЕР-ВАМПИР"
+
+
+## МУТАЦИЯ: гуль лопается и на его месте встаёт вампир (другая модель).
+## Игрок продолжает играть — уже в высшей форме.
+func _mutate(e: WolfChar) -> void:
+	var was_player := e.is_player
+	var pos := e.global_position
+	var yaw := e.rotation.y
+	var feeds := e.feeds
+	_blood_burst(pos + Vector3(0, 1.2, 0), 60, 6.0)
+	_blood_burst(pos + Vector3(0, 0.6, 0), 30, 3.0)
+	_spark_burst(pos + Vector3(0, 1.0, 0))
+	var l := OmniLight3D.new()
+	l.light_color = Color(0.6, 1.0, 0.2)
+	l.light_energy = 5.0
+	l.omni_range = 12.0
+	l.position = pos + Vector3(0, 1.2, 0)
+	add_child(l)
+	get_tree().create_timer(0.5).timeout.connect(func() -> void:
+		if is_instance_valid(l):
+			l.queue_free())
+
+	entities.erase(e)
+	if was_player and player_cam != null:
+		player_cam.queue_free()
+		player_cam = null
+	e.queue_free()
+
+	var v := _spawn_char("ghoul", pos, was_player, false, 1)
+	v.rotation.y = yaw
+	v.desired_yaw = yaw
+	v.feeds = feeds
+	_become_vampire_stats(v)
+	if was_player:
+		_setup_player_camera()
+		_unlock_vampire()
+		_loot_msg = "МУТАЦИЯ ЗАВЕРШЕНА — ТЫ КИБЕР-ВАМПИР"
+		_loot_msg_t = 7.0
+		ui.flash_damage()
+
+
+## Вампир открыт в меню навсегда (файл в user://).
+func _unlock_vampire() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(UNLOCK_PATH)
+	cfg.set_value("unlocks", "vampire", true)
+	cfg.save(UNLOCK_PATH)
+	ui.vampire_unlocked = true
+
+
+func _vampire_is_unlocked() -> bool:
+	var cfg := ConfigFile.new()
+	if cfg.load(UNLOCK_PATH) != OK:
+		return false
+	return bool(cfg.get_value("unlocks", "vampire", false))
+
+
+## Гуль-бот: идёт к ближайшему телу и жрёт, а живых валит по пути.
+func _bot_ghoul(e: WolfChar, delta: float) -> void:
+	e.wants_execute = false
+	if _tick_feeding(e, delta):
+		return
+	e.crouching = false
+	# Тело поблизости — бросай всё и ешь.
+	var carrion := _nearest_carrion(e)
+	if carrion != null:
+		var dc := carrion.global_position.distance_to(e.global_position)
+		if dc <= WolfCfg.FEED_RANGE:
+			_start_feeding(e)
+			return
+		if dc < 26.0:
+			e.sprinting = dc > 7.0
+			_bot_goto(e, carrion.global_position, delta)
+			return
+	# Живая добыча: гуль охотится как псих, но цель — только гражданские.
+	var prey: WolfChar = null
+	var best := WolfCfg.CONFIG["ghoul"]["sense_radius"] * (1.4 if e.is_vampire else 1.0)
+	for t: WolfChar in entities:
+		if t.faction != "survivor" or t.is_dead or t.being_executed:
+			continue
+		var d := t.global_position.distance_to(e.global_position)
+		if d < best:
+			best = d
+			prey = t
+	if prey == null:
+		# Никого не чует — бродит по башне вслед за патрульными точками.
+		if not patrol_points.is_empty():
+			e.wander_timer -= delta
+			var reached := e.patrol_idx >= 0 and e.global_position.distance_to(patrol_points[e.patrol_idx]) < 2.5
+			if e.patrol_idx < 0 or e.wander_timer <= 0.0 or reached:
+				e.patrol_idx = randi() % patrol_points.size()
+				e.wander_timer = 35.0
+			_bot_goto(e, patrol_points[e.patrol_idx], delta)
+			e.sprinting = false
+		return
+	var dp := prey.global_position - e.global_position
+	e.sprinting = best > 6.0
+	_bot_goto(e, prey.global_position, delta)
+	if absf(dp.y) > WolfCfg.SAME_FLOOR_DY:
+		return
+	var flat := Vector2(dp.x, dp.z).length()
+	if flat <= _melee_range(e) and e.cd_attack <= 0.0 and not e.winding:
+		e.desired_yaw = _yaw_toward(dp.x, dp.z)
+		_bot_begin_windup(e, false)
+	elif flat >= WolfCfg.LUNGE_MIN and flat <= WolfCfg.LUNGE_MAX * (WolfCfg.VAMPIRE_LUNGE_MUL if e.is_vampire else 1.0) \
+			and e.lunge_cd <= 0.0:
+		e.lunge_cd = WolfCfg.LUNGE_CD / (WolfCfg.VAMPIRE_LUNGE_MUL if e.is_vampire else 1.0)
+		e.desired_yaw = _yaw_toward(dp.x, dp.z)
+		e.dash_dir = Vector3(dp.x, 0, dp.z).normalized()
+		e.dash_t = 0.35
+		e.play_oneshot("Roll")
+
+
+func _nearest_carrion(e: WolfChar) -> WolfChar:
+	var best: WolfChar = null
+	var best_d := 30.0
+	for t: WolfChar in entities:
+		if t.faction != "survivor" or t.get_meta("eaten", false) or t.being_executed:
+			continue
+		if not (t.is_dead or t.downed):
+			continue
+		var d := t.global_position.distance_to(e.global_position)
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
 
 
 # ---------------------------------------------------------------------------
@@ -2030,10 +2308,16 @@ func _civ_actions(p: WolfChar, delta: float) -> bool:
 			return false
 		_act_t += delta
 		p.move_input = Vector2.ZERO
-		var need: float = WolfCfg.REVIVE_TIME if _act_kind == "revive" else WolfCfg.INTERROGATE_TIME
+		var need := WolfCfg.INTERROGATE_TIME
+		if _act_kind == "revive":
+			need = WolfCfg.REVIVE_TIME
+		elif _act_kind == "civimplant":
+			need = WolfCfg.CIV_IMPLANT_TIME
 		if _act_t >= need:
 			if _act_kind == "revive":
 				_do_revive(p, t)
+			elif _act_kind == "civimplant":
+				_do_civ_implant(p, t)
 			else:
 				_do_interrogate(p, t)
 			_act_kind = ""
@@ -2044,6 +2328,14 @@ func _civ_actions(p: WolfChar, delta: float) -> bool:
 	var civ := _civ_target(p)
 	if civ == null:
 		return false
+	# Раненого можно НАЧИНИТЬ: тело становится инструментом (1/2/3 — выбор).
+	if civ.downed and civ.civ_implant == "" and p.faction in ["killer", "cannibal", "ghoul"] \
+			and p.interact_held:
+		_act_kind = "civimplant"
+		_act_target = civ
+		_act_t = 0.0
+		p.play_oneshot("Kneel")
+		return true
 	match p.faction:
 		"survivor":
 			if civ.downed:
@@ -2141,6 +2433,169 @@ func _do_interrogate(merc: WolfChar, t: WolfChar) -> void:
 		else:
 			_loot_msg = "Вычеркнул: «%s». Осталось: %s" % [drop, " · ".join(bomb_hints)]
 	_loot_msg_t = 6.0
+
+
+## Начинить раненого: тело перестаёт быть телом и становится устройством.
+func _do_civ_implant(surgeon: WolfChar, t: WolfChar) -> void:
+	t.civ_implant = _implant_pick
+	t.slime_cd = 0.0
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS[_implant_pick]
+	_blood_burst(t.global_position + Vector3(0, 0.5, 0), 12, 2.0)
+	_spark_burst(t.global_position + Vector3(0, 0.4, 0))
+	# Маячок на теле: видно, что оно начинено (цвет по типу).
+	var mi := MeshInstance3D.new()
+	mi.name = "CivImplantMark"
+	var sph := SphereMesh.new()
+	sph.radius = 0.07
+	sph.height = 0.14
+	mi.mesh = sph
+	var m := StandardMaterial3D.new()
+	var col := Color(1.0, 0.1, 0.1)
+	if _implant_pick == "slime":
+		col = Color(0.5, 1.0, 0.15)
+	elif _implant_pick == "softener":
+		col = Color(0.3, 0.7, 1.0)
+	m.albedo_color = col
+	m.emission_enabled = true
+	m.emission = col
+	m.emission_energy_multiplier = 3.0
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mi.material_override = m
+	mi.position = Vector3(0, 0.45, 0)
+	t.add_child(mi)
+	if surgeon.is_player:
+		_loot_msg = "ВЖИВЛЕНО В РАНЕНОГО: %s" % imp["name"]
+		_loot_msg_t = 5.0
+	surgeon.play_oneshot("Kneel")
+
+
+## Пассивная био-слизь: враг подошёл к начинённому телу — пузыри лопаются
+## ему в глаза. Ослеплённый бот теряет цель, игроку заливает экран.
+func _tick_civ_implants(delta: float) -> void:
+	for t: WolfChar in entities:
+		if t.civ_implant == "":
+			continue
+		t.slime_cd = maxf(0.0, t.slime_cd - delta)
+		if t.civ_implant != "slime" or t.slime_cd > 0.0:
+			continue
+		var imp: Dictionary = WolfCfg.CIV_IMPLANTS["slime"]
+		for e: WolfChar in entities:
+			if e.faction not in ["cannibal", "ghoul"] or e.is_dead or e.blind_t > 0.0:
+				continue
+			if e.global_position.distance_to(t.global_position) > float(imp["radius"]):
+				continue
+			_blind(e, float(imp["blind"]))
+			t.slime_cd = WolfCfg.SLIME_CD
+			# Зелёный выброс пузырей.
+			var p := CPUParticles3D.new()
+			p.one_shot = true
+			p.explosiveness = 1.0
+			p.amount = 30
+			p.lifetime = 0.8
+			p.direction = Vector3(0, 1, 0)
+			p.spread = 80.0
+			p.initial_velocity_min = 1.5
+			p.initial_velocity_max = 4.0
+			p.gravity = Vector3(0, -5, 0)
+			p.scale_amount_min = 0.06
+			p.scale_amount_max = 0.18
+			var mesh := SphereMesh.new()
+			mesh.radius = 0.06
+			mesh.height = 0.12
+			p.mesh = mesh
+			var mat := StandardMaterial3D.new()
+			mat.albedo_color = Color(0.45, 1.0, 0.2, 0.8)
+			mat.emission_enabled = true
+			mat.emission = Color(0.4, 1.0, 0.15)
+			mat.emission_energy_multiplier = 2.0
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			p.mesh.surface_set_material(0, mat)
+			p.position = t.global_position + Vector3(0, 0.5, 0)
+			add_child(p)
+			p.emitting = true
+			get_tree().create_timer(2.0).timeout.connect(p.queue_free)
+			break
+
+
+func _blind(e: WolfChar, secs: float) -> void:
+	e.blind_t = secs
+	e.investigate_t = 0.0
+	e.hit_flash = 0.3
+	if e.winding:
+		_cancel_windup(e)
+	if e.is_player:
+		ui.set_blind(true)
+
+
+## [G]: подрывает заряды (в приманке и в телах) и бьёт шоком по размягчённым.
+func _activate_devices(actor: WolfChar) -> void:
+	var did := false
+	if bait != null and is_instance_valid(bait) and not bait.is_dead:
+		_detonate_bait(actor)
+		did = true
+	for t: WolfChar in entities.duplicate():
+		if t.civ_implant == "bomb":
+			_detonate_body(t, actor)
+			did = true
+		elif t.civ_implant == "softener":
+			_shock_body(t, actor)
+			did = true
+	if not did and actor.is_player:
+		_loot_msg = "Нечего активировать — сначала начини тело [держать E]"
+		_loot_msg_t = 3.0
+
+
+## Заряд в грудине: тело рвёт, всех вокруг — тоже.
+func _detonate_body(t: WolfChar, source: WolfChar) -> void:
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["bomb"]
+	var pos := t.global_position + Vector3(0, 0.8, 0)
+	t.civ_implant = ""
+	var mark := t.get_node_or_null("CivImplantMark")
+	if mark != null:
+		mark.queue_free()
+	var l := OmniLight3D.new()
+	l.light_color = Color(1.0, 0.6, 0.25)
+	l.light_energy = 6.0
+	l.omni_range = 14.0
+	l.position = pos
+	add_child(l)
+	get_tree().create_timer(0.12).timeout.connect(func() -> void:
+		if is_instance_valid(l):
+			l.queue_free())
+	_blood_burst(pos, 55, 6.5)
+	_spark_burst(pos)
+	_blood_pool(t.global_position)
+	var radius: float = imp["radius"]
+	for e: WolfChar in entities.duplicate():
+		if e == t or e.is_dead:
+			continue
+		var dp := e.global_position - t.global_position
+		var flat := Vector2(dp.x, dp.z).length()
+		if absf(dp.y) > 3.2 or flat > radius:
+			continue
+		_damage(e, float(imp["dmg"]) * (1.0 - clampf(flat / (radius + 1.5), 0.0, 0.6)), source)
+	if not t.is_dead:
+		_damage(t, 99999.0, source)
+
+
+## Шоковая терапия: размягчённое тело бьётся и вопит — убийцы идут на звук.
+func _shock_body(t: WolfChar, actor: WolfChar) -> void:
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["softener"]
+	t.play_oneshot("Hit")
+	t.hit_flash = 0.5
+	_blood_burst(t.global_position + Vector3(0, 0.5, 0), 8, 1.4)
+	_spark_burst(t.global_position + Vector3(0, 0.4, 0))
+	var radius: float = imp["lure"]
+	for e: WolfChar in entities:
+		if e.faction not in ["cannibal", "ghoul"] or e.is_dead or e.is_player:
+			continue
+		if e.global_position.distance_to(t.global_position) > radius:
+			continue
+		e.investigate_pos = t.global_position
+		e.investigate_t = float(imp["lure_t"])
+	if actor.is_player:
+		_loot_msg = "ШОКОВАЯ ТЕРАПИЯ — тело вопит, они идут"
+		_loot_msg_t = 4.0
 
 
 ## Схватить жертву: псих тащит её за собой, она не может ни бежать, ни бить.
@@ -2526,13 +2981,25 @@ func _prompt_for(p: WolfChar) -> String:
 		var frac := clampf(float(_surgery["t"]) / float(imp["time"]), 0.0, 1.0)
 		return "ОПЕРАЦИЯ: %s — %d%% (не отпускай E, ты беспомощен)" % [imp["name"], int(frac * 100.0)]
 	# Возня с гражданскими важнее прочих подсказок.
+	if p.feed_t > 0.0:
+		return "ТРАПЕЗА… %d%% — тело уходит в дело" % int((1.0 - p.feed_t / WolfCfg.FEED_TIME) * 100.0)
 	if _act_kind != "":
-		var need: float = WolfCfg.REVIVE_TIME if _act_kind == "revive" else WolfCfg.INTERROGATE_TIME
-		var label := "ПОДНИМАЮ" if _act_kind == "revive" else "ДОПРОС"
+		var need := WolfCfg.INTERROGATE_TIME
+		var label := "ДОПРОС"
+		if _act_kind == "revive":
+			need = WolfCfg.REVIVE_TIME
+			label = "ПОДНИМАЮ"
+		elif _act_kind == "civimplant":
+			need = WolfCfg.CIV_IMPLANT_TIME
+			label = "ВЖИВЛЯЮ: %s" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"]
 		return "%s… %d%% (держи E)" % [label, int(clampf(_act_t / need, 0.0, 1.0) * 100.0)]
 	if p.carrying != null and is_instance_valid(p.carrying):
 		return "ТАЩИШЬ ЖЕРТВУ · [F] добить · [E] бросить"
+	if p.faction == "ghoul" and _feed_target(p) != null:
+		return "[F] ЖРАТЬ (%d/%d до мутации)" % [p.feeds, WolfCfg.FEEDS_TO_MUTATE]
 	var civ := _civ_target(p)
+	if civ != null and civ.downed and civ.civ_implant == "" and p.faction in ["killer", "cannibal", "ghoul"]:
+		return "[держать E] НАЧИНИТЬ РАНЕНОГО: %s  ·  1/2/3 — выбор" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"]
 	if civ != null:
 		match p.faction:
 			"survivor":
@@ -2631,6 +3098,14 @@ func _update_hud() -> void:
 		stance.append("Ножи %d" % p.knives)
 	if blueprints > 0 and p.faction in ["cannibal", "killer"]:
 		stance.append("Чертежи %d/3" % blueprints)
+	if p.faction == "ghoul":
+		stance.append("КИБЕР-ВАМПИР" if p.is_vampire else "Съедено: %d/%d" % [p.feeds, WolfCfg.FEEDS_TO_MUTATE])
+	var armed := 0
+	for e2: WolfChar in entities:
+		if e2.civ_implant != "":
+			armed += 1
+	if armed > 0:
+		stance.append("Начинённых тел: %d [G]" % armed)
 	var followers := _followers(p)
 	if followers > 0:
 		stance.append("Ведомых: %d" % followers)
@@ -2689,6 +3164,7 @@ func _physics_process(delta: float) -> void:
 	_tick_bait(delta)
 	_tick_surgery(delta)
 	_tick_drags(delta)
+	_tick_civ_implants(delta)
 	_loot_msg_t = maxf(0.0, _loot_msg_t - delta)
 	# Conditions like "merc stands in the evac zone" change without anyone
 	# dying, so the win check runs every tick, not only on kill events.
@@ -2784,6 +3260,12 @@ func _run_test(delta: float) -> void:
 			_test_implant(delta)
 		"dermal":
 			_test_dermal(delta)
+		"ghoul":
+			_test_ghoul(delta)
+		"civbomb":
+			_test_civbomb(delta)
+		"slime":
+			_test_slime(delta)
 		"revive":
 			_test_revive(delta)
 		"interrogate":
@@ -2940,6 +3422,115 @@ func _test_lift(_delta: float) -> void:
 		get_tree().quit(0)
 	elif _test_staged and _test_t > 20.0:
 		print("TEST RESULT: lift FAIL y=%.1f in_shaft=%s" % [player.global_position.y, str(_in_shaft(player.global_position))])
+		get_tree().quit(1)
+
+
+## Кибер-гуль: четыре трапезы — мутация в вампира (модель, статы, разблок).
+func _test_ghoul(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("ghoul", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+	elif _test_staged and not _test_shot_taken and mode == "playing":
+		if player.is_vampire:
+			_test_shot_taken = true
+			if _test_shot != "":
+				await _save_shot()
+			var ok := player.max_hp >= WolfCfg.VAMPIRE_HP and player.is_player and _vampire_is_unlocked()
+			print("TEST RESULT: ghoul мутация hp=%.0f вампир=%s разблок=%s %s" % [
+				player.max_hp, str(player.is_vampire), str(_vampire_is_unlocked()), "OK" if ok else "FAIL"])
+			get_tree().quit(0 if ok else 1)
+			return
+		# Подтаскиваем трупы под гуля и жмём F.
+		var prey: WolfChar = null
+		for e: WolfChar in entities:
+			if e.faction == "survivor" and not e.get_meta("eaten", false) and not e.being_executed:
+				prey = e
+				break
+		if prey == null:
+			print("TEST RESULT: ghoul FAIL — нет добычи")
+			get_tree().quit(1)
+			return
+		if not prey.is_dead:
+			_damage(prey, 99999.0, null)
+		prey.global_position = player.global_position + _fwd(player) * 1.2
+		if player.feed_t <= 0.0:
+			var ev := InputEventKey.new()
+			ev.keycode = KEY_F
+			ev.physical_keycode = KEY_F
+			ev.pressed = fmod(_test_t, 0.4) < 0.2
+			Input.parse_input_event(ev)
+	elif _test_t > 45.0:
+		print("TEST RESULT: ghoul FAIL feeds=%d" % player.feeds)
+		get_tree().quit(1)
+
+
+## Заряд в грудине раненого: [G] рвёт всё вокруг тела.
+func _test_civbomb(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_implant_pick = "bomb"
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		_damage(_duel_bot, 999.0, null)      # уронили в агонию
+	elif _test_staged and _duel_bot.civ_implant == "" and _test_t < 9.0:
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = true
+		Input.parse_input_event(ev)
+	elif _duel_bot.civ_implant == "bomb" and not _test_shot_taken:
+		_test_shot_taken = true
+		_psycho_probe = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_leader)[0]
+		_psycho_probe.global_position = _duel_bot.global_position + Vector3(1.2, 0, 0)
+		player.global_position = _duel_bot.global_position + Vector3(-9.0, 0.2, 0)
+		var gev := InputEventKey.new()
+		gev.keycode = KEY_G
+		gev.physical_keycode = KEY_G
+		gev.pressed = true
+		Input.parse_input_event(gev)
+	elif _test_shot_taken and _test_t > 12.0:
+		var ok := _psycho_probe.is_dead and _duel_bot.is_dead
+		print("TEST RESULT: civbomb псих=%s тело=%s %s" % [str(_psycho_probe.is_dead), str(_duel_bot.is_dead), "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+	elif _test_t > 20.0:
+		print("TEST RESULT: civbomb FAIL implant=%s" % _duel_bot.civ_implant)
+		get_tree().quit(1)
+
+
+## Био-слизь: псих подходит к начинённому телу и слепнет.
+func _test_slime(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_implant_pick = "slime"
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		_damage(_duel_bot, 999.0, null)
+	elif _test_staged and _duel_bot.civ_implant == "" and _test_t < 9.0:
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = true
+		Input.parse_input_event(ev)
+	elif _duel_bot.civ_implant == "slime" and not _test_shot_taken:
+		_test_shot_taken = true
+		_psycho_probe = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_leader)[0]
+		_psycho_probe.global_position = _duel_bot.global_position + Vector3(1.0, 0, 0)
+	elif _test_shot_taken and _test_t > 6.0:
+		var ok := _psycho_probe.blind_t > 0.0
+		print("TEST RESULT: slime ослеплён=%s (%.1f сек) %s" % [str(ok), _psycho_probe.blind_t, "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+	elif _test_t > 20.0:
+		print("TEST RESULT: slime FAIL implant=%s" % _duel_bot.civ_implant)
 		get_tree().quit(1)
 
 
@@ -3244,8 +3835,8 @@ func _test_civwin(_delta: float) -> void:
 	elif _test_staged and call_state >= 2 and _alive("police") > 0 and not _test_shot_taken:
 		_test_shot_taken = true
 		for e: WolfChar in entities.duplicate():
-			if e.faction == "cannibal" and not e.is_dead:
-				_damage(e, 99999.0, null)
+			if e.faction in ["cannibal", "ghoul"] and not e.is_dead:
+				_damage(e, 99999.0, null)   # зачищены обе твари
 		await get_tree().create_timer(0.4).timeout
 		print("TEST RESULT: civwin ok cops=%d mode=%s" % [_alive("police"), mode])
 		get_tree().quit(0 if mode == "ended" else 1)
@@ -3371,7 +3962,7 @@ func _test_cast(_delta: float) -> void:
 		# сценой) — сверка с референсами владельца.
 		var picks: Array = []
 		var seen := {}
-		for grp: Array in [["survivor", false], ["cannibal", false], ["cannibal", true], ["killer", false]]:
+		for grp: Array in [["survivor", false], ["cannibal", false], ["cannibal", true], ["killer", false], ["ghoul", false]]:
 			for e: WolfChar in entities:
 				if e.is_player or e.faction != grp[0] or e.is_leader != grp[1]:
 					continue

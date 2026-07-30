@@ -83,6 +83,14 @@ var floating := false   # парит в грав-шахте (анимация Fl
 var follow_target: WolfChar = null  # ведомый: идёт за тем, кто его позвал
 var interrogated := false           # уже раскололся наёмнику
 var revive_t := 0.0                 # бот-медтех поднимает лежачего
+var civ_implant := ""               # начинка тела: "bomb" | "slime" | "softener"
+var slime_cd := 0.0                 # откат био-слизи
+var blind_t := 0.0                  # ослеплён пузырями — ничего не видит
+
+# --- Кибер-гуль -----------------------------------------------------------
+var feeds := 0                      # сколько тел сожрал
+var feed_t := 0.0                   # идёт трапеза
+var is_vampire := false
 
 # --- Боевые импланты ------------------------------------------------------
 var implants := {}      # id -> true (см. WolfCfg.IMPLANTS)
@@ -451,6 +459,8 @@ const BODY_FILES := {
 	"killer_a": "erika.fbx",          # Клинок — Erika
 	"killer_b": "heraklios.fbx",      # Броня — Heraklios
 	"leader": "pumpkinhulk.fbx",      # Альфа — Pumpkinhulk
+	"ghoul_a": "ghoul.fbx",           # Кибер-гуль — Zombiegirl
+	"ghoul_b": "vampire.fbx",         # Кибер-вампир (мутация) — Nightshade
 }
 
 
@@ -506,7 +516,9 @@ static func build_scene_tree(p_faction: String, p_is_leader: bool, p_variant := 
 			var merged: AABB = boxes[0]
 			for b: AABB in boxes:
 				merged = merged.merge(b)
-			var target_h: float = 2.2 if p_is_leader else {"survivor": 1.68, "cannibal": 1.8, "killer": 1.85}[p_faction]
+			var heights := {"survivor": 1.68, "cannibal": 1.8, "killer": 1.85, "police": 1.85,
+				"ghoul": 1.74 if p_variant == 0 else 1.92}  # вампир выше гуля
+			var target_h: float = 2.2 if p_is_leader else float(heights.get(p_faction, 1.8))
 			if merged.size.y > 0.01:
 				av.scale = Vector3.ONE * (target_h / merged.size.y)
 		if p_is_leader:

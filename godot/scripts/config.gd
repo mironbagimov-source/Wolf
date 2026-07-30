@@ -24,8 +24,10 @@ const FACTION_COLOR := {
 	"leader": Color(0.75, 0.30, 1.0),
 	"killer": Color(0.50, 0.88, 0.51),
 	"police": Color(0.35, 0.6, 1.0),
+	"ghoul": Color(0.62, 0.85, 0.16),
 }
-const FACTION_NAME := {"survivor": "Гражданский", "cannibal": "Кибер-псих", "killer": "Наёмник", "police": "Полиция"}
+const FACTION_NAME := {"survivor": "Гражданский", "cannibal": "Кибер-псих", "killer": "Наёмник",
+	"police": "Полиция", "ghoul": "Кибер-гуль"}
 
 const CONFIG := {
 	"survivor": {"speed": 3.3, "sprint_mul": 1.7, "hp": 110.0},
@@ -34,6 +36,11 @@ const CONFIG := {
 		"sense_radius": 16.0, "killer_aggro": 6.0},
 	"police": {"speed": 3.6, "sprint_mul": 1.5, "hp": 170.0,
 		"attack_range": 2.3, "attack_damage": 30.0, "attack_cd": 0.7},
+	# Кибер-гуль: жрёт выживших и с каждым съеденным крепчает (см. FEED_*),
+	# на пороге мутации превращается в КИБЕР-ВАМПИРА — он лучше во всём.
+	"ghoul": {"speed": 3.4, "sprint_mul": 1.5, "hp": 150.0,
+		"attack_range": 2.1, "attack_damage": 30.0, "attack_cd": 0.75,
+		"sense_radius": 18.0},
 	"killer": {"speed": 3.5, "sprint_mul": 1.55, "hp": 220.0,
 		"attack_range": 2.5, "attack_damage": 45.0, "attack_cd": 0.7,
 		"block_speed_mul": 0.55,
@@ -41,6 +48,34 @@ const CONFIG := {
 }
 
 const ALPHA_HP := 560.0
+
+# --- Кибер-гуль: кормёжка и мутация в вампира ------------------------------
+const GHOUL_COUNT := 3            # сколько гулей рыщет по башне
+const FEED_TIME := 2.4            # сколько длится трапеза над телом
+const FEED_RANGE := 2.4
+const FEED_HP := 55.0             # +макс. HP за каждого съеденного
+const FEED_DMG := 0.12            # +12% урона
+const FEED_SPEED := 0.045         # +4.5% скорости
+const FEEDS_TO_MUTATE := 4        # столько тел — и ты вампир
+const VAMPIRE_HP := 520.0
+const VAMPIRE_DMG_MUL := 1.75
+const VAMPIRE_SPEED_MUL := 1.22
+const VAMPIRE_LIFESTEAL := 0.35   # доля урона, возвращаемая в здоровье
+const VAMPIRE_LUNGE_MUL := 1.5    # прыжок дальше и чаще
+
+# --- Импланты в истекающего кровью гражданского ----------------------------
+# Раненого можно не добивать, а НАЧИНИТЬ. Тело становится инструментом.
+const CIV_IMPLANT_TIME := 2.8     # держать E над лежачим
+const CIV_IMPLANTS := {
+	"bomb": {"name": "Заряд в грудину", "desc": "[G] — подрыв. Всё вокруг тела в клочья.",
+		"dmg": 430.0, "radius": 6.5},
+	"slime": {"name": "Био-слизь", "desc": "Псих подходит — на коже вздуваются пузыри и лопаются ему в глаза. Слепота.",
+		"radius": 3.0, "blind": 5.0},
+	"softener": {"name": "Размягчитель кожи", "desc": "[G] — шоковая терапия: тело бьётся и вопит, приманивая убийц.",
+		"lure": 34.0, "lure_t": 8.0},
+}
+const BLIND_TIME := 5.0           # ослеплённый бот теряет цель, игрок — экран
+const SLIME_CD := 9.0             # пузыри копятся заново
 
 # --- Melee: strike / block / charged strike ------------------------------
 # Tap LMB = quick strike. Hold LMB = charge (released strike hits harder and
@@ -96,6 +131,10 @@ const WEAPONS := {
 		{"id": "katana", "name": "Моно-катана", "desc": "Быстрая, режет чаще, бьёт слабее.", "dmg": 0.85, "speed": 1.35, "range": 0.2},
 		{"id": "sledge", "name": "Кувалда", "desc": "Медленно. Больно. Дорого по стамине.", "dmg": 1.6, "speed": 0.62, "range": 0.1, "stamina": 1.35},
 		{"id": "mantis", "name": "Клинки богомола", "desc": "Боевой имплант: клинки из предплечий. Быстрые, а удар в спринте — рывок богомола.", "dmg": 0.9, "speed": 1.4, "range": 0.1},
+	],
+	"ghoul": [
+		{"id": "talons", "name": "Когти-крючья", "desc": "Рвут мясо. Быстро и грязно.", "dmg": 1.0, "speed": 1.2, "range": 0.0},
+		{"id": "fangs", "name": "Челюсти", "desc": "Медленнее, но откусывает кусками.", "dmg": 1.45, "speed": 0.75, "range": -0.1},
 	],
 	"cannibal": [
 		{"id": "claws", "name": "Клешни-имплант", "desc": "Очень быстрые, короткие, слабые.", "dmg": 0.85, "speed": 1.4, "range": -0.2},
@@ -220,5 +259,10 @@ const CHARACTERS := {
 	"killer": [
 		{"id": "blade", "name": "Клинок", "tag": "стелс · добивание", "desc": "Скорость, лишние ножи и добивание раненых [F].", "speed_mul": 1.1, "hp_mul": 0.85, "knives_add": 2, "can_execute": true, "accent": Color(1.0, 0.15, 0.2)},
 		{"id": "armor", "name": "Броня", "tag": "танк", "desc": "Медленный таран, держит удар и держит блок.", "speed_mul": 0.9, "hp_mul": 1.25, "stamina_block_mul": 0.6, "accent": Color(0.45, 0.35, 1.0)},
+	],
+	"ghoul": [
+		{"id": "feeder", "name": "Пожиратель", "tag": "рост · трапеза", "desc": "Жри тела [F] — с каждым крепчаешь. Четыре трапезы, и ты КИБЕР-ВАМПИР.", "speed_mul": 1.0, "hp_mul": 1.0, "can_execute": true},
+		{"id": "stalker", "name": "Ловчий", "tag": "скорость · нюх", "desc": "Быстрее и чует дальше, но хлипкий. Догнать — не проблема.", "speed_mul": 1.15, "hp_mul": 0.8, "can_execute": true},
+		{"id": "vampire", "name": "КИБЕР-ВАМПИР", "tag": "разблокировано мутацией", "desc": "Сразу в высшей форме: живучий, быстрый, бьёт как таран и лечится чужой кровью.", "speed_mul": 1.0, "hp_mul": 1.0, "can_execute": true, "vampire": true},
 	],
 }
