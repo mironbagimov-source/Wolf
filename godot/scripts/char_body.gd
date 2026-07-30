@@ -79,6 +79,13 @@ var gunshot_t := 0.0    # недавно стрелял (полиция) — п�
 var is_bait := false    # реанимированный труп-приманка с зарядом в груди
 var floating := false   # парит в грав-шахте (анимация Float)
 
+# --- Боевые импланты ------------------------------------------------------
+var implants := {}      # id -> true (см. WolfCfg.IMPLANTS)
+var installing := false # лежит на кушетке риппердока
+var dermal_cd := 0.0    # откат железы-разжижителя
+var glued_t := 0.0      # влип в расплавленную кожу жертвы — не двинуться
+var _implant_root: Node3D = null
+
 # Агония гражданских: лежит с нулём HP, добиваем [F] или встаёт от дефиба.
 var downed := false
 var agony_t := 0.0
@@ -188,6 +195,102 @@ func apply_archetype(arche: Dictionary) -> void:
 
 func _tint_color() -> Color:
 	return WolfCfg.FACTION_COLOR["leader"] if is_leader else WolfCfg.FACTION_COLOR[faction]
+
+
+# ---------------------------------------------------------------------------
+# Импланты: статы держит main.gd, а ЖЕЛЕЗО видно на теле — пластины, порты,
+# железы. Крепится к Visual (у игрока тело скрыто, ему железо рисует
+# viewmodel на руках).
+# ---------------------------------------------------------------------------
+
+func has_implant(id: String) -> bool:
+	return implants.get(id, false)
+
+
+func install_implant(id: String) -> void:
+	if implants.get(id, false):
+		return
+	implants[id] = true
+	_build_implant_visual(id)
+
+
+func _implant_parent() -> Node3D:
+	if visual == null:
+		return null
+	if _implant_root == null or not is_instance_valid(_implant_root):
+		_implant_root = Node3D.new()
+		_implant_root.name = "Implants"
+		visual.add_child(_implant_root)
+	return _implant_root
+
+
+func _imp_mesh(p_name: String, pos: Vector3, size: Vector3, color: Color,
+		glow: float, rot := Vector3.ZERO, metal := 0.85) -> void:
+	var parent := _implant_parent()
+	if parent == null:
+		return
+	var mi := MeshInstance3D.new()
+	mi.name = p_name
+	var box := BoxMesh.new()
+	box.size = size
+	mi.mesh = box
+	mi.position = pos
+	mi.rotation_degrees = rot
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.metallic = metal
+	mat.roughness = 0.3
+	if glow > 0.0:
+		mat.emission_enabled = true
+		mat.emission = color
+		mat.emission_energy_multiplier = glow
+	mi.material_override = mat
+	parent.add_child(mi)
+
+
+## Железо конкретного импланта. Высоты подобраны под нормализованный рост.
+func _build_implant_visual(id: String) -> void:
+	match id:
+		"dermal":
+			# Железы-разжижители: маслянистые янтарные капсулы на груди и
+			# плечах, кожа вокруг них лоснится.
+			for s: float in [-1.0, 1.0]:
+				_imp_mesh("DermalGland", Vector3(0.19 * s, 1.42, 0.0), Vector3(0.1, 0.16, 0.13),
+						Color(0.55, 0.32, 0.06), 1.1, Vector3(0, 0, -9.0 * s), 0.35)
+				_imp_mesh("DermalVein", Vector3(0.14 * s, 1.25, 0.08), Vector3(0.03, 0.26, 0.02),
+						Color(0.85, 0.55, 0.12), 1.8, Vector3(6, 0, 4.0 * s), 0.2)
+			_imp_mesh("DermalPump", Vector3(0, 1.3, 0.12), Vector3(0.16, 0.11, 0.07),
+					Color(0.4, 0.24, 0.05), 0.9, Vector3.ZERO, 0.5)
+		"subdermal":
+			# Сегментные пластины: торс и предплечья.
+			for i in 3:
+				_imp_mesh("ArmorPlate", Vector3(0, 1.46 - i * 0.13, 0.115), Vector3(0.34 - i * 0.03, 0.1, 0.05),
+						Color(0.33, 0.35, 0.4), 0.0)
+			for s: float in [-1.0, 1.0]:
+				_imp_mesh("ArmorBracer", Vector3(0.27 * s, 1.03, 0.0), Vector3(0.1, 0.24, 0.12),
+						Color(0.3, 0.32, 0.37), 0.0, Vector3(0, 0, 4.0 * s))
+				_imp_mesh("ArmorShoulder", Vector3(0.24 * s, 1.53, 0.0), Vector3(0.14, 0.09, 0.18),
+						Color(0.28, 0.3, 0.35), 0.0)
+		"kerenzikov":
+			# Позвоночный бустер: порты вдоль спины, голубая подсветка.
+			for i in 4:
+				_imp_mesh("SpinePort", Vector3(0, 1.52 - i * 0.11, -0.12), Vector3(0.09, 0.07, 0.06),
+						Color(0.2, 0.55, 0.8), 0.6)
+			_imp_mesh("SpineGlow", Vector3(0, 1.3, -0.145), Vector3(0.035, 0.46, 0.02),
+					Color(0.25, 0.8, 1.0), 2.6, Vector3.ZERO, 0.1)
+			for s: float in [-1.0, 1.0]:
+				_imp_mesh("NeckJack", Vector3(0.07 * s, 1.6, -0.08), Vector3(0.04, 0.05, 0.09),
+						Color(0.3, 0.7, 0.95), 1.4)
+		"synthlungs":
+			# Дыхательные фильтры: рёберные жабры + патрубок на шее.
+			for s: float in [-1.0, 1.0]:
+				for i in 2:
+					_imp_mesh("LungVent", Vector3(0.13 * s, 1.36 - i * 0.09, 0.1), Vector3(0.13, 0.035, 0.05),
+							Color(0.42, 0.46, 0.5), 0.3, Vector3(0, 0, -7.0 * s), 0.7)
+			_imp_mesh("LungPipe", Vector3(0.05, 1.55, 0.07), Vector3(0.045, 0.14, 0.045),
+					Color(0.35, 0.38, 0.42), 0.2, Vector3(10, 0, 6))
+			_imp_mesh("LungFilter", Vector3(0, 1.24, 0.12), Vector3(0.11, 0.09, 0.06),
+					Color(0.5, 0.75, 0.55), 1.2)
 
 
 ## Prefers the player that actually has our clips — imported models may carry

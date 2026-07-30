@@ -113,6 +113,7 @@ static func build_district(root: Node3D) -> void:
 	_lights(geometry)
 	_horror(geometry)
 	_loot_bodies(root, geometry)
+	_ripper_stations(root, geometry)
 
 	# Кабины больше нет — лифт это прозрачная ГРАВ-ШАХТА: шагни внутрь,
 	# SPACE тянет вверх, без ввода плавно опускает (см. main.gd).
@@ -583,6 +584,64 @@ static func _horror(parent: Node3D) -> void:
 		var y_top: float = (c[0] as Vector3).y + H - 0.35
 		var cab := _panel(parent, Vector3((c[0] as Vector3).x, y_top - 0.7, (c[0] as Vector3).z), Vector3(0.035, 1.4, 0.035), cable_mat, "Cable")
 		cab.rotation_degrees.z = c[1] as float
+
+
+## Кушетки риппердоков: кресло, хирургическая дуга с манипуляторами (её
+## опускает main.gd во время операции), монитор и лампа. Каждая станция даёт
+## СВОЙ имплант — метка implant уходит в main.
+static func _ripper_stations(root: Node3D, parent: Node3D) -> void:
+	var grp := _group(root, "RipperPoints")
+	var metal := _mat_metal()
+	var seat := StandardMaterial3D.new()
+	seat.albedo_color = Color(0.13, 0.15, 0.19)
+	seat.roughness = 0.75
+	var stations := [
+		[Vector3(-24.0, 2 * H, 4.0), 90.0, "dermal", "лавка-риппердок на 3-м"],
+		[Vector3(20.0, 6 * H, 8.0), -90.0, "subdermal", "номер-клиника на 7-м"],
+		[Vector3(-8.0, 11 * H, -14.0), 0.0, "kerenzikov", "аркада, задняя комната"],
+		[Vector3(12.0, 14 * H, 12.0), 180.0, "synthlungs", "офисы 15-го, медпункт"],
+	]
+	for i in stations.size():
+		var s: Array = stations[i]
+		var pos := s[0] as Vector3
+		var m := Marker3D.new()
+		m.name = "Ripper%d" % i
+		m.position = pos
+		m.set_meta("implant", s[2])
+		m.set_meta("where", s[3])
+		grp.add_child(m)
+
+		var st := Node3D.new()
+		st.name = "RipperChair%d" % i
+		st.position = pos
+		st.rotation_degrees.y = s[1] as float
+		parent.add_child(st)
+		# Кресло-кушетка.
+		_panel(st, Vector3(0, 0.55, 0), Vector3(0.9, 0.16, 1.9), seat, "Couch")
+		_panel(st, Vector3(0, 0.28, 0), Vector3(0.3, 0.55, 1.6), metal, "CouchLeg")
+		_panel(st, Vector3(0, 0.78, -0.72), Vector3(0.7, 0.36, 0.16), seat, "Headrest").rotation_degrees.x = 22.0
+		# Хирургическая дуга: стойка + поворотное плечо + манипуляторы.
+		_panel(st, Vector3(0.72, 1.05, 0.5), Vector3(0.14, 2.1, 0.14), metal, "RigMast")
+		var arm := Node3D.new()
+		arm.name = "SurgeryArm"     # main.gd опускает её во время операции
+		arm.position = Vector3(0, 2.05, -0.1)
+		st.add_child(arm)
+		_panel(arm, Vector3(0.36, 0, 0.3), Vector3(0.85, 0.11, 0.11), metal, "ArmBoom")
+		_panel(arm, Vector3(0, -0.16, 0), Vector3(0.34, 0.3, 0.34), metal, "ArmHead")
+		for k in 3:
+			var probe := _panel(arm, Vector3(-0.1 + k * 0.1, -0.42, 0.02), Vector3(0.025, 0.34, 0.025), metal, "Probe%d" % k)
+			probe.rotation_degrees.z = -8.0 + k * 8.0
+		_emissive(arm, Vector3(0, -0.34, 0), Vector3(0.2, 0.04, 0.2), Color(0.3, 1.0, 0.5), 2.0, "ArmLaser")
+		# Монитор со схемой тела и вывеска.
+		_panel(st, Vector3(-0.95, 1.35, -0.3), Vector3(0.08, 0.6, 0.9), metal, "ScreenBack")
+		_emissive(st, Vector3(-0.89, 1.35, -0.3), Vector3(0.03, 0.5, 0.8), Color(0.2, 0.9, 0.8), 1.3, "Screen")
+		_emissive(st, Vector3(0, 2.65, 0.4), Vector3(1.6, 0.22, 0.06), NEON_MAGENTA, 2.2, "RipperSign")
+		# Ванночки с инструментом и кровью — тут работали грязно.
+		_panel(st, Vector3(-0.95, 0.75, 0.55), Vector3(0.5, 0.1, 0.4), metal, "Tray")
+		var bl := StandardMaterial3D.new()
+		bl.albedo_color = Color(0.30, 0.012, 0.02)
+		bl.roughness = 0.25
+		_panel(st, Vector3(0.2, 0.02, 0.8), Vector3(1.3, 0.014, 1.0), bl, "RipperBlood")
 
 
 ## Трупики по всей башне: подойти и осмотреть [E] — история смерти, а боевым

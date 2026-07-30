@@ -69,6 +69,9 @@ var _loot_msg_t := 0.0
 # Некро-приманка наёмника: реанимированный труп гражданского с зарядом.
 var bait: WolfChar = null
 var _bait_beacon: MeshInstance3D = null
+# Риппердок-станции: [{pos, implant, where, node, used}] + текущая операция.
+var ripper_points: Array = []
+var _surgery := {}                 # {station, t, phase} пока идёт вживление
 
 var elevator: WolfElevator = null
 var _captured := false
@@ -188,6 +191,19 @@ func _collect_layout() -> void:
 		for child in lb.get_children():
 			loot_bodies.append({"pos": (child as Marker3D).global_position,
 				"desc": String(child.get_meta("desc", "")), "looted": false})
+	ripper_points.clear()
+	var rp := district.get_node_or_null("RipperPoints")
+	if rp != null:
+		var geo := district.get_node_or_null("Nav/Geometry")
+		for i in rp.get_child_count():
+			var child := rp.get_child(i) as Marker3D
+			var chair: Node3D = null
+			if geo != null:
+				chair = geo.get_node_or_null("RipperChair%d" % i) as Node3D
+			ripper_points.append({"pos": child.global_position,
+				"implant": String(child.get_meta("implant", "dermal")),
+				"where": String(child.get_meta("where", "")),
+				"chair": chair, "used": false})
 	bomb_pickup = district.get_node_or_null("BombPickup")
 	var evac := district.get_node_or_null("EvacMarker")
 	if evac != null:
@@ -227,8 +243,16 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 	_bait_beacon = null
 	blueprints = 0
 	_loot_msg_t = 0.0
+	_surgery = {}
 	for l: Dictionary in loot_bodies:
 		l["looted"] = false
+	for r: Dictionary in ripper_points:
+		r["used"] = false
+		var chair: Node3D = r["chair"]
+		if chair != null and is_instance_valid(chair):
+			var arm := chair.get_node_or_null("SurgeryArm") as Node3D
+			if arm != null:
+				arm.position.y = 2.05
 	for b in _hint_beacons:
 		(b as Node).queue_free()
 	_hint_beacons.clear()
@@ -323,6 +347,8 @@ func _spawn_char(faction: String, pos: Vector3, is_human: bool, is_lead: bool, v
 	entities.append(c)
 	if is_human:
 		player = c
+	else:
+		_seed_bot_implants(c)  # часть врагов уже с железом — это видно на теле
 	return c
 
 
@@ -517,21 +543,54 @@ func _vm_limb(parent: Node3D, a: Vector3, b: Vector3, radius: float, mat: Materi
 
 
 ## Рука: кисть у hand, предплечье (кожа) до запястья, рукав уходит за экран.
+## Поверх — железо вживлённых имплантов (пластины, порты, железы).
 func _vm_arm(parent: Node3D, hand: Vector3, anchor: Vector3, skin: Material, sleeve: Material) -> void:
 	var wrist := hand.lerp(anchor, 0.32)
 	_vm_limb(parent, hand, wrist, 0.032, skin)
 	_vm_limb(parent, wrist, anchor, 0.046, sleeve)
 	_vm_box(parent, hand, Vector3(0.065, 0.05, 0.095), skin, Vector3(-15, 0, 0))
+	var mid := hand.lerp(anchor, 0.5)
+	if player.has_implant("subdermal"):
+		var plate := _vm_mat(Color(0.36, 0.38, 0.43), 0.92, 0.25)
+		for k in 3:
+			_vm_box(parent, hand.lerp(anchor, 0.28 + k * 0.16), Vector3(0.075, 0.02, 0.07), plate)
+	if player.has_implant("dermal"):
+		var gland := _vm_mat(Color(0.62, 0.38, 0.08), 0.4, 0.3)
+		_vm_box(parent, mid, Vector3(0.05, 0.05, 0.075), gland)
+		var vein := StandardMaterial3D.new()
+		vein.albedo_color = Color(0.9, 0.6, 0.15)
+		vein.emission_enabled = true
+		vein.emission = Color(0.95, 0.55, 0.1)
+		vein.emission_energy_multiplier = 2.0
+		vein.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_vm_box(parent, hand.lerp(anchor, 0.36), Vector3(0.012, 0.012, 0.14), vein)
+	if player.has_implant("kerenzikov"):
+		var port := StandardMaterial3D.new()
+		port.albedo_color = Color(0.25, 0.75, 1.0)
+		port.emission_enabled = true
+		port.emission = Color(0.2, 0.7, 1.0)
+		port.emission_energy_multiplier = 2.4
+		port.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_vm_box(parent, hand.lerp(anchor, 0.22), Vector3(0.03, 0.028, 0.03), port)
+	if player.has_implant("synthlungs"):
+		var vent := _vm_mat(Color(0.45, 0.7, 0.52), 0.7, 0.35)
+		_vm_box(parent, hand.lerp(anchor, 0.44), Vector3(0.055, 0.018, 0.05), vent)
 
 
 ## Руки под оружие: одна на рукояти; «Клинки богомола» — оба предплечья с
-## имплантами, кувалда — двуручный хват.
+## имплантами, кувалда — двуручный хват. Вживлённое железо ВИДНО на руках.
 func _vm_arms(parent: Node3D, wid: String) -> void:
 	var skin: Material = _vm_mat(Color(0.80, 0.60, 0.48), 0.0, 0.75)
 	var sleeve: Material = _vm_mat(Color(0.13, 0.14, 0.18), 0.35, 0.55)
 	if player.faction == "cannibal":
 		skin = _vm_mat(Color(0.66, 0.60, 0.55), 0.0, 0.8)          # бледная кожа
 		sleeve = _vm_mat(Color(0.30, 0.32, 0.36), 0.85, 0.4)       # хром импланта
+	# Разжижитель: кожа рук лоснится маслянисто-янтарным.
+	if player.has_implant("dermal"):
+		skin = _vm_mat(Color(0.74, 0.55, 0.34), 0.35, 0.28)
+	# Подкожная броня: рукав сменяется бронепластинами.
+	if player.has_implant("subdermal"):
+		sleeve = _vm_mat(Color(0.32, 0.34, 0.39), 0.9, 0.28)
 	match wid:
 		"mantis":
 			# Имплант: рукав-хром, кулаки сжаты под креплениями клинков.
@@ -683,6 +742,18 @@ func _update_player_input(delta: float) -> void:
 	p.interact_pressed = _key_pressed_once(KEY_E)
 	p.floating = _in_shaft(p.global_position) and not p.is_on_floor()
 
+	# На кушетке ты лежишь: камера опускается и смотрит вверх, на дугу с
+	# манипуляторами. Двигаться и бить нельзя — только держать E.
+	if p.installing:
+		p.move_input = Vector2.ZERO
+		p.charging = false
+		p.is_blocking = false
+		_pitch = lerpf(_pitch, 0.30, minf(1.0, delta * 4.5))
+		player_cam.rotation.x = _pitch
+		_eye_y = lerpf(_eye_y, 0.8, minf(1.0, delta * 4.5))
+		player_cam.position.y = _eye_y
+		return
+
 	if p.faction == "survivor" and _key_pressed_once(KEY_F):
 		p.flashlight_on = not p.flashlight_on
 		if flashlight != null:
@@ -740,14 +811,16 @@ func _fatigued(e: WolfChar) -> bool:
 
 
 func _try_dash(e: WolfChar, dir2: Vector2) -> void:
-	if e.dash_cd > 0.0 or e.stagger_t > 0.0 or e.being_executed or e.is_grabbed:
+	if e.dash_cd > 0.0 or e.stagger_t > 0.0 or e.being_executed or e.is_grabbed or e.glued_t > 0.0:
 		return
 	if e.stamina < WolfCfg.DASH_STAMINA_COST:
 		return
 	var local := Vector3(dir2.x, 0, -dir2.y).normalized()
 	e.dash_dir = (e.basis * local).normalized()
-	e.dash_t = WolfCfg.DASH_TIME
-	e.dash_cd = WolfCfg.DASH_CD
+	# Керензиков: рывок дольше держит i-кадры и откатывается быстрее.
+	var keren := e.has_implant("kerenzikov")
+	e.dash_t = WolfCfg.DASH_TIME * (WolfCfg.KEREN_DASH_TIME_MUL if keren else 1.0)
+	e.dash_cd = WolfCfg.DASH_CD * (WolfCfg.KEREN_DASH_CD_MUL if keren else 1.0)
 	e.stamina -= WolfCfg.DASH_STAMINA_COST
 	e.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
 
@@ -868,7 +941,10 @@ func _deliver_strike(e: WolfChar, dmg_mul: float, charged: bool) -> void:
 	if defending:
 		# Парирование: блок, поднятый в последний момент, отбивает лёгкий
 		# удар начисто и раскрывает атакующего для контратаки.
-		if not charged and target.block_age <= WolfCfg.PARRY_WINDOW:
+		var parry_win := WolfCfg.PARRY_WINDOW
+		if target.has_implant("kerenzikov"):
+			parry_win += WolfCfg.KEREN_PARRY_BONUS
+		if not charged and target.block_age <= parry_win:
 			target.stamina -= WolfCfg.PARRY_STAMINA_COST
 			target.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
 			e.stagger_t = maxf(e.stagger_t, WolfCfg.PARRY_STAGGER)
@@ -949,6 +1025,24 @@ func _spark_burst(pos: Vector3) -> void:
 # ---------------------------------------------------------------------------
 
 func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
+	var finisher_hit := dmg >= 9000.0
+	# Подкожная броня режет всё, кроме добиваний.
+	if not finisher_hit and target.has_implant("subdermal"):
+		dmg *= 1.0 - WolfCfg.SUBDERMAL_DR
+	# На кушетке риппердока ты беспомощен — бьют больнее.
+	if target.installing:
+		dmg *= WolfCfg.IMPLANT_DMG_TAKEN_MUL
+	# РАЗЖИЖИТЕЛЬ КОЖИ: смертельный удар не проходит — кожа плавится и
+	# приклеивает убийцу намертво. Работает только по тому, кто РЯДОМ:
+	# взрыв или выстрел издали приклеить некого, железа не спасёт.
+	var in_grip := source != null and not source.is_dead \
+			and source.global_position.distance_to(target.global_position) <= 3.5
+	if not finisher_hit and in_grip and target.has_implant("dermal") and target.dermal_cd <= 0.0 \
+			and dmg >= target.hp and not target.is_dead and not target.downed:
+		_dermal_snap(target, source)
+		if target.installing:
+			_abort_surgery()
+		return
 	target.hp -= dmg
 	target.hit_flash = 0.15
 	target.stagger_t = maxf(target.stagger_t, WolfCfg.STAGGER_TIME)
@@ -967,6 +1061,8 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
 		ui.show_hitmark()
 	if target.is_player:
 		ui.flash_damage()
+		if target.installing:
+			_abort_surgery()  # удар сбивает операцию
 	var finisher := dmg >= 9000.0  # добивание минует агонию
 	if target.hp <= 0.0 and not target.is_dead:
 		if target.faction == "survivor" and not finisher and not target.downed and not target.is_bait:
@@ -1619,19 +1715,35 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.dash_cd = maxf(0.0, e.dash_cd - delta)
 	e.lunge_cd = maxf(0.0, e.lunge_cd - delta)
 	e.gunshot_t = maxf(0.0, e.gunshot_t - delta)
+	e.dermal_cd = maxf(0.0, e.dermal_cd - delta)
+	e.glued_t = maxf(0.0, e.glued_t - delta)
 	if e.is_blocking or e.bot_block_t > 0.0:
 		e.block_age += delta
 	else:
 		e.block_age = 0.0
 	e.flash_materials(delta)
 
-	# Stamina regen after a short breather.
+	# Stamina regen after a short breather (синт-лёгкие качают быстрее).
 	e.stamina_delay = maxf(0.0, e.stamina_delay - delta)
 	if e.stamina_delay <= 0.0:
-		e.stamina = minf(WolfCfg.STAMINA_MAX, e.stamina + WolfCfg.STAMINA_REGEN * delta)
+		var regen := WolfCfg.STAMINA_REGEN
+		if e.has_implant("synthlungs"):
+			regen *= WolfCfg.SYNTHLUNGS_REGEN_MUL
+		e.stamina = minf(WolfCfg.STAMINA_MAX, e.stamina + regen * delta)
 
 	if e.being_executed:
 		e.move_input = Vector2.ZERO
+		return
+
+	# Влип в расплавленную кожу: ни шагу, ни удара, пока не отлепишься.
+	if e.glued_t > 0.0:
+		e.move_input = Vector2.ZERO
+		e.velocity.x = 0.0
+		e.velocity.z = 0.0
+		e.charging = false
+		if e.winding:
+			_cancel_windup(e)
+		e.move_and_slide()
 		return
 
 	# Агония: лежит и тикает таймер; дефибриллятор поднимает сам.
@@ -1812,6 +1924,182 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 
 
 # ---------------------------------------------------------------------------
+# импланты: риппердок-станции и хирургия
+# ---------------------------------------------------------------------------
+
+func _nearest_ripper(pos: Vector3) -> int:
+	for i in ripper_points.size():
+		var r: Dictionary = ripper_points[i]
+		if r["used"]:
+			continue
+		var dp := (r["pos"] as Vector3) - pos
+		if absf(dp.y) < 2.2 and Vector2(dp.x, dp.z).length() <= 2.4:
+			return i
+	return -1
+
+
+## Операция идёт, пока держишь E. Ты лежишь беспомощный: двигаться нельзя,
+## урон по тебе выше, а визг пилы слышно — психи идут на звук.
+func _tick_surgery(delta: float) -> void:
+	var p := player
+	if p == null or p.is_dead or mode != "playing":
+		_abort_surgery()
+		return
+	if _surgery.is_empty():
+		var idx := _nearest_ripper(p.global_position)
+		if idx >= 0 and p.interact_held and not p.is_dead:
+			var r: Dictionary = ripper_points[idx]
+			if p.has_implant(str(r["implant"])):
+				return
+			_surgery = {"idx": idx, "t": 0.0, "phase": 0}
+			p.installing = true
+			p.play_oneshot("Kneel")
+			var ch: Node3D = r["chair"]
+			if ch != null and is_instance_valid(ch):
+				# Ложимся ногами к дуге: она опускается прямо в поле зрения.
+				p.global_position = (r["pos"] as Vector3) + ch.global_transform.basis.z * 0.75 + Vector3(0, 0.15, 0)
+				p.rotation.y = ch.global_rotation.y
+			else:
+				p.global_position = (r["pos"] as Vector3) + Vector3(0, 0.15, 0)
+		return
+
+	var r_cur: Dictionary = ripper_points[_surgery["idx"]]
+	if not p.interact_held or (r_cur["pos"] as Vector3).distance_to(p.global_position) > 3.0:
+		_abort_surgery()
+		return
+	var imp: Dictionary = WolfCfg.IMPLANTS[str(r_cur["implant"])]
+	var total: float = imp["time"]
+	_surgery["t"] = float(_surgery["t"]) + delta
+	var t: float = _surgery["t"]
+	p.move_input = Vector2.ZERO
+	p.crouching = true
+
+	# Хирургическая дуга опускается на тело по мере операции.
+	var chair: Node3D = r_cur["chair"]
+	var chest := p.global_position + Vector3(0, 1.15, 0)
+	if chair != null and is_instance_valid(chair):
+		var arm := chair.get_node_or_null("SurgeryArm") as Node3D
+		if arm != null:
+			arm.position.y = lerpf(2.05, 1.32, clampf(t / (total * 0.35), 0.0, 1.0))
+			arm.rotation_degrees.y = sin(t * 7.0) * 4.0
+
+	var phase: int = _surgery["phase"]
+	if phase == 0 and t >= total * 0.18:
+		_surgery["phase"] = 1
+		p.play_oneshot("Kneel")
+		_spark_burst(chest)                      # дуга села, пошёл разрез
+		_alert_psychos(p.global_position)
+		ui.flash_damage()
+	elif phase == 1 and t >= total * 0.42:
+		_surgery["phase"] = 2
+		_blood_burst(chest, 14, 2.2)             # вскрытие
+		_alert_psychos(p.global_position)
+	elif phase == 2 and t >= total * 0.66:
+		_surgery["phase"] = 3
+		_spark_burst(chest + Vector3(0, 0.1, 0)) # железо входит в тело
+		_blood_burst(chest, 10, 1.8)
+		p.play_oneshot("Kneel")
+	elif phase == 3 and t >= total * 0.88:
+		_surgery["phase"] = 4
+		_spark_burst(chest)                      # прижигание швов
+		ui.flash_damage()
+	elif t >= total:
+		var id := str(r_cur["implant"])
+		p.install_implant(id)
+		_build_viewmodel()                       # железо проступает на руках
+		p.hp = maxf(1.0, p.hp - 8.0)             # операция стоит крови
+		r_cur["used"] = true
+		_loot_msg = "ИМПЛАНТ ВЖИВЛЁН: %s" % WolfCfg.IMPLANTS[id]["name"]
+		_loot_msg_t = 6.0
+		_blood_burst(chest, 20, 3.0)
+		_abort_surgery()
+
+
+func _abort_surgery() -> void:
+	if _surgery.is_empty():
+		if player != null:
+			player.installing = false
+		return
+	var r: Dictionary = ripper_points[_surgery["idx"]]
+	var chair: Node3D = r["chair"]
+	if chair != null and is_instance_valid(chair):
+		var arm := chair.get_node_or_null("SurgeryArm") as Node3D
+		if arm != null:
+			var tw := create_tween()
+			tw.tween_property(arm, "position:y", 2.05, 0.5)
+	_surgery = {}
+	if player != null:
+		player.installing = false
+
+
+## Часть врагов уже с железом — импланты видно на телах и в бою.
+func _seed_bot_implants(e: WolfChar) -> void:
+	if e.is_player:
+		return
+	if e.is_leader:
+		e.install_implant("subdermal")
+		e.install_implant("dermal")     # Альфу так просто не добить
+		return
+	var roll := randf()
+	if e.faction == "cannibal":
+		if roll < 0.35:
+			e.install_implant("dermal")
+		elif roll < 0.6:
+			e.install_implant("subdermal")
+	elif e.faction == "killer":
+		if roll < 0.5:
+			e.install_implant("kerenzikov")
+		elif roll < 0.75:
+			e.install_implant("subdermal")
+	elif e.faction == "police" and e.is_maxtac:
+		e.install_implant("subdermal")
+
+
+## Железа сработала: кожа жертвы расплавилась и намертво влепила убийцу.
+func _dermal_snap(target: WolfChar, source: WolfChar) -> void:
+	target.dermal_cd = WolfCfg.DERMAL_CD
+	target.hp = maxf(target.hp, 1.0)
+	target.hit_flash = 0.4
+	var pos := target.global_position + Vector3(0, 1.15, 0)
+	# Тягучий выброс: янтарные ошмётки вместо крови.
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.amount = 26
+	p.lifetime = 0.7
+	p.direction = Vector3(0, 1, 0)
+	p.spread = 75.0
+	p.initial_velocity_min = 1.2
+	p.initial_velocity_max = 3.4
+	p.gravity = Vector3(0, -8, 0)
+	p.scale_amount_min = 0.06
+	p.scale_amount_max = 0.16
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(0.11, 0.11)
+	p.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.85, 0.55, 0.12)
+	mat.emission_enabled = true
+	mat.emission = Color(0.9, 0.5, 0.1)
+	mat.emission_energy_multiplier = 1.6
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	p.mesh.surface_set_material(0, mat)
+	p.position = pos
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(1.8).timeout.connect(p.queue_free)
+	if source != null and not source.is_dead:
+		source.glued_t = WolfCfg.DERMAL_HOLD
+		source.stagger_t = maxf(source.stagger_t, WolfCfg.DERMAL_HOLD)
+		source.knockback = Vector3.ZERO
+		_cancel_windup(source)
+		source.play_oneshot("Hit")
+	if target.is_player or (source != null and source.is_player):
+		ui.flash_damage()
+
+
+# ---------------------------------------------------------------------------
 # тактические приколы: лут трупиков и некро-приманка
 # ---------------------------------------------------------------------------
 
@@ -1958,7 +2246,8 @@ func _detonate_bait(source: WolfChar) -> void:
 		var flat := Vector2(dp.x, dp.z).length()
 		if absf(dp.y) > 3.2 or flat > 6.5:
 			continue
-		_damage(e, 320.0 * (1.0 - clampf(flat / 8.0, 0.0, 0.6)), source)
+		# Заряд вшит в грудную клетку — рвёт даже бронированных (кроме Альфы).
+		_damage(e, 430.0 * (1.0 - clampf(flat / 8.0, 0.0, 0.6)), source)
 	_damage(victim, 99999.0, source)
 
 
@@ -1971,8 +2260,21 @@ func _prompt_for(p: WolfChar) -> String:
 		return "Вы мертвы."
 	if p.being_executed:
 		return "Тебя добивают…"
+	if p.glued_t > 0.0:
+		return "ВЛИП В КОЖУ — не двинуться: %.1f сек" % p.glued_t
+	if not _surgery.is_empty():
+		var rs: Dictionary = ripper_points[_surgery["idx"]]
+		var imp: Dictionary = WolfCfg.IMPLANTS[str(rs["implant"])]
+		var frac := clampf(float(_surgery["t"]) / float(imp["time"]), 0.0, 1.0)
+		return "ОПЕРАЦИЯ: %s — %d%% (не отпускай E, ты беспомощен)" % [imp["name"], int(frac * 100.0)]
 	if _loot_msg_t > 0.0:
 		return _loot_msg
+	var ri := _nearest_ripper(p.global_position)
+	if ri >= 0:
+		var imp2: Dictionary = WolfCfg.IMPLANTS[str(ripper_points[ri]["implant"])]
+		if p.has_implant(str(ripper_points[ri]["implant"])):
+			return "%s уже вживлён" % imp2["name"]
+		return "[держать E] ВЖИВИТЬ: %s — %s" % [imp2["name"], imp2["desc"]]
 	if _nearest_loot(p.global_position) >= 0:
 		return "[E] Осмотреть труп"
 	if _in_shaft(p.global_position):
@@ -2049,6 +2351,14 @@ func _update_hud() -> void:
 		stance.append("Ножи %d" % p.knives)
 	if blueprints > 0 and p.faction in ["cannibal", "killer"]:
 		stance.append("Чертежи %d/3" % blueprints)
+	if not p.implants.is_empty():
+		var names: Array = []
+		for id: String in p.implants:
+			var short: String = str(WolfCfg.IMPLANTS[id]["name"])
+			names.append(("⚡" if id == "kerenzikov" else "⬢") + short)
+		if p.dermal_cd > 0.0:
+			names.append("железа: %d с" % int(ceil(p.dermal_cd)))
+		stance.append(" ".join(names))
 	if p.crouching:
 		stance.append("присед")
 	elif p.sprinting:
@@ -2092,6 +2402,7 @@ func _physics_process(delta: float) -> void:
 	_tick_call_system(delta)
 	_tick_executions(delta)
 	_tick_bait(delta)
+	_tick_surgery(delta)
 	_loot_msg_t = maxf(0.0, _loot_msg_t - delta)
 	# Conditions like "merc stands in the evac zone" change without anyone
 	# dying, so the win check runs every tick, not only on kill events.
@@ -2183,6 +2494,10 @@ func _run_test(delta: float) -> void:
 			_test_bait(delta)
 		"loot":
 			_test_loot(delta)
+		"implant":
+			_test_implant(delta)
+		"dermal":
+			_test_dermal(delta)
 		"loadout":
 			if _test_t > 0.6 and not _test_staged:
 				_test_staged = true
@@ -2334,6 +2649,56 @@ func _test_lift(_delta: float) -> void:
 	elif _test_staged and _test_t > 20.0:
 		print("TEST RESULT: lift FAIL y=%.1f in_shaft=%s" % [player.global_position.y, str(_in_shaft(player.global_position))])
 		get_tree().quit(1)
+
+
+## Хирургия: лечь на кушетку риппердока, держать E всю операцию — имплант
+## вживлён, железо появилось на теле/руках.
+func _test_implant(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = (ripper_points[0]["pos"] as Vector3) + Vector3(0.4, 0.2, 0)
+	elif _test_staged:
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = true            # держим E непрерывно
+		Input.parse_input_event(ev)
+		if not _surgery.is_empty() and float(_surgery["t"]) > 2.2 and not _test_shot_taken:
+			_test_shot_taken = true
+			if _test_shot != "":
+				await _save_shot()   # кадр посреди операции
+		if player.has_implant("dermal"):
+			var used: bool = ripper_points[0]["used"]
+			var ok := viewmodel != null and used
+			print("TEST RESULT: implant вживлён viewmodel=%s станция_отработала=%s %s" % [
+				str(viewmodel != null), str(used), "OK" if ok else "FAIL"])
+			get_tree().quit(0 if ok else 1)
+		elif _test_t > 14.0:
+			print("TEST RESULT: implant FAIL — не вживился (surgery=%s)" % str(_surgery))
+			get_tree().quit(1)
+
+
+## Разжижитель кожи: смертельный удар поглощён, убийца влип и обездвижен.
+func _test_dermal(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		player.install_implant("dermal")
+		player.hp = 20.0
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player)[0]
+		_duel_bot.global_position = player.global_position + Vector3(1.2, 0, 0)
+		_damage(player, 500.0, _duel_bot)   # смертельный удар психа
+	elif _test_staged and not _test_shot_taken and _test_t > 1.8:
+		_test_shot_taken = true
+		var survived := not player.is_dead and player.hp > 0.0
+		var glued := _duel_bot.glued_t > 0.0
+		var ok := survived and glued
+		print("TEST RESULT: dermal survived=%s hp=%.0f attacker_glued=%s %s" % [str(survived), player.hp, str(glued), "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
 
 
 ## Некро-приманка: убить гражданского, реанимировать [E], пин психа рядом,
