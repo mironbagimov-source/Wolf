@@ -152,11 +152,11 @@ func _build_environment() -> void:
 	_env.background_mode = Environment.BG_COLOR
 	_env.background_color = Color("05060a")
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	_env.ambient_light_color = Color("39445e")
-	_env.ambient_light_energy = 1.7
+	_env.ambient_light_color = Color("6a7690")
+	_env.ambient_light_energy = 2.6
 	_env.fog_enabled = true
 	_env.fog_light_color = Color("06070c")
-	_env.fog_density = 0.016
+	_env.fog_density = 0.008
 
 	# Пост-обработка. Не фотореализм — модели для него слишком простые, — но она
 	# вытягивает картинку из «кубики в темноте» в кинематографичную ночь:
@@ -186,7 +186,7 @@ func _build_environment() -> void:
 
 	_sun = DirectionalLight3D.new()
 	_sun.light_color = Color("6b7a9c")
-	_sun.light_energy = 1.15
+	_sun.light_energy = 2.0
 	_sun.rotation_degrees = Vector3(-50, 30, 0)
 	_level_root.add_child(_sun)
 
@@ -213,13 +213,13 @@ func _build_ground() -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(width, depth)
 	mesh.mesh = plane
-	mesh.material_override = Surfaces.material("ground", Color("0d0f13"), 0.25)
+	mesh.material_override = Surfaces.material("ground", Color("2c2f36"), 0.25)
 	ground.add_child(mesh)
 	_level_root.add_child(ground)
 
 	var floors := {
-		"neutral": Color("15171d"), "catacombs": Color("1a1a1c"),
-		"jungle": Color("131e14"), "village": Color("1e1913"), "oldcity": Color("16181f"),
+		"neutral": Color("3c4048"), "catacombs": Color("3a3a3f"),
+		"jungle": Color("324e34"), "village": Color("4a4030"), "oldcity": Color("3a3e4a"),
 	}
 	for region in WorldData.REGIONS:
 		var rect: Dictionary = region.rect

@@ -27,32 +27,32 @@ const REGIONS := [
 	{
 		"id": "neutral", "title": "Перекрёсток", "danger": 0.12,
 		"rect": {"min_x": -32.0, "max_x": 32.0, "min_z": -28.0, "max_z": 30.0},
-		"ambient": Color("39445e"), "energy": 1.7, "fog": 0.014,
-		"sun": 1.15, "sun_color": Color("8492b4"), "sky": Color("0b0d16"),
+		"ambient": Color("6a7690"), "energy": 2.6, "fog": 0.006,
+		"sun": 2.0, "sun_color": Color("aab6d0"), "sky": Color("1a2033"),
 	},
 	{
 		"id": "catacombs", "title": "Катакомбы", "danger": 0.72,
 		"rect": {"min_x": -108.0, "max_x": -40.0, "min_z": -40.0, "max_z": 34.0},
-		"ambient": Color("2a2f42"), "energy": 1.2, "fog": 0.045,
-		"sun": 0.7, "sun_color": Color("6470a0"), "sky": Color("07080f"),
+		"ambient": Color("55607e"), "energy": 2.2, "fog": 0.02,
+		"sun": 1.4, "sun_color": Color("8792be"), "sky": Color("12141f"),
 	},
 	{
 		"id": "jungle", "title": "Джунгли", "danger": 0.6,
 		"rect": {"min_x": 40.0, "max_x": 108.0, "min_z": -34.0, "max_z": 40.0},
-		"ambient": Color("9fb98a"), "energy": 2.7, "fog": 0.012,
-		"sun": 3.0, "sun_color": Color("fff2d6"), "sky": Color("8fb3d9"),
+		"ambient": Color("b8cea4"), "energy": 3.0, "fog": 0.006,
+		"sun": 3.2, "sun_color": Color("fff4dc"), "sky": Color("9cc0e4"),
 	},
 	{
 		"id": "village", "title": "Деревня", "danger": 0.66,
 		"rect": {"min_x": -44.0, "max_x": 44.0, "min_z": 38.0, "max_z": 92.0},
-		"ambient": Color("574833"), "energy": 1.5, "fog": 0.022,
-		"sun": 1.4, "sun_color": Color("d8a066"), "sky": Color("241a17"),
+		"ambient": Color("8a7454"), "energy": 2.5, "fog": 0.01,
+		"sun": 2.2, "sun_color": Color("e8b878"), "sky": Color("3a2c22"),
 	},
 	{
 		"id": "oldcity", "title": "Старый город", "danger": 0.5,
 		"rect": {"min_x": -48.0, "max_x": 48.0, "min_z": -92.0, "max_z": -36.0},
-		"ambient": Color("363c52"), "energy": 1.55, "fog": 0.022,
-		"sun": 1.05, "sun_color": Color("7d88b6"), "sky": Color("11131e"),
+		"ambient": Color("606a86"), "energy": 2.4, "fog": 0.012,
+		"sun": 1.8, "sun_color": Color("9aa4c8"), "sky": Color("1c2030"),
 	},
 ]
 

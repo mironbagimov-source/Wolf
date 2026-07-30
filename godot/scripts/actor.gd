@@ -229,6 +229,16 @@ func attach_camera() -> void:
 	head.add_child(camera)
 	show_body(false)   # вид от первого лица
 
+	# Фонарь игрока: всегда включён, широкий и яркий. Что бы ни было со светом
+	# зоны, прямо перед собой видно всегда — иначе тёмные углы это чёрные ямы.
+	var lamp := OmniLight3D.new()
+	lamp.light_color = Color("dfe6f2")
+	lamp.light_energy = 3.4
+	lamp.omni_range = 28.0
+	lamp.omni_attenuation = 1.0
+	lamp.position = Vector3(0.0, 0.35, 0.0)
+	head.add_child(lamp)
+
 
 func set_eye_height(value: float) -> void:
 	if head:

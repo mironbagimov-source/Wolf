@@ -10,8 +10,8 @@ extends StaticBody3D
 ## одним кодом, отличается только меш. Дешевле, чем заводить им отдельную жизнь.
 
 const TINTS := {
-	"wall": Color("2b2b31"), "broken": Color("3a3129"),
-	"tree": Color("2b2016"), "gate": Color("4a3a20"),
+	"wall": Color("585a64"), "broken": Color("6b5a44"),
+	"tree": Color("5a4433"), "gate": Color("7e6636"),
 }
 
 var data: Dictionary
