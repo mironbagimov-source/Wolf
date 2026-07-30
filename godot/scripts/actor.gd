@@ -336,24 +336,43 @@ func sync_health_bar(visible_now: bool) -> void:
 # --- управление игроком ---
 
 const LOOK_SENS := 0.0024
+const KEY_LOOK_SPEED := 2.4    ## обзор стрелками, радиан/сек
 const PITCH_LIMIT := 1.35
 
 
-func _unhandled_input(event: InputEvent) -> void:
+## Мышью — через _input, а не _unhandled_input: так событие не может перехватить
+## ни один элемент интерфейса. Крутим на любое движение, пока курсор не отпущен
+## вручную (режим VISIBLE).
+func _input(event: InputEvent) -> void:
 	if not is_player or not head:
 		return
-	# Взгляд крутим на любое движение мыши, пока курсор не отпущен вручную
-	# (кроме VISIBLE). Раньше требовался строго CAPTURED, и если окно на старте
-	# не получало захват (не в фокусе), обзор молча не работал.
 	if event is InputEventMouseMotion and Input.mouse_mode != Input.MOUSE_MODE_VISIBLE:
 		yaw -= event.relative.x * LOOK_SENS
 		pitch = clampf(pitch - event.relative.y * LOOK_SENS, -PITCH_LIMIT, PITCH_LIMIT)
 		head.rotation.x = pitch
 
 
+## Обзор стрелками — гарантия на случай, если мышь на этой машине не
+## захватывается: повернуться можно всегда, без мыши вообще.
+func player_keyboard_look() -> void:
+	if not is_player or not head:
+		return
+	var turn := (1.0 if Input.is_physical_key_pressed(KEY_RIGHT) else 0.0) \
+		- (1.0 if Input.is_physical_key_pressed(KEY_LEFT) else 0.0)
+	var tilt := (1.0 if Input.is_physical_key_pressed(KEY_DOWN) else 0.0) \
+		- (1.0 if Input.is_physical_key_pressed(KEY_UP) else 0.0)
+	if turn == 0.0 and tilt == 0.0:
+		return
+	var d := get_physics_process_delta_time()
+	yaw -= turn * KEY_LOOK_SPEED * d
+	pitch = clampf(pitch - tilt * KEY_LOOK_SPEED * d, -PITCH_LIMIT, PITCH_LIMIT)
+	head.rotation.x = pitch
+
+
 ## Клавиатура наполняет то же намерение, что и мозг бота, — поэтому движение,
 ## удар и взаимодействие написаны один раз.
 func fill_player_intent() -> void:
+	player_keyboard_look()
 	intent.move = Vector2(
 		Input.get_action_strength("move_right") - Input.get_action_strength("move_left"),
 		Input.get_action_strength("move_forward") - Input.get_action_strength("move_back")

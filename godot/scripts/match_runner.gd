@@ -47,6 +47,7 @@ var _gate_lights: Array[OmniLight3D] = []
 var _gate_was_open := false
 var _breach_was_open := false
 var _env: Environment
+var _sun: DirectionalLight3D
 var _level_root: Node3D
 var _actors_root: Node3D
 
@@ -183,11 +184,11 @@ func _build_environment() -> void:
 	environment.environment = _env
 	_level_root.add_child(environment)
 
-	var moon := DirectionalLight3D.new()
-	moon.light_color = Color("6b7a9c")
-	moon.light_energy = 0.75
-	moon.rotation_degrees = Vector3(-50, 30, 0)
-	_level_root.add_child(moon)
+	_sun = DirectionalLight3D.new()
+	_sun.light_color = Color("6b7a9c")
+	_sun.light_energy = 0.8
+	_sun.rotation_degrees = Vector3(-50, 30, 0)
+	_level_root.add_child(_sun)
 
 
 ## Одна плита столкновений на весь мир и по цветному полу на зону. Пол — это
@@ -546,6 +547,13 @@ func _tick_region(delta: float) -> void:
 	_env.ambient_light_color = _env.ambient_light_color.lerp(region.ambient, blend)
 	_env.ambient_light_energy = lerpf(_env.ambient_light_energy, float(region.energy), blend)
 	_env.fog_density = lerpf(_env.fog_density, float(region.fog), blend)
+	# Небо и солнце тоже тянутся к значениям зоны: в джунглях день, свет тёплый,
+	# небо светлое; в катакомбах — темень.
+	_env.background_color = _env.background_color.lerp(region.sky, blend)
+	_env.fog_light_color = _env.fog_light_color.lerp(region.sky, blend)
+	if _sun:
+		_sun.light_energy = lerpf(_sun.light_energy, float(region.sun), blend)
+		_sun.light_color = _sun.light_color.lerp(region.sun_color, blend)
 	if String(region.id) != region_id:
 		region_id = String(region.id)
 		region_changed.emit(region.title)
