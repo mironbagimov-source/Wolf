@@ -9,7 +9,7 @@ class_name WolfRetarget
 ## and would teleport a foreign mesh. Bones match by Mixamo name suffix
 ## ("mixamorigHips" / "mixamorig_Hips" / "vis_char_050_mixamorig_Hips" → Hips).
 
-const SAMPLE_FPS := 30.0
+const SAMPLE_FPS := 24.0
 
 ## Rigify DEF-риг (Quaternius UAL) -> имена Mixamo.
 const RIGIFY_TO_MIXAMO := {
@@ -41,6 +41,7 @@ const UAL_CLIPS := {
 	"Attack2": "Punch_Cross",
 	"AttackHeavy": "Sword_Attack",
 	"Hit": "Hit_Chest",
+	"HitHead": "Hit_Head",      # тяжёлый удар мотает голову
 	"Death": "Death01",
 	"Roll": "Roll",
 	"Sprint": "Sprint",         # спринт-бег (боты в погоне, беглецы)

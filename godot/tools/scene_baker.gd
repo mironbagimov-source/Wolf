@@ -1,4 +1,6 @@
 extends SceneTree
+
+const Forge = preload("res://tools/anim_forge.gd")
 ## Bakes the code-built content into REAL .tscn scenes the Godot editor can
 ## open and edit: the full night district (geometry, lights, props, objective
 ## nodes, Marker3D spawn points) and the four faction character scenes.
@@ -95,6 +97,9 @@ func _apply_ual(char_root: Node3D, p_faction: String, p_is_leader: bool, p_varia
 		var lib := WolfRetarget.build_library_ual(ual_ap, ual_skel, tgt_skel,
 				"Body/" + str(av.get_path_to(tgt_skel)))
 		var role := "leader" if p_is_leader else "%s_%s" % [p_faction, ["a", "b", "c"][clampi(p_variant, 0, 2)]]
+		# Кузница: осанка под роль + клипы, которых в UAL нет (трапеза,
+		# вживление импланта, активация, вторая смерть, дыхание в простое).
+		Forge.apply_role(lib, tgt_skel, role)
 		var res_path := "res://scenes/chars/anims_%s.res" % role
 		ResourceSaver.save(lib, res_path)
 		lib.take_over_path(res_path)

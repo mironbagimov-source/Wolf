@@ -380,6 +380,18 @@ func play_oneshot(anim: String) -> void:
 	_oneshot_t = _anim.get_animation(anim).length * 0.9
 
 
+## Зацикленный «жест-состояние» (трапеза, вживление): держится, пока его
+## переигрывают каждый кадр, и сам гаснет, когда перестали.
+func play_loop(anim: String) -> void:
+	if _anim == null or not _anim.has_animation(anim) or is_dead:
+		return
+	if _anim_current != anim:
+		_anim.play(anim, 0.25)
+		_anim_current = anim
+		_anim_pending = ""
+	_oneshot_t = 0.3   # подновляем «удержание», пока вызывают
+
+
 ## Подъём из агонии (дефибриллятор сработал).
 func revive_anim() -> void:
 	_oneshot_t = 0.0
@@ -388,12 +400,15 @@ func revive_anim() -> void:
 		_anim_current = "Idle"
 
 
-## Смерть: финальная поза остаётся до конца матча.
-func play_death() -> void:
-	if _anim == null or not _anim.has_animation("Death"):
+## Смерть: финальная поза остаётся до конца матча. Вариантов падения два.
+func play_death(alt := false) -> void:
+	if _anim == null:
 		return
-	_anim.play("Death", 0.15)
-	_anim_current = "Death"
+	var clip := "Death2" if (alt and _anim.has_animation("Death2")) else "Death"
+	if not _anim.has_animation(clip):
+		return
+	_anim.play(clip, 0.15)
+	_anim_current = clip
 	_oneshot_t = 9999.0
 
 

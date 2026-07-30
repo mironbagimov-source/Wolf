@@ -1047,6 +1047,25 @@ func _try_hit_door(e: WolfChar) -> void:
 		return
 
 
+## Руки уходят вниз-в сторону и подрагивают: игрок ВИДИТ, что копается
+## в теле (собственная модель в первом лице не рендерится).
+func _vm_work(t: float) -> void:
+	if viewmodel == null:
+		return
+	viewmodel.position = _vm_rest_pos + Vector3(-0.06, -0.16, 0.10) + Vector3(
+		sin(t * 11.0) * 0.012, absf(sin(t * 5.5)) * -0.03, sin(t * 7.0) * 0.008)
+	viewmodel.rotation_degrees = _vm_rest_rot + Vector3(46.0 + sin(t * 5.5) * 7.0, -12.0, 8.0)
+
+
+## Возврат рук в боевую стойку после возни.
+func _vm_rest() -> void:
+	if viewmodel == null:
+		return
+	var tw := create_tween()
+	tw.tween_property(viewmodel, "position", _vm_rest_pos, 0.25)
+	tw.parallel().tween_property(viewmodel, "rotation_degrees", _vm_rest_rot, 0.25)
+
+
 func _kick_viewmodel(charged: bool) -> void:
 	if viewmodel == null:
 		return
@@ -1142,7 +1161,8 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
 	elif target.downed and dmg > 3.0:
 		target.agony_t -= WolfCfg.AGONY_HIT_PENALTY  # добивают и руками
 	elif not target.is_player and dmg > 3.0:
-		target.play_oneshot("Hit")
+		# Тяжёлый удар мотает голову, лёгкий — корпус.
+		target.play_oneshot("HitHead" if dmg > 40.0 else "Hit")
 
 
 func _kill(target: WolfChar) -> void:
@@ -1159,7 +1179,7 @@ func _kill(target: WolfChar) -> void:
 			bomb_pickup.global_position = bomb_site
 			bomb_pickup.visible = true
 	if target._anim != null and target._anim.has_animation("Death"):
-		target.play_death()
+		target.play_death(randf() < 0.5)
 	elif target.visual != null:
 		target.visual.rotation.x = -PI / 2.0  # запасной вариант без клипа
 	_check_win()
@@ -2030,6 +2050,7 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 			var dp := bomb_site - e.global_position
 			if e.interact_pressed and absf(dp.y) < 2.5 and Vector2(dp.x, dp.z).length() <= WolfCfg.BOMB_PICKUP_RANGE:
 				bomb_carried = true
+				e.play_oneshot("PickUp")
 				if bomb_pickup != null:
 					bomb_pickup.visible = false
 				_clear_beacons()
@@ -2088,7 +2109,11 @@ func _tick_feeding(e: WolfChar, delta: float) -> bool:
 			prey.global_position.z - e.global_position.z)
 	if fmod(e.feed_t, 0.5) < delta:
 		_blood_burst(prey.global_position + Vector3(0, 0.5, 0), 8, 1.6)
-		e.play_oneshot("Kneel")
+	e.play_loop("Feed")   # рвёт и жуёт, пока не насытится
+	if e.is_player:
+		_vm_work(WolfCfg.FEED_TIME - e.feed_t)
+		if e.feed_t <= 0.0:
+			_vm_rest()
 	if e.feed_t <= 0.0:
 		_devour(e, prey)
 	return true
@@ -2098,7 +2123,7 @@ func _start_feeding(e: WolfChar) -> void:
 	if e.feed_t > 0.0 or _feed_target(e) == null:
 		return
 	e.feed_t = WolfCfg.FEED_TIME
-	e.play_oneshot("Kneel")
+	e.play_loop("Feed")
 
 
 ## Съел тело: +HP, +урон, +скорость. На пороге — мутация в вампира.
@@ -2305,9 +2330,11 @@ func _civ_actions(p: WolfChar, delta: float) -> bool:
 			_act_kind = ""
 			_act_target = null
 			_act_t = 0.0
+			_vm_rest()
 			return false
 		_act_t += delta
 		p.move_input = Vector2.ZERO
+		_vm_work(_act_t)
 		var need := WolfCfg.INTERROGATE_TIME
 		if _act_kind == "revive":
 			need = WolfCfg.REVIVE_TIME
@@ -2323,6 +2350,7 @@ func _civ_actions(p: WolfChar, delta: float) -> bool:
 			_act_kind = ""
 			_act_target = null
 			_act_t = 0.0
+			_vm_rest()
 		return true
 
 	var civ := _civ_target(p)
@@ -2334,7 +2362,7 @@ func _civ_actions(p: WolfChar, delta: float) -> bool:
 		_act_kind = "civimplant"
 		_act_target = civ
 		_act_t = 0.0
-		p.play_oneshot("Kneel")
+		p.play_loop("Implant")
 		return true
 	match p.faction:
 		"survivor":
@@ -2343,7 +2371,7 @@ func _civ_actions(p: WolfChar, delta: float) -> bool:
 					_act_kind = "revive"
 					_act_target = civ
 					_act_t = 0.0
-					p.play_oneshot("Kneel")
+					p.play_loop("Implant")
 					return true
 			elif p.interact_pressed:
 				# Позвать за собой / отпустить: гуртом до безопасной комнаты.
@@ -2406,7 +2434,7 @@ func _do_revive(healer: WolfChar, t: WolfChar) -> void:
 	if healer.is_player:
 		_loot_msg = "Поднял: «%s» снова на ногах" % (t.char_name if t.char_name != "" else "гражданский")
 		_loot_msg_t = 4.0
-	healer.play_oneshot("Kneel")
+	healer.play_oneshot("Implant")
 
 
 ## Допрос свидетеля: он вычёркивает одно ЛОЖНОЕ место закладки.
@@ -2442,6 +2470,7 @@ func _do_civ_implant(surgeon: WolfChar, t: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS[_implant_pick]
 	_blood_burst(t.global_position + Vector3(0, 0.5, 0), 12, 2.0)
 	_spark_burst(t.global_position + Vector3(0, 0.4, 0))
+	surgeon.play_oneshot("Activate")
 	# Маячок на теле: видно, что оно начинено (цвет по типу).
 	var mi := MeshInstance3D.new()
 	mi.name = "CivImplantMark"
@@ -2466,7 +2495,7 @@ func _do_civ_implant(surgeon: WolfChar, t: WolfChar) -> void:
 	if surgeon.is_player:
 		_loot_msg = "ВЖИВЛЕНО В РАНЕНОГО: %s" % imp["name"]
 		_loot_msg_t = 5.0
-	surgeon.play_oneshot("Kneel")
+	surgeon.play_oneshot("Implant")
 
 
 ## Пассивная био-слизь: враг подошёл к начинённому телу — пузыри лопаются
@@ -2529,6 +2558,7 @@ func _blind(e: WolfChar, secs: float) -> void:
 
 ## [G]: подрывает заряды (в приманке и в телах) и бьёт шоком по размягчённым.
 func _activate_devices(actor: WolfChar) -> void:
+	actor.play_oneshot("Activate")
 	var did := false
 	if bait != null and is_instance_valid(bait) and not bait.is_dead:
 		_detonate_bait(actor)
@@ -2666,7 +2696,7 @@ func _tick_surgery(delta: float) -> void:
 				return
 			_surgery = {"idx": idx, "t": 0.0, "phase": 0}
 			p.installing = true
-			p.play_oneshot("Kneel")
+			p.play_loop("Implant")
 			var ch: Node3D = r["chair"]
 			if ch != null and is_instance_valid(ch):
 				# Ложимся ногами к дуге: она опускается прямо в поле зрения.
@@ -2696,10 +2726,10 @@ func _tick_surgery(delta: float) -> void:
 			arm.position.y = lerpf(2.05, 1.32, clampf(t / (total * 0.35), 0.0, 1.0))
 			arm.rotation_degrees.y = sin(t * 7.0) * 4.0
 
+	_vm_work(t)
 	var phase: int = _surgery["phase"]
 	if phase == 0 and t >= total * 0.18:
 		_surgery["phase"] = 1
-		p.play_oneshot("Kneel")
 		_spark_burst(chest)                      # дуга села, пошёл разрез
 		_alert_psychos(p.global_position)
 		ui.flash_damage()
@@ -2711,7 +2741,6 @@ func _tick_surgery(delta: float) -> void:
 		_surgery["phase"] = 3
 		_spark_burst(chest + Vector3(0, 0.1, 0)) # железо входит в тело
 		_blood_burst(chest, 10, 1.8)
-		p.play_oneshot("Kneel")
 	elif phase == 3 and t >= total * 0.88:
 		_surgery["phase"] = 4
 		_spark_burst(chest)                      # прижигание швов
@@ -2741,6 +2770,7 @@ func _abort_surgery() -> void:
 			var tw := create_tween()
 			tw.tween_property(arm, "position:y", 2.05, 0.5)
 	_surgery = {}
+	_vm_rest()
 	if player != null:
 		player.installing = false
 
@@ -3260,6 +3290,8 @@ func _run_test(delta: float) -> void:
 			_test_implant(delta)
 		"dermal":
 			_test_dermal(delta)
+		"anim":
+			_test_anim(delta)
 		"ghoul":
 			_test_ghoul(delta)
 		"civbomb":
@@ -3423,6 +3455,42 @@ func _test_lift(_delta: float) -> void:
 	elif _test_staged and _test_t > 20.0:
 		print("TEST RESULT: lift FAIL y=%.1f in_shaft=%s" % [player.global_position.y, str(_in_shaft(player.global_position))])
 		get_tree().quit(1)
+
+
+## Стенд осмотра анимаций: гуль в профиль шагает перед камерой.
+## WOLF_ANIM=Walk|Feed|Idle|Implant задаёт клип, WOLF_ANIM_ROLE=ghoul|human.
+func _test_anim(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("survivor", 0, -1)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		player.rotation.y = 0.0
+		var want_ghoul := OS.get_environment("WOLF_ANIM_ROLE") != "human"
+		var pick: Array = entities.filter(func(e: WolfChar) -> bool:
+			return e.faction == ("ghoul" if want_ghoul else "killer") and not e.is_player)
+		_duel_bot = pick[0]
+	elif _test_staged and not _test_shot_taken:
+		# Ставим боком к камере в трёх метрах и гоняем нужный клип.
+		_duel_bot.global_position = player.global_position + Vector3(0, 0, -3.2)
+		_duel_bot.rotation.y = PI / 2.0
+		_duel_bot.desired_yaw = PI / 2.0
+		_duel_bot.velocity = Vector3.ZERO
+		var clip := OS.get_environment("WOLF_ANIM")
+		if clip == "":
+			clip = "Walk"
+		if clip in ["Walk", "Run", "Sprint"]:
+			_duel_bot.move_input = Vector2(0, 1)
+			_duel_bot.sprinting = clip != "Walk"
+		else:
+			_duel_bot.move_input = Vector2.ZERO
+			_duel_bot.play_loop(clip)
+		if _test_t > 4.0:
+			_test_shot_taken = true
+			if _test_shot != "":
+				await _save_shot()
+			print("TEST RESULT: anim %s ok (клип=%s)" % [clip, _duel_bot._anim_current])
+			get_tree().quit(0)
 
 
 ## Кибер-гуль: четыре трапезы — мутация в вампира (модель, статы, разблок).
