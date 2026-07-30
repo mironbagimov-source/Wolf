@@ -120,7 +120,7 @@ class Body:
 		self.name = name
 		self.parts = []   # (bmesh, bone_name, material_key)
 
-	def tube(self, bone, a, b, r_start, r_end, material, sides=6):
+	def tube(self, bone, a, b, r_start, r_end, material, sides=10):
 		mesh = bmesh.new()
 		axis = (b - a)
 		length = axis.length
@@ -148,7 +148,7 @@ class Body:
 		scale = squash or Vector((1, 1, 1))
 		matrix = Matrix.Translation(centre) @ Matrix.Diagonal(
 			(radius * scale.x, radius * scale.y, radius * scale.z, 1.0))
-		bmesh.ops.create_icosphere(mesh, subdivisions=1, radius=1.0, matrix=matrix)
+		bmesh.ops.create_icosphere(mesh, subdivisions=2, radius=1.0, matrix=matrix)
 		self.parts.append((mesh, bone, material))
 
 	def ring(self, bone, centre, radius, thickness, material, axis=None):
@@ -194,6 +194,12 @@ class Body:
 
 			groups.setdefault(bone, []).extend(range(offset, len(combined.verts)))
 			part.free()
+
+		# Мягкое затенение: свет интерполируется по граням, и лоу-поли-конечности
+		# перестают быть гранёными. Вместе с картами нормалей из скина тело
+		# читается как округлое, хотя полигонов почти не прибавилось.
+		for face in combined.faces:
+			face.smooth = True
 
 		combined.to_mesh(mesh_data)
 		combined.free()

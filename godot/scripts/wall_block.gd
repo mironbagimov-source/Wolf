@@ -54,10 +54,12 @@ func build(wall: Dictionary) -> void:
 		box_mesh.size = Vector3(width, height, depth)
 		_mesh.mesh = box_mesh
 
-	var material := StandardMaterial3D.new()
-	material.albedo_color = TINTS.get(kind, TINTS.wall) if not breakable else TINTS.broken
-	material.roughness = 1.0
-	_mesh.material_override = material
+	var colour: Color = TINTS.get(kind, TINTS.wall) if not breakable else TINTS.broken
+	# Профиль поверхности по роли куска: кора для стволов, тёсаный камень для
+	# ворот, бетон для всего остального. Материал общий на (профиль+цвет), карта
+	# нормалей одна на профиль — шестьсот стен не плодят шестьсот текстур.
+	var profile := "bark" if kind == "tree" else ("stone" if kind == "gate" else "concrete")
+	_mesh.material_override = Surfaces.material(profile, colour, 0.35)
 	add_child(_mesh)
 
 
@@ -66,7 +68,9 @@ func shatter() -> void:
 		return
 	data.alive = false
 	_shape.disabled = true
-	# Обломки остаются лежать: пролом должно быть видно.
+	# Обломки остаются лежать: пролом должно быть видно. Материал стены общий на
+	# всех — мутировать его нельзя, иначе потемнеет весь квартал. Ставим отдельный
+	# материал обломков (он тоже общий, но обломки все одинаковы).
 	_mesh.scale.y = 0.16
 	_mesh.position.y = -data.h * 0.42
-	(_mesh.material_override as StandardMaterial3D).albedo_color = Color("1a1a1e")
+	_mesh.material_override = Surfaces.material("concrete", Color("1a1a1e"), 0.35)

@@ -51,10 +51,25 @@ func material_for(part: String) -> StandardMaterial3D:
 	material.albedo_texture = _pattern_texture()
 	material.uv1_triplanar = true
 	material.uv1_scale = Vector3.ONE * texture_scale
-	# Резкий фильтр под стать лоу-поли: мыла тут не надо.
+	# Резкий фильтр под стать лоу-поли: мыла тут не надо, но линейный на нормалях —
+	# иначе рельеф ступенчатый.
 	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	material.roughness = roughness
-	material.metallic = 0.75 if metal_parts.has(part) else 0.0
+
+	# Карта нормалей из того же узора: свет теперь ловит фактуру — ткань, ржавые
+	# потёки, переплетение парусины становятся рельефом, а не просто пятном
+	# цвета. Полигонов не прибавилось ни одного.
+	material.normal_enabled = true
+	material.normal_texture = _normal_texture()
+	material.normal_scale = 1.0 + pattern_strength * 1.2
+
+	var is_metal := metal_parts.has(part)
+	material.metallic = 0.85 if is_metal else 0.0
+	# Металл гладкий и бликует, ткань шершавая и матовая — разводим их по
+	# шероховатости, иначе PBR не читается.
+	material.roughness = (0.34 if is_metal else roughness)
+	material.roughness_texture = _rough_texture()
+	material.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	material.metallic_specular = 0.6 if is_metal else 0.35
 
 	material.emission_enabled = true
 	if glow_energy > 0.0 and glow_parts.has(part):
@@ -66,28 +81,86 @@ func material_for(part: String) -> StandardMaterial3D:
 	return material
 
 
-func _pattern_texture() -> Texture2D:
-	var key := "%s|%d|%.2f" % [pattern, pattern_seed, pattern_strength]
+## Высотное поле узора: одно на скин, из него делаются и цвет, и рельеф, и
+## шероховатость. Значение 0 — гладко и чисто, 1 — грязный выступ.
+func _height_field() -> PackedFloat32Array:
+	var key := "h|%s|%d" % [pattern, pattern_seed]
 	if _textures.has(key):
 		return _textures[key]
 
-	var image := Image.create(TEXTURE_SIZE, TEXTURE_SIZE, false, Image.FORMAT_RGB8)
+	var field := PackedFloat32Array()
+	field.resize(TEXTURE_SIZE * TEXTURE_SIZE)
 	var noise := FastNoiseLite.new()
 	noise.seed = pattern_seed
 	noise.frequency = 0.06
 	noise.fractal_octaves = 3
-
 	var fine := FastNoiseLite.new()
 	fine.seed = pattern_seed + 7
 	fine.frequency = 0.28
-
 	for y in TEXTURE_SIZE:
 		for x in TEXTURE_SIZE:
-			var value := _sample(x, y, noise, fine)
+			field[y * TEXTURE_SIZE + x] = clampf(_sample(x, y, noise, fine), 0.0, 1.0)
+	_textures[key] = field
+	return field
+
+
+func _height_at(field: PackedFloat32Array, x: int, y: int) -> float:
+	return field[posmod(y, TEXTURE_SIZE) * TEXTURE_SIZE + posmod(x, TEXTURE_SIZE)]
+
+
+func _pattern_texture() -> Texture2D:
+	var key := "a|%s|%d|%.2f" % [pattern, pattern_seed, pattern_strength]
+	if _textures.has(key):
+		return _textures[key]
+
+	var field := _height_field()
+	var image := Image.create(TEXTURE_SIZE, TEXTURE_SIZE, false, Image.FORMAT_RGB8)
+	for y in TEXTURE_SIZE:
+		for x in TEXTURE_SIZE:
 			# Узор только затемняет: цвет детали задаётся albedo_color, а текстура
 			# на него умножается. Светлее белого она стать не должна.
-			var shade := clampf(1.0 - value * pattern_strength, 0.15, 1.0)
+			var shade := clampf(1.0 - _height_at(field, x, y) * pattern_strength, 0.15, 1.0)
 			image.set_pixel(x, y, Color(shade, shade, shade))
+
+	var texture := ImageTexture.create_from_image(image)
+	_textures[key] = texture
+	return texture
+
+
+## Карта нормалей из наклона высотного поля. Кодировка Godot: RG — наклон,
+## B — «вверх». Тангенциальное пространство, кладётся трипланарно вместе с
+## остальными текстурами.
+func _normal_texture() -> Texture2D:
+	var key := "n|%s|%d" % [pattern, pattern_seed]
+	if _textures.has(key):
+		return _textures[key]
+
+	var field := _height_field()
+	var image := Image.create(TEXTURE_SIZE, TEXTURE_SIZE, false, Image.FORMAT_RGB8)
+	for y in TEXTURE_SIZE:
+		for x in TEXTURE_SIZE:
+			var dx := _height_at(field, x + 1, y) - _height_at(field, x - 1, y)
+			var dy := _height_at(field, x, y + 1) - _height_at(field, x, y - 1)
+			var n := Vector3(-dx, -dy, 0.6).normalized()
+			image.set_pixel(x, y, Color(n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5))
+
+	var texture := ImageTexture.create_from_image(image)
+	_textures[key] = texture
+	return texture
+
+
+## Карта шероховатости: грязь и ржавчина глушат блик, чистый металл — нет.
+func _rough_texture() -> Texture2D:
+	var key := "r|%s|%d" % [pattern, pattern_seed]
+	if _textures.has(key):
+		return _textures[key]
+
+	var field := _height_field()
+	var image := Image.create(TEXTURE_SIZE, TEXTURE_SIZE, false, Image.FORMAT_RGB8)
+	for y in TEXTURE_SIZE:
+		for x in TEXTURE_SIZE:
+			var r := clampf(0.55 + _height_at(field, x, y) * 0.45, 0.0, 1.0)
+			image.set_pixel(x, y, Color(r, r, r))
 
 	var texture := ImageTexture.create_from_image(image)
 	_textures[key] = texture

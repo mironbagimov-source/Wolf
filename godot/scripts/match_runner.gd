@@ -211,10 +211,7 @@ func _build_ground() -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(width, depth)
 	mesh.mesh = plane
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color("0d0f13")
-	material.roughness = 1.0
-	mesh.material_override = material
+	mesh.material_override = Surfaces.material("ground", Color("0d0f13"), 0.25)
 	ground.add_child(mesh)
 	_level_root.add_child(ground)
 
@@ -229,10 +226,9 @@ func _build_ground() -> void:
 		patch_mesh.size = Vector2(rect.max_x - rect.min_x, rect.max_z - rect.min_z)
 		patch.mesh = patch_mesh
 		patch.position = Vector3((rect.min_x + rect.max_x) * 0.5, 0.02, (rect.min_z + rect.max_z) * 0.5)
-		var patch_material := StandardMaterial3D.new()
-		patch_material.albedo_color = floors[region.id]
-		patch_material.roughness = 1.0
-		patch.material_override = patch_material
+		# Джунгли — мшистая земля, остальное — своя фактура; профиль общий, цвет
+		# зоны свой.
+		patch.material_override = Surfaces.material("ground", floors[region.id], 0.3)
 		_level_root.add_child(patch)
 
 
