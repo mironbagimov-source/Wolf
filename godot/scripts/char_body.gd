@@ -76,6 +76,8 @@ var lift_target_y := 0.0
 var desired_yaw := 0.0  # боты доворачиваются плавно, а не рывком
 
 var gunshot_t := 0.0    # недавно стрелял (полиция) — психи слышат издалека
+var is_bait := false    # реанимированный труп-приманка с зарядом в груди
+var floating := false   # парит в грав-шахте (анимация Float)
 
 # Агония гражданских: лежит с нулём HP, добиваем [F] или встаёт от дефиба.
 var downed := false
@@ -287,10 +289,14 @@ func update_animation(delta := 0.016) -> void:
 		return
 	var moving := move_input.length() > 0.05 and not is_grabbed
 	var target := "Idle"
-	if crouching and _anim.has_animation("CrouchIdle"):
+	if floating and _anim.has_animation("Float"):
+		target = "Float"
+	elif crouching and _anim.has_animation("CrouchIdle"):
 		target = "CrouchWalk" if moving else "CrouchIdle"
 	elif moving:
-		target = "Run" if sprinting else "Walk"
+		target = "Walk"
+		if sprinting:
+			target = "Sprint" if _anim.has_animation("Sprint") else "Run"
 	if target == _anim_current:
 		_anim_pending = ""
 		return

@@ -112,6 +112,7 @@ static func build_district(root: Node3D) -> void:
 	_floor_club(root, geometry, 15)
 	_lights(geometry)
 	_horror(geometry)
+	_loot_bodies(root, geometry)
 
 	# Кабины больше нет — лифт это прозрачная ГРАВ-ШАХТА: шагни внутрь,
 	# SPACE тянет вверх, без ввода плавно опускает (см. main.gd).
@@ -582,6 +583,57 @@ static func _horror(parent: Node3D) -> void:
 		var y_top: float = (c[0] as Vector3).y + H - 0.35
 		var cab := _panel(parent, Vector3((c[0] as Vector3).x, y_top - 0.7, (c[0] as Vector3).z), Vector3(0.035, 1.4, 0.035), cable_mat, "Cable")
 		cab.rotation_degrees.z = c[1] as float
+
+
+## Трупики по всей башне: подойти и осмотреть [E] — история смерти, а боевым
+## сторонам с трёх осмотров собирается чертёж оружия-прототипа (main.gd).
+static func _loot_bodies(root: Node3D, parent: Node3D) -> void:
+	var grp := _group(root, "LootBodies")
+	var cloth_colors := [Color(0.16, 0.17, 0.22), Color(0.24, 0.14, 0.12), Color(0.13, 0.2, 0.16), Color(0.2, 0.2, 0.24)]
+	var blood := StandardMaterial3D.new()
+	blood.albedo_color = Color(0.30, 0.012, 0.02)
+	blood.roughness = 0.25
+	var skin := StandardMaterial3D.new()
+	skin.albedo_color = Color(0.6, 0.48, 0.4)
+	skin.roughness = 0.8
+	var spots := [
+		[Vector3(-24, 0, 8), 30.0, "охранник лобби: вскрыт когтями, крови почти нет"],
+		[Vector3(12, H, -14), 100.0, "торговец: прятался за прилавком. Не помогло"],
+		[Vector3(-26, 2 * H, -6), 200.0, "техник: разводной ключ так и остался в руке"],
+		[Vector3(18, 3 * H, 14), 320.0, "повар фудкорта: в кармане — расчёты лезвия"],
+		[Vector3(-12, 5 * H, 19.0), 75.0, "постоялец: так и не вышел из номера"],
+		[Vector3(22, 8 * H, 10), 150.0, "инженер «Арасаки»: планшет с обрывками чертежей"],
+		[Vector3(-20, 10 * H, -10), 250.0, "охранник этажа: шокер разряжен в пустоту"],
+		[Vector3(14, 11 * H, 12), 20.0, "геймер: умер, не сняв гарнитуру"],
+		[Vector3(-22, 13 * H, -16), 290.0, "гость люкса: боевой имплант вырван из шеи"],
+		[Vector3(10, 15 * H, -16), 60.0, "бармен «Облаков»: последний коктейль не долит"],
+	]
+	for i in spots.size():
+		var s: Array = spots[i]
+		var pos := s[0] as Vector3
+		var m := Marker3D.new()
+		m.name = "Loot%d" % i
+		m.position = pos
+		m.set_meta("desc", s[2])
+		grp.add_child(m)
+		# Лежащее тело из примитивов + лужа под ним.
+		var body := Node3D.new()
+		body.name = "Corpse%d" % i
+		body.position = pos
+		body.rotation_degrees.y = s[1] as float
+		parent.add_child(body)
+		var cmat := StandardMaterial3D.new()
+		cmat.albedo_color = cloth_colors[i % cloth_colors.size()]
+		cmat.roughness = 0.85
+		_panel(body, Vector3(0, 0.11, 0), Vector3(0.5, 0.2, 0.85), cmat, "Torso")
+		_panel(body, Vector3(0.03, 0.09, 0.62), Vector3(0.2, 0.18, 0.22), skin, "Head")
+		var leg_l := _panel(body, Vector3(-0.14, 0.07, -0.75), Vector3(0.16, 0.13, 0.7), cmat, "LegL")
+		leg_l.rotation_degrees.y = 6.0
+		var leg_r := _panel(body, Vector3(0.16, 0.07, -0.72), Vector3(0.16, 0.13, 0.62), cmat, "LegR")
+		leg_r.rotation_degrees.y = -14.0
+		var arm := _panel(body, Vector3(0.42, 0.06, 0.18), Vector3(0.5, 0.1, 0.14), skin, "ArmR")
+		arm.rotation_degrees.y = 35.0
+		_panel(body, Vector3(0, 0.012, 0.1), Vector3(1.5, 0.014, 1.0), blood, "Pool")
 
 
 # ---------------------------------------------------------------------------

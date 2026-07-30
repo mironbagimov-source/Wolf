@@ -60,6 +60,16 @@ var bomb_progress := 0.0
 var bomb_planted := false
 var exec_cam := {}
 
+# --- тактические приколы ---------------------------------------------------
+# Трупики: осмотр [E] даёт историю смерти + чертежи; 3 чертежа = прототип.
+var loot_bodies: Array = []        # [{pos, desc, looted}]
+var blueprints := 0
+var _loot_msg := ""
+var _loot_msg_t := 0.0
+# Некро-приманка наёмника: реанимированный труп гражданского с зарядом.
+var bait: WolfChar = null
+var _bait_beacon: MeshInstance3D = null
+
 var elevator: WolfElevator = null
 var _captured := false
 var _look_delta := Vector2.ZERO
@@ -172,6 +182,12 @@ func _collect_layout() -> void:
 		for child in spots.get_children():
 			bomb_spots.append({"pos": (child as Marker3D).global_position,
 				"desc": String(child.get_meta("desc", "где-то в башне"))})
+	loot_bodies.clear()
+	var lb := district.get_node_or_null("LootBodies")
+	if lb != null:
+		for child in lb.get_children():
+			loot_bodies.append({"pos": (child as Marker3D).global_position,
+				"desc": String(child.get_meta("desc", "")), "looted": false})
 	bomb_pickup = district.get_node_or_null("BombPickup")
 	var evac := district.get_node_or_null("EvacMarker")
 	if evac != null:
@@ -207,6 +223,12 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 	bomb_progress = 0.0
 	bomb_planted = false
 	bomb_carried = false
+	bait = null
+	_bait_beacon = null
+	blueprints = 0
+	_loot_msg_t = 0.0
+	for l: Dictionary in loot_bodies:
+		l["looted"] = false
 	for b in _hint_beacons:
 		(b as Node).queue_free()
 	_hint_beacons.clear()
@@ -542,8 +564,8 @@ func _end_game(result: String) -> void:
 func _alive(faction: String) -> int:
 	var n := 0
 	for e in entities:
-		if e.faction == faction and not e.is_dead:
-			n += 1
+		if e.faction == faction and not e.is_dead and not e.is_bait:
+			n += 1  # приманка «жива», но выжившим не считается
 	return n
 
 
@@ -604,7 +626,7 @@ func _mouse_pressed_once(btn: MouseButton) -> bool:
 
 
 func _store_prev_input() -> void:
-	for code in [KEY_E, KEY_F, KEY_Q, KEY_SPACE, KEY_C, KEY_W, KEY_A, KEY_S, KEY_D, KEY_X,
+	for code in [KEY_E, KEY_F, KEY_Q, KEY_G, KEY_SPACE, KEY_C, KEY_W, KEY_A, KEY_S, KEY_D, KEY_X,
 			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0]:
 		_keys_prev[code] = Input.is_key_pressed(code)
 	for btn in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
@@ -659,6 +681,7 @@ func _update_player_input(delta: float) -> void:
 
 	p.interact_held = _key(KEY_E)
 	p.interact_pressed = _key_pressed_once(KEY_E)
+	p.floating = _in_shaft(p.global_position) and not p.is_on_floor()
 
 	if p.faction == "survivor" and _key_pressed_once(KEY_F):
 		p.flashlight_on = not p.flashlight_on
@@ -946,7 +969,7 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
 		ui.flash_damage()
 	var finisher := dmg >= 9000.0  # добивание минует агонию
 	if target.hp <= 0.0 and not target.is_dead:
-		if target.faction == "survivor" and not finisher and not target.downed:
+		if target.faction == "survivor" and not finisher and not target.downed and not target.is_bait:
 			# Гражданский не умирает сразу: падает в АГОНИЮ. Добить [F] или
 			# ждать: с дефибриллятором встанет сам, без — истечёт кровью.
 			target.downed = true
@@ -986,7 +1009,7 @@ func _find_execute_target(e: WolfChar) -> WolfChar:
 	var best: WolfChar = null
 	var best_d := INF
 	for t: WolfChar in entities:
-		if t == e or t.is_dead or t.being_executed or t.faction == e.faction:
+		if t == e or t.is_dead or t.being_executed or t.faction == e.faction or t.is_bait:
 			continue
 		if t.hp > t.max_hp * WolfCfg.EXECUTE_THRESHOLD:
 			continue
@@ -1398,6 +1421,9 @@ func _bot_open_or_break_door(e: WolfChar) -> void:
 
 
 func _update_bot(e: WolfChar, delta: float) -> void:
+	if e.is_bait:
+		e.move_input = Vector2.ZERO  # приманка стоит и дёргается на месте
+		return
 	if e.downed:
 		return
 	if e.winding:
@@ -1439,6 +1465,7 @@ func _bot_civilian(e: WolfChar, delta: float) -> void:
 				best_cd = d
 				best_cp = cp
 		if best_cd < WolfCfg.CALL_RANGE:
+			e.play_oneshot("Interact")  # бот тыкает в терминал — видно со стороны
 			_trigger_call()
 		else:
 			e.sprinting = false
@@ -1742,6 +1769,22 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 				_trigger_call()
 				break
 
+	# Осмотр трупиков: история смерти + чертежи прототипа.
+	if e.interact_pressed:
+		var li := _nearest_loot(e.global_position)
+		if li >= 0:
+			_do_loot(e, li)
+
+	# Некро-приманка: наёмник реанимирует труп гражданского и вживляет заряд
+	# [E]; когда психи сползутся на «живое мясо» — подрыв [G].
+	if e.faction == "killer":
+		if e.interact_pressed and (bait == null or not is_instance_valid(bait) or bait.is_dead):
+			var corpse := _nearest_dead_survivor(e)
+			if corpse != null:
+				_make_bait(corpse)
+		if _key_pressed_once(KEY_G) and bait != null and is_instance_valid(bait) and not bait.is_dead:
+			_detonate_bait(e)
+
 	# Взрывчатка: найти (подбор E), донести до грав-лифта, заложить (держать E).
 	if e.faction == "killer" and not bomb_planted:
 		if not bomb_carried:
@@ -1769,6 +1812,157 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 
 
 # ---------------------------------------------------------------------------
+# тактические приколы: лут трупиков и некро-приманка
+# ---------------------------------------------------------------------------
+
+func _nearest_loot(pos: Vector3) -> int:
+	for i in loot_bodies.size():
+		var l: Dictionary = loot_bodies[i]
+		if l["looted"]:
+			continue
+		var dp := (l["pos"] as Vector3) - pos
+		if absf(dp.y) < 2.2 and Vector2(dp.x, dp.z).length() <= 2.2:
+			return i
+	return -1
+
+
+## Осмотр трупика: всем — история смерти; боевым сторонам — чертежи. Три
+## чертежа собирают ПРОТОТИП: текущее оружие получает +урон и +скорость.
+func _do_loot(e: WolfChar, idx: int) -> void:
+	var l: Dictionary = loot_bodies[idx]
+	l["looted"] = true
+	var msg := str(l["desc"])
+	if e.faction in ["killer", "cannibal"]:
+		if blueprints < 3:
+			blueprints += 1
+			msg += " · ЧЕРТЁЖ %d/3" % blueprints
+			if blueprints == 3:
+				var w: Dictionary = e.weapon.duplicate()
+				w["dmg"] = float(w.get("dmg", 1.0)) * 1.25
+				w["speed"] = float(w.get("speed", 1.0)) * 1.1
+				w["name"] = str(w.get("name", "Оружие")) + " (прото)"
+				e.set_weapon(w)
+				_build_viewmodel()
+				msg += " · ПРОТОТИП СОБРАН — оружие улучшено!"
+		else:
+			msg += " · ничего нового"
+	_loot_msg = msg
+	_loot_msg_t = 6.0
+	e.play_oneshot("Interact")
+
+
+func _nearest_dead_survivor(e: WolfChar) -> WolfChar:
+	var best: WolfChar = null
+	var best_d := 2.4
+	for t: WolfChar in entities:
+		if t.faction != "survivor" or not t.is_dead or t.is_bait:
+			continue
+		var dp := t.global_position - e.global_position
+		if absf(dp.y) > 2.2:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
+## Труп встаёт с зарядом в груди: психи чуют «живое мясо» и сползаются со
+## всей башни. Приманку можно забить — успей подорвать [G].
+func _make_bait(corpse: WolfChar) -> void:
+	bait = corpse
+	corpse.is_dead = false
+	corpse.is_bait = true
+	corpse.downed = false
+	corpse.hp = 120.0
+	corpse.max_hp = 120.0
+	corpse.move_input = Vector2.ZERO
+	if corpse.visual != null:
+		corpse.visual.rotation.x = 0.0  # запасная поза без Death-клипа
+	corpse.revive_anim()
+	_bait_beacon = MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.06
+	sph.height = 0.12
+	_bait_beacon.mesh = sph
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(1.0, 0.1, 0.1)
+	m.emission_enabled = true
+	m.emission = Color(1.0, 0.08, 0.05)
+	m.emission_energy_multiplier = 3.0
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_bait_beacon.material_override = m
+	_bait_beacon.position = Vector3(0, 1.25, 0.18)
+	corpse.add_child(_bait_beacon)
+
+
+## Пульс детонатора + психи без живой цели тянутся к приманке.
+func _tick_bait(_delta: float) -> void:
+	if bait == null or not is_instance_valid(bait) or bait.is_dead or not bait.is_bait:
+		return
+	bait.move_input = Vector2.ZERO
+	if _bait_beacon != null and is_instance_valid(_bait_beacon):
+		var m := _bait_beacon.material_override as StandardMaterial3D
+		m.emission_energy_multiplier = 1.0 + 3.0 * absf(sin(Time.get_ticks_msec() / 150.0))
+	for e: WolfChar in entities:
+		if e.faction != "cannibal" or e.is_dead or e.is_player or e.being_executed:
+			continue
+		if e.investigate_t < 1.0:
+			e.investigate_pos = bait.global_position
+			e.investigate_t = 1.5
+
+
+## БУМ. Заряд в груди приманки: вспышка, ударная волна, урон всем вокруг.
+func _detonate_bait(source: WolfChar) -> void:
+	var victim := bait
+	bait = null
+	if _bait_beacon != null and is_instance_valid(_bait_beacon):
+		_bait_beacon.queue_free()
+	_bait_beacon = null
+	var pos := victim.global_position + Vector3(0, 1.0, 0)
+	var l := OmniLight3D.new()
+	l.light_color = Color(1.0, 0.6, 0.25)
+	l.light_energy = 6.0
+	l.omni_range = 14.0
+	l.position = pos
+	add_child(l)
+	get_tree().create_timer(0.12).timeout.connect(func() -> void:
+		if is_instance_valid(l):
+			l.queue_free())
+	var wave := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.5
+	sph.height = 1.0
+	wave.mesh = sph
+	var wm := StandardMaterial3D.new()
+	wm.albedo_color = Color(1.0, 0.55, 0.15, 0.5)
+	wm.emission_enabled = true
+	wm.emission = Color(1.0, 0.5, 0.1)
+	wm.emission_energy_multiplier = 2.5
+	wm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	wm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	wave.material_override = wm
+	wave.position = pos
+	add_child(wave)
+	var tw := create_tween()
+	tw.tween_property(wave, "scale", Vector3.ONE * 13.0, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(wave, "material_override:albedo_color:a", 0.0, 0.35)
+	tw.tween_callback(wave.queue_free)
+	_blood_burst(pos, 60, 7.0)
+	_blood_burst(pos + Vector3(0, 0.5, 0), 30, 4.0)
+	_spark_burst(pos)
+	for e: WolfChar in entities.duplicate():
+		if e == victim or e.is_dead:
+			continue
+		var dp := e.global_position - victim.global_position
+		var flat := Vector2(dp.x, dp.z).length()
+		if absf(dp.y) > 3.2 or flat > 6.5:
+			continue
+		_damage(e, 320.0 * (1.0 - clampf(flat / 8.0, 0.0, 0.6)), source)
+	_damage(victim, 99999.0, source)
+
+
+# ---------------------------------------------------------------------------
 # hud
 # ---------------------------------------------------------------------------
 
@@ -1777,6 +1971,10 @@ func _prompt_for(p: WolfChar) -> String:
 		return "Вы мертвы."
 	if p.being_executed:
 		return "Тебя добивают…"
+	if _loot_msg_t > 0.0:
+		return _loot_msg
+	if _nearest_loot(p.global_position) >= 0:
+		return "[E] Осмотреть труп"
 	if _in_shaft(p.global_position):
 		return "ГРАВ-ШАХТА · SPACE — вверх · отпусти — плавно вниз · этаж %d" % (clampi(int(round(p.global_position.y / WolfCfg.FLOOR_H)), 0, WolfCfg.FLOORS - 1) + 1)
 	if p.charging:
@@ -1806,6 +2004,10 @@ func _prompt_for(p: WolfChar) -> String:
 	if p.faction == "killer":
 		if p.can_execute and _find_execute_target(p) != null:
 			return "[F] ДОБИВАНИЕ"
+		if bait != null and is_instance_valid(bait) and not bait.is_dead:
+			return "[G] ПОДОРВАТЬ приманку — психи сползаются на живое"
+		if _nearest_dead_survivor(p) != null:
+			return "[E] Реанимировать труп и вживить заряд (приманка)"
 		if bomb_progress > 0.0 and not bomb_planted:
 			return "Закладка в грав-лифт… %d%%" % int(bomb_progress / WolfCfg.BOMB_PLANT_TIME * 100.0)
 		if not bomb_planted and not bomb_carried:
@@ -1845,6 +2047,8 @@ func _update_hud() -> void:
 		stance.append(p.weapon.get("name", ""))
 	if p.faction == "killer":
 		stance.append("Ножи %d" % p.knives)
+	if blueprints > 0 and p.faction in ["cannibal", "killer"]:
+		stance.append("Чертежи %d/3" % blueprints)
 	if p.crouching:
 		stance.append("присед")
 	elif p.sprinting:
@@ -1887,6 +2091,8 @@ func _physics_process(delta: float) -> void:
 
 	_tick_call_system(delta)
 	_tick_executions(delta)
+	_tick_bait(delta)
+	_loot_msg_t = maxf(0.0, _loot_msg_t - delta)
 	# Conditions like "merc stands in the evac zone" change without anyone
 	# dying, so the win check runs every tick, not only on kill events.
 	_check_win()
@@ -1973,6 +2179,10 @@ func _run_test(delta: float) -> void:
 			_test_bomb(delta)
 		"stairs":
 			_test_stairs(delta)
+		"bait":
+			_test_bait(delta)
+		"loot":
+			_test_loot(delta)
 		"loadout":
 			if _test_t > 0.6 and not _test_staged:
 				_test_staged = true
@@ -2123,6 +2333,81 @@ func _test_lift(_delta: float) -> void:
 		get_tree().quit(0)
 	elif _test_staged and _test_t > 20.0:
 		print("TEST RESULT: lift FAIL y=%.1f in_shaft=%s" % [player.global_position.y, str(_in_shaft(player.global_position))])
+		get_tree().quit(1)
+
+
+## Некро-приманка: убить гражданского, реанимировать [E], пин психа рядом,
+## подрыв [G] — псих должен погибнуть, приманка исчезнуть.
+func _test_bait(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		var civ: WolfChar = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
+		civ.global_position = player.global_position + Vector3(1.2, 0, 0)
+		_damage(civ, 99999.0, null)
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_player and not e.is_leader)[0]
+	elif _test_staged and bait == null and not _test_shot_taken and _test_t < 5.0:
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = fmod(_test_t, 0.4) < 0.2
+		Input.parse_input_event(ev)
+	elif _test_staged and bait != null and not bait.is_dead and not _test_shot_taken:
+		_duel_bot.global_position = bait.global_position + Vector3(1.5, 0, 0)
+		_duel_bot.cd_attack = 10.0  # психа пиним: до взрыва приманку не забить
+		_duel_bot.winding = false
+		player.global_position = bait.global_position + Vector3(-8.0, 0.2, 0)  # сам — из радиуса
+		if _test_t > 4.5:
+			_test_shot_taken = true
+			if _test_shot != "":
+				await _save_shot()
+			var ev := InputEventKey.new()
+			ev.keycode = KEY_G
+			ev.physical_keycode = KEY_G
+			ev.pressed = true
+			Input.parse_input_event(ev)
+	elif _test_shot_taken and _test_t > 6.0:
+		var ok := _duel_bot.is_dead and bait == null
+		print("TEST RESULT: bait psycho_dead=%s bait_cleared=%s %s" % [str(_duel_bot.is_dead), str(bait == null), "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+	elif _test_t > 20.0:
+		print("TEST RESULT: bait FAIL timeout bait=%s" % str(bait))
+		get_tree().quit(1)
+
+
+## Лут трупиков: три осмотра [E] — три чертежа и оружие-«прото».
+func _test_loot(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+	elif _test_staged and not _test_shot_taken and mode == "playing":
+		if blueprints >= 3:
+			_test_shot_taken = true
+			var proto: bool = str(player.weapon.get("name", "")).ends_with("(прото)")
+			var ok := proto and float(player.weapon.get("dmg", 1.0)) > 1.2
+			print("TEST RESULT: loot blueprints=%d weapon=%s %s" % [blueprints, str(player.weapon.get("name", "")), "OK" if ok else "FAIL"])
+			get_tree().quit(0 if ok else 1)
+			return
+		var idx := -1
+		for i in loot_bodies.size():
+			if not loot_bodies[i]["looted"]:
+				idx = i
+				break
+		if idx < 0:
+			print("TEST RESULT: loot FAIL: нет трупиков")
+			get_tree().quit(1)
+			return
+		player.global_position = (loot_bodies[idx]["pos"] as Vector3) + Vector3(0.5, 0.2, 0)
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = fmod(_test_t, 0.3) < 0.15
+		Input.parse_input_event(ev)
+	elif _test_t > 25.0:
+		print("TEST RESULT: loot FAIL timeout blueprints=%d" % blueprints)
 		get_tree().quit(1)
 
 

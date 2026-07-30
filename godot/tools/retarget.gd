@@ -43,6 +43,11 @@ const UAL_CLIPS := {
 	"Hit": "Hit_Chest",
 	"Death": "Death01",
 	"Roll": "Roll",
+	"Sprint": "Sprint",         # спринт-бег (боты в погоне, беглецы)
+	"Interact": "Interact",     # терминал вызова, осмотр трупиков
+	"Kneel": "Fixing_Kneeling", # вживление заряда, возня с телом
+	"PickUp": "PickUp_Table",   # подбор взрывчатки
+	"Float": "Swim_Idle",       # парение в грав-шахте
 }
 
 
