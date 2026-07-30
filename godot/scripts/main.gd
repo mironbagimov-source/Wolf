@@ -33,7 +33,24 @@ func _process(_delta: float) -> void:
 func _on_side_picked(side: String, kind: String) -> void:
 	runner.start(side, kind)
 	ui.show_match()
+	_capture_mouse()
+
+
+## Захват мыши на старте иногда не срабатывает, если окно ещё не в фокусе:
+## движок молча оставляет курсор видимым, и обзор не крутится. Пробуем сразу и
+## ещё раз следующим кадром, когда фокус точно есть.
+func _capture_mouse() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	await get_tree().process_frame
+	if runner.running:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+## Вернулись в окно (alt-tab, клик по панели) — снова забираем курсор, иначе
+## после переключения обзор «залипает».
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_IN and runner and runner.running:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _on_restart() -> void:

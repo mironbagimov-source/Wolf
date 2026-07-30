@@ -155,6 +155,30 @@ func _build_environment() -> void:
 	_env.fog_enabled = true
 	_env.fog_light_color = Color("06070c")
 	_env.fog_density = 0.016
+
+	# Пост-обработка. Не фотореализм — модели для него слишком простые, — но она
+	# вытягивает картинку из «кубики в темноте» в кинематографичную ночь:
+	# киношный тонмаппинг, свечение от ламп и огня, мягкое затенение в углах и
+	# щепотка контраста.
+	_env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	_env.tonemap_exposure = 1.05
+	_env.tonemap_white = 1.1
+	_env.glow_enabled = true
+	_env.glow_intensity = 0.5
+	_env.glow_bloom = 0.15
+	_env.glow_hdr_threshold = 0.85
+	_env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
+	_env.ssao_enabled = true
+	_env.ssao_radius = 1.4
+	_env.ssao_intensity = 2.2
+	_env.ssao_power = 1.6
+	_env.ssil_enabled = true
+	_env.ssil_intensity = 0.6
+	_env.adjustment_enabled = true
+	_env.adjustment_brightness = 1.02
+	_env.adjustment_contrast = 1.12
+	_env.adjustment_saturation = 1.12
+
 	environment.environment = _env
 	_level_root.add_child(environment)
 

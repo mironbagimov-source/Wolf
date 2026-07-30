@@ -20,7 +20,7 @@ const LAYER_THICKET := 8
 ## tools/blender_cast.py. Файл один, поэтому анимации не дублируются: при
 ## спавне остаётся нужный меш, остальные удаляются.
 const CAST := preload("res://assets/cast.glb")
-const MODEL_YAW_OFFSET := PI   ## риг смотрит в +Z, игра — в -Z
+const MODEL_YAW_OFFSET := 0.0   ## меш из blender_cast.py уже смотрит в -Z, как и игра
 const POSES := ["Idle", "Walk", "Run"]
 
 var intent := Intent.new()
@@ -335,14 +335,17 @@ func sync_health_bar(visible_now: bool) -> void:
 
 # --- управление игроком ---
 
-const LOOK_SENS := 0.0016
+const LOOK_SENS := 0.0024
 const PITCH_LIMIT := 1.35
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_player or not head:
 		return
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	# Взгляд крутим на любое движение мыши, пока курсор не отпущен вручную
+	# (кроме VISIBLE). Раньше требовался строго CAPTURED, и если окно на старте
+	# не получало захват (не в фокусе), обзор молча не работал.
+	if event is InputEventMouseMotion and Input.mouse_mode != Input.MOUSE_MODE_VISIBLE:
 		yaw -= event.relative.x * LOOK_SENS
 		pitch = clampf(pitch - event.relative.y * LOOK_SENS, -PITCH_LIMIT, PITCH_LIMIT)
 		head.rotation.x = pitch

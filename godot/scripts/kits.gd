@@ -8,7 +8,7 @@ extends RefCounted
 const BREAKERS_REQUIRED := 4
 const GATE_BREAKERS := 3       ## столько щитов открывают ворота старого города
 const BREAKER_WORK := 14.0     ## секунд работы солиста на один щит
-const HOOK_TIME := 26.0        ## секунд на крюке
+const HOOK_TIME := 34.0        ## секунд на крюке — время, чтобы напарник успел
 const INTERACT_RANGE := 2.6
 const SENSE_BASE := 18.0       ## слух убийцы, метров
 const FLEE_RADIUS := 13.0
@@ -24,10 +24,10 @@ const GUEST := {
 	"sprint_mul": 1.55,
 	"crouch_mul": 0.52,
 	"hp": 100.0,
-	"stamina_max": 5.0,
+	"stamina_max": 5.5,
 	"stamina_drain": 1.0,
-	"stamina_regen": 0.7,
-	"bleedout": 48.0,
+	"stamina_regen": 0.75,
+	"bleedout": 70.0,
 	"revive_time": 6.0,
 	"revive_hp": 45.0,
 	"unhook_hp": 40.0,
@@ -46,7 +46,7 @@ const KILLERS := {
 		"speed": 3.8,
 		"sprint_mul": 1.28,
 		"primary": {"label": "Нож", "range": 2.4, "dmg": 26.0, "cd": 0.5, "arc": 1.428},
-		"secondary": {"label": "Серп", "range": 3.0, "dmg": 52.0, "cd": 1.15, "arc": 1.848},
+		"secondary": {"label": "Серп", "range": 3.0, "dmg": 45.0, "cd": 1.15, "arc": 1.848},
 		"power1": {"label": "Крюк", "range": 15.0, "cd": 11.0, "arc": 0.34, "stun": 1.3},
 		"power2": {"label": "Двойники", "cd": 26.0, "life": 11.0, "count": 2},
 		"blood_per_hit": 16.0,
@@ -71,7 +71,7 @@ const KILLERS := {
 		"scale": 1.02,
 		"speed": 3.5,
 		"sprint_mul": 1.22,
-		"primary": {"label": "Лоза", "range": 2.7, "dmg": 40.0, "cd": 0.9, "arc": 1.428},
+		"primary": {"label": "Лоза", "range": 2.7, "dmg": 36.0, "cd": 0.9, "arc": 1.428},
 		"secondary": {"label": "Плющ", "range": 13.0, "cd": 9.0, "arc": 0.30, "root": 3.2},
 		"power1": {"label": "Поросль", "cd": 9.0, "range": 8.0, "life": 50.0, "max": 3, "dmg": 16.0},
 		"root_sense": 9.0,
@@ -94,7 +94,7 @@ const KILLERS := {
 		"scale": 1.24,
 		"speed": 3.05,
 		"sprint_mul": 1.1,
-		"primary": {"label": "Удар", "range": 3.1, "dmg": 55.0, "cd": 1.25, "arc": 1.496},
+		"primary": {"label": "Удар", "range": 3.1, "dmg": 48.0, "cd": 1.25, "arc": 1.496},
 		"secondary": {"label": "Захват", "range": 2.7, "cd": 7.0},
 		"power1": {"label": "Таран", "cd": 9.0, "speed": 9.4, "max_time": 2.4, "dmg": 46.0, "stun": 1.6},
 		"can_carry": true,
