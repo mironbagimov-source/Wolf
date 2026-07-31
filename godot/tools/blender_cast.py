@@ -27,6 +27,22 @@ OUTPUT = os.path.join(ASSETS, "cast.glb")
 # Единицы арматуры — сантиметры (сам объект отмасштабирован в 0.01).
 CM = 1.0
 
+
+## Подразбить и сгладить меш детали: subdivide добавляет полигоны, smooth_vert
+## скругляет форму. Лёгкий фактор, чтобы не схлопнуть объём. Веса вершинных
+## групп деталь получает уже после сборки по диапазонам, поэтому здесь их нет —
+## важно только не менять число деталей.
+def _refine(mesh, cuts=1, smooth=1, factor=0.35):
+	if cuts > 0 and len(mesh.edges) > 0:
+		bmesh.ops.subdivide_edges(mesh, edges=mesh.edges[:], cuts=cuts, use_grid_fill=True)
+	for _ in range(smooth):
+		if len(mesh.verts) == 0:
+			break
+		bmesh.ops.smooth_vert(
+			mesh, verts=mesh.verts[:], factor=factor,
+			use_axis_x=True, use_axis_y=True, use_axis_z=True,
+		)
+
 PALETTE = {
 	"guest_cloth": (0.42, 0.35, 0.24, 1.0),
 	"guest_skin": (0.55, 0.44, 0.35, 1.0),
@@ -120,7 +136,7 @@ class Body:
 		self.name = name
 		self.parts = []   # (bmesh, bone_name, material_key)
 
-	def tube(self, bone, a, b, r_start, r_end, material, sides=10):
+	def tube(self, bone, a, b, r_start, r_end, material, sides=12):
 		mesh = bmesh.new()
 		axis = (b - a)
 		length = axis.length
@@ -132,6 +148,10 @@ class Body:
 			radius1=r_start, radius2=r_end, depth=length,
 			matrix=Matrix.Translation((a + b) * 0.5) @ rot,
 		)
+		# Подразбить вдоль и слегка сгладить: конечности перестают быть гранёными
+		# трубками, у стыков появляются мягкие «суставные» скругления. Скиннинг
+		# остаётся жёстким (вся деталь на одной кости), форма — округлой.
+		_refine(mesh, cuts=2, smooth=1, factor=0.35)
 		self.parts.append((mesh, bone, material))
 
 	def box(self, bone, centre, size, material, rotation=None):
