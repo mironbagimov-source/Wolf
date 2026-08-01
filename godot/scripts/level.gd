@@ -680,29 +680,33 @@ static func _loot_bodies(root: Node3D, parent: Node3D) -> void:
 		m.position = pos
 		m.set_meta("desc", s[2])
 		grp.add_child(m)
-		# Лежащее тело из примитивов + лужа под ним.
-		var body := Node3D.new()
-		body.name = "Corpse%d" % i
-		body.position = pos
-		body.rotation_degrees.y = s[1] as float
-		parent.add_child(body)
-		var cmat := StandardMaterial3D.new()
-		cmat.albedo_color = cloth_colors[i % cloth_colors.size()]
-		cmat.roughness = 0.85
-		_panel(body, Vector3(0, 0.11, 0), Vector3(0.5, 0.2, 0.85), cmat, "Torso")
-		_panel(body, Vector3(0.03, 0.09, 0.62), Vector3(0.2, 0.18, 0.22), skin, "Head")
-		var leg_l := _panel(body, Vector3(-0.14, 0.07, -0.75), Vector3(0.16, 0.13, 0.7), cmat, "LegL")
-		leg_l.rotation_degrees.y = 6.0
-		var leg_r := _panel(body, Vector3(0.16, 0.07, -0.72), Vector3(0.16, 0.13, 0.62), cmat, "LegR")
-		leg_r.rotation_degrees.y = -14.0
-		var arm := _panel(body, Vector3(0.42, 0.06, 0.18), Vector3(0.5, 0.1, 0.14), skin, "ArmR")
-		arm.rotation_degrees.y = 35.0
-		_panel(body, Vector3(0, 0.012, 0.1), Vector3(1.5, 0.014, 1.0), blood, "Pool")
+		_corpse_prop(parent, pos, s[1] as float, i)
 
 
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
+## Лежащее тело из примитивов + лужа под ним (общее для башни и хаба).
+static func _corpse_prop(parent: Node3D, pos: Vector3, yaw: float, idx: int) -> void:
+	var cloth_colors := [Color(0.16, 0.17, 0.22), Color(0.24, 0.14, 0.12), Color(0.13, 0.2, 0.16), Color(0.2, 0.2, 0.24)]
+	var blood := StandardMaterial3D.new()
+	blood.albedo_color = Color(0.30, 0.012, 0.02)
+	blood.roughness = 0.25
+	var skin := StandardMaterial3D.new()
+	skin.albedo_color = Color(0.6, 0.48, 0.4)
+	skin.roughness = 0.8
+	var body := Node3D.new()
+	body.name = "Corpse%d" % idx
+	body.position = pos
+	body.rotation_degrees.y = yaw
+	parent.add_child(body)
+	var cmat := StandardMaterial3D.new()
+	cmat.albedo_color = cloth_colors[idx % cloth_colors.size()]
+	cmat.roughness = 0.85
+	_panel(body, Vector3(0, 0.11, 0), Vector3(0.5, 0.2, 0.85), cmat, "Torso")
+	_panel(body, Vector3(0.03, 0.09, 0.62), Vector3(0.2, 0.18, 0.22), skin, "Head")
+	_panel(body, Vector3(-0.14, 0.07, -0.75), Vector3(0.16, 0.13, 0.7), cmat, "LegL").rotation_degrees.y = 6.0
+	_panel(body, Vector3(0.16, 0.07, -0.72), Vector3(0.16, 0.13, 0.62), cmat, "LegR").rotation_degrees.y = -14.0
+	_panel(body, Vector3(0.42, 0.06, 0.18), Vector3(0.5, 0.1, 0.14), skin, "ArmR").rotation_degrees.y = 35.0
+	_panel(body, Vector3(0, 0.012, 0.1), Vector3(1.5, 0.014, 1.0), blood, "Pool")
+
 
 static func _group(root: Node3D, p_name: String) -> Node3D:
 	var g := Node3D.new()

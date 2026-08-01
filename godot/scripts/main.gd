@@ -75,6 +75,13 @@ var bait: WolfChar = null
 var _bait_beacon: MeshInstance3D = null
 # Риппердок-станции: [{pos, implant, where, node, used}] + текущая операция.
 var ripper_points: Array = []
+# Локация матча: "tower" (Арасака-тауэр) или "hub" (рынок «Сухой док»).
+var location := "tower"
+const LOCATION_SCENES := {"tower": "res://scenes/district.tscn", "hub": "res://scenes/hub.tscn"}
+var hub_points: Array = []         # [{pos, kind, title, used}]
+var _hub_act := ""                 # что делаем сейчас: workshop/bar/noodles/dance
+var _hub_t := 0.0
+var drink_buddies := 0             # сколько NPC позвал выпить
 var _surgery := {}                 # {station, t, phase} пока идёт вживление
 # Возня с гражданскими: подъём из агонии / допрос (держать E).
 var _act_kind := ""                # "revive" | "interrogate" | "civimplant"
@@ -103,6 +110,8 @@ var _psycho_probe: WolfChar = null
 var _dev_probe_pos := Vector3.ZERO
 var _dev_probe_hp := 0.0
 var _dev_shot_done := false
+var _hub_before := 1.0
+var _hub_hp_before := 0.0
 var _dev_fire_t := 0.0
 
 
@@ -242,6 +251,13 @@ func _collect_layout() -> void:
 		for child in lb.get_children():
 			loot_bodies.append({"pos": (child as Marker3D).global_position,
 				"desc": String(child.get_meta("desc", "")), "looted": false})
+	hub_points.clear()
+	var hp := district.get_node_or_null("HubPoints")
+	if hp != null:
+		for child in hp.get_children():
+			hub_points.append({"pos": (child as Marker3D).global_position,
+				"kind": String(child.get_meta("kind", "")),
+				"title": String(child.get_meta("title", "")), "used": false})
 	ripper_points.clear()
 	var rp := district.get_node_or_null("RipperPoints")
 	if rp != null:
@@ -278,7 +294,32 @@ func _in_safe_zone(pos: Vector3) -> bool:
 # match lifecycle
 # ---------------------------------------------------------------------------
 
+## Подменяет район под выбранную локацию (сцены собраны бейкером).
+func _load_location(loc: String) -> void:
+	if loc == location and district != null:
+		return
+	location = loc
+	var path: String = LOCATION_SCENES.get(loc, LOCATION_SCENES["tower"])
+	if not ResourceLoader.exists(path):
+		return
+	var old_district := district
+	var fresh: Node3D = (load(path) as PackedScene).instantiate()
+	fresh.name = "District"
+	if old_district != null:
+		remove_child(old_district)
+		old_district.queue_free()
+	add_child(fresh)
+	move_child(fresh, 0)
+	district = fresh
+	_collect_layout()
+	_apply_graphics(ui._gfx_high if ui != null else false)
+	var nav := district.get_node_or_null("Nav") as NavigationRegion3D
+	if nav != null:
+		nav.bake_navigation_mesh(true)
+
+
 func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout := {}) -> void:
+	_load_location(ui.location_pick if ui != null else "tower")
 	for e in entities:
 		e.queue_free()
 	for k in knives:
@@ -336,6 +377,8 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 		bomb_pickup.visible = true
 	var override := OS.get_environment("WOLF_POLICE")
 	police_arrive = float(override) if override != "" else WolfCfg.POLICE_ARRIVE_TIME
+	if location == "hub" and override == "":
+		police_arrive *= 0.55   # рынок в центре: патруль рядом
 	call_state = 0
 	call_timer = 0.0
 	_caller = null
@@ -2073,9 +2116,24 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 	if not e.is_player:
 		return
 
+	# Заведения хаба (мастерская, бар, лапша, танцпол) — до всего прочего.
+	if _hub_actions(e, delta):
+		return
+
 	# Гражданские идут первыми: поднять, позвать, допросить, схватить.
 	if _civ_actions(e, delta):
 		return
+
+	# Мирный разговор с местными: E — слух, Q — позвать выпить.
+	if location == "hub" and e.faction in ["killer", "survivor"]:
+		var npc := _npc_near(e)
+		if npc != null:
+			if e.interact_pressed:
+				_talk_to(npc, e)
+				return
+			if _key_pressed_once(KEY_Q) and not npc.get_meta("buddy", false):
+				_invite_drink(npc, e)
+				return
 
 	# Doors: toggle with E (psycho player breaks them with strikes instead).
 	if e.interact_pressed and e.faction != "cannibal":
@@ -2126,7 +2184,10 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 					bomb_pickup.visible = false
 				_clear_beacons()
 		else:
-			var shaft_d := Vector2(e.global_position.x - 9.5, e.global_position.z).length()
+			var plant_at := Vector3(9.5, e.global_position.y, 0.0)
+			if location == "hub":
+				plant_at = Vector3(0.0, e.global_position.y, 21.0)   # сцена клуба
+			var shaft_d := Vector2(e.global_position.x - plant_at.x, e.global_position.z - plant_at.z).length()
 			if shaft_d <= WolfCfg.BOMB_PLANT_RANGE and e.interact_held:
 				bomb_progress += delta
 				if bomb_progress >= WolfCfg.BOMB_PLANT_TIME:
@@ -2134,10 +2195,158 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 					bomb_carried = false
 					if bomb_pickup != null:
 						# Заложенный заряд виден в шахте на этаже закладки.
-						bomb_pickup.global_position = Vector3(9.5, floorf(e.global_position.y / WolfCfg.FLOOR_H) * WolfCfg.FLOOR_H + 0.1, 0.0)
+						bomb_pickup.global_position = Vector3(plant_at.x,
+							floorf(e.global_position.y / WolfCfg.FLOOR_H) * WolfCfg.FLOOR_H + 0.1, plant_at.z)
 						bomb_pickup.visible = true
 			else:
 				bomb_progress = maxf(0.0, bomb_progress - delta * 2.0)
+
+
+# ---------------------------------------------------------------------------
+# ХАБ: заведения, местные и выпивка
+# ---------------------------------------------------------------------------
+
+func _nearest_hub(pos: Vector3) -> int:
+	for i in hub_points.size():
+		var h: Dictionary = hub_points[i]
+		var dp := (h["pos"] as Vector3) - pos
+		if absf(dp.y) < 2.5 and Vector2(dp.x, dp.z).length() <= 3.0:
+			return i
+	return -1
+
+
+## Живой NPC рядом (с ним говорят и зовут выпить).
+func _npc_near(e: WolfChar) -> WolfChar:
+	var best: WolfChar = null
+	var best_d := 2.6
+	for t: WolfChar in entities:
+		if t == e or t.faction != "survivor" or t.is_dead or t.downed or t.is_bait:
+			continue
+		var dp := t.global_position - e.global_position
+		if absf(dp.y) > 2.2:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
+const NPC_LINES := [
+	"«Сегодня резали в галерее. Я туда ни ногой.»",
+	"«Слышал, за головы платят налом. Даже за твою.»",
+	"«Не бери лапшу у восточного котла. Просто не бери.»",
+	"«Риппердок за углом ставит железо без вопросов. И без наркоза.»",
+	"«Кто-то вскрыл склад у ворот. Оттуда до сих пор капает.»",
+	"«В клубе играют так, что не слышно, как кричат.»",
+	"«Хочешь совет? Уходи, пока ворота открыты.»",
+]
+
+
+## Разговор с местным: слух, а иногда — наводка по делу.
+func _talk_to(npc: WolfChar, p: WolfChar) -> void:
+	npc.play_oneshot("Interact")
+	npc.follow_target = null
+	var line: String = NPC_LINES.pick_random()
+	# Наёмнику местные иногда сдают точку закладки.
+	if p.faction == "killer" and bomb_hints.size() > 1 and randf() < 0.45:
+		var wrong: Array = bomb_hints.filter(func(h: String) -> bool: return h != bomb_true_desc)
+		if not wrong.is_empty():
+			var drop: String = wrong.pick_random()
+			bomb_hints.erase(drop)
+			for i in range(_hint_beacons.size() - 1, -1, -1):
+				if str((_hint_beacons[i] as Dictionary)["desc"]) == drop:
+					var n: Node = (_hint_beacons[i] as Dictionary)["node"]
+					if n != null and is_instance_valid(n):
+						n.queue_free()
+					_hint_beacons.remove_at(i)
+			line = "«Там пусто, я проверял: %s»" % drop
+	_loot_msg = line
+	_loot_msg_t = 5.0
+
+
+## Позвать выпить: местный идёт за тобой и не разбегается от страха.
+func _invite_drink(npc: WolfChar, p: WolfChar) -> void:
+	npc.follow_target = p
+	npc.exhausted = false
+	npc.set_meta("buddy", true)
+	drink_buddies += 1
+	npc.play_oneshot("Interact")
+	_loot_msg = "«Ну наливай.» Собутыльников: %d" % drink_buddies
+	_loot_msg_t = 5.0
+
+
+## Заведения хаба. Возвращает true, если удержание E ушло сюда.
+func _hub_actions(p: WolfChar, delta: float) -> bool:
+	if _hub_act != "":
+		var idx := _nearest_hub(p.global_position)
+		if not p.interact_held or idx < 0:
+			_hub_act = ""
+			_hub_t = 0.0
+			_vm_rest()
+			return false
+		_hub_t += delta
+		p.move_input = Vector2.ZERO
+		_vm_work(_hub_t)
+		if _hub_t >= 2.6:
+			_finish_hub(p, idx)
+			_hub_act = ""
+			_hub_t = 0.0
+			_vm_rest()
+		return true
+	var i := _nearest_hub(p.global_position)
+	if i < 0:
+		return false
+	var h: Dictionary = hub_points[i]
+	var kind := str(h["kind"])
+	if kind == "ripper":
+		return false          # кушетками занимается хирургия
+	if p.interact_held and not bool(h["used"]):
+		_hub_act = kind
+		_hub_t = 0.0
+		p.play_oneshot("Interact")
+		return true
+	return false
+
+
+func _finish_hub(p: WolfChar, idx: int) -> void:
+	var h: Dictionary = hub_points[idx]
+	var kind := str(h["kind"])
+	match kind:
+		"workshop":
+			# Оружейник перебирает твой клинок: острее и легче.
+			var w: Dictionary = p.weapon.duplicate()
+			w["dmg"] = float(w.get("dmg", 1.0)) * 1.3
+			w["speed"] = float(w.get("speed", 1.0)) * 1.12
+			w["name"] = str(w.get("name", "Оружие")) + " (перекован)"
+			p.set_weapon(w)
+			_build_viewmodel()
+			h["used"] = true
+			_loot_msg = "МАСТЕРСКАЯ: %s — урон и скорость выросли" % w["name"]
+			_spark_burst(p.global_position + Vector3(0, 1.1, 0))
+		"bar":
+			# Наливают. Крепкое: живучести больше, руки чуть дрожат.
+			p.max_hp += 45.0 + 15.0 * drink_buddies
+			p.hp = p.max_hp
+			h["used"] = true
+			ui.set_drunk(true)
+			_loot_msg = "БАР: выпил за счёт заведения (+%d HP)" % int(45 + 15 * drink_buddies)
+			for e: WolfChar in entities:
+				if e.follow_target == p and e.get_meta("buddy", false):
+					e.hp = e.max_hp     # собутыльникам тоже налили
+		"noodles":
+			p.hp = minf(p.max_hp, p.hp + 60.0)
+			h["used"] = true
+			_loot_msg = "ЛАПША: горячо и жирно (+60 HP)"
+		"dance":
+			# Танцпол: стамина и кураж.
+			p.stamina = WolfCfg.STAMINA_MAX
+			p.install_implant("synthlungs")
+			h["used"] = true
+			_loot_msg = "КЛУБ: отпустило — дыхание восстановилось"
+		_:
+			_loot_msg = "…"
+	_loot_msg_t = 6.0
 
 
 # ---------------------------------------------------------------------------
@@ -3004,6 +3213,14 @@ func _detonate_body(t: WolfChar, source: WolfChar) -> void:
 	_blood_burst(pos, 55, 6.5)
 	_spark_burst(pos)
 	_blood_pool(t.global_position)
+	# Огненный шар и разлетающиеся осколки — почерк фугаса.
+	_shock_ring(pos, Color(1.0, 0.55, 0.15), float(imp["radius"]) * 1.6, 0.4)
+	_cloud(pos, Color(1.0, 0.6, 0.2), 50, 9.0, 0.7, -3.0, 0.16)
+	_cloud(pos, Color(0.22, 0.2, 0.2), 30, 3.0, 2.4, -0.6, 0.3)   # дым
+	for i in 10:
+		var ang2 := TAU * randf()
+		_arc(pos, pos + Vector3(cos(ang2), randf_range(-0.2, 0.6), sin(ang2)) * randf_range(2.0, 5.0),
+				Color(1.0, 0.8, 0.4), 0.25)
 	var radius: float = imp["radius"]
 	for e: WolfChar in entities.duplicate():
 		if e == t or e.is_dead:
@@ -3156,7 +3373,31 @@ func _burst_cryo(t: WolfChar, source: WolfChar) -> void:
 	var col: Color = imp["color"]
 	var pos := t.global_position + Vector3(0, 0.9, 0)
 	_clear_body_implant(t)
-	_shock_ring(pos, col, float(imp["radius"]) * 2.0, 0.5)
+	# Крио: не шар, а ЛЕДЯНЫЕ ИГЛЫ, выстреливающие из пола по кругу.
+	for i in 14:
+		var ang := TAU * float(i) / 14.0
+		var spike := MeshInstance3D.new()
+		var cone := CylinderMesh.new()
+		cone.top_radius = 0.0
+		cone.bottom_radius = 0.13
+		cone.height = randf_range(0.9, 1.8)
+		spike.mesh = cone
+		var im2 := StandardMaterial3D.new()
+		im2.albedo_color = Color(col.r, col.g, col.b, 0.75)
+		im2.emission_enabled = true
+		im2.emission = col
+		im2.emission_energy_multiplier = 1.6
+		im2.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		spike.material_override = im2
+		var r := randf_range(1.2, float(imp["radius"]) * 0.8)
+		spike.position = t.global_position + Vector3(cos(ang) * r, -1.0, sin(ang) * r)
+		spike.rotation_degrees = Vector3(randf_range(-14, 14), 0, randf_range(-14, 14))
+		add_child(spike)
+		var tws := create_tween()
+		tws.tween_property(spike, "position:y", t.global_position.y + 0.1, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tws.tween_interval(7.0)
+		tws.tween_property(spike, "material_override:albedo_color:a", 0.0, 2.0)
+		tws.tween_callback(spike.queue_free)
 	_cloud(pos, col, 70, 6.0, 1.4, -2.0, 0.16)
 	_cloud(pos, Color(0.85, 0.95, 1.0), 30, 3.0, 2.2, -0.5, 0.09)
 	var l := OmniLight3D.new()
@@ -3211,7 +3452,26 @@ func _discharge_emp(t: WolfChar, source: WolfChar) -> void:
 	var col: Color = imp["color"]
 	var pos := t.global_position + Vector3(0, 1.1, 0)
 	_clear_body_implant(t)
-	_shock_ring(pos, col, float(imp["radius"]) * 2.2, 0.9)
+	# ЭМИ: не шар, а плоское кольцо-разряд, стелющееся по полу.
+	var ring := MeshInstance3D.new()
+	var tor3 := TorusMesh.new()
+	tor3.inner_radius = 0.6
+	tor3.outer_radius = 0.9
+	ring.mesh = tor3
+	var rm := StandardMaterial3D.new()
+	rm.albedo_color = Color(col.r, col.g, col.b, 0.7)
+	rm.emission_enabled = true
+	rm.emission = col
+	rm.emission_energy_multiplier = 4.0
+	rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring.material_override = rm
+	ring.position = t.global_position + Vector3(0, 0.12, 0)
+	add_child(ring)
+	var twr := create_tween()
+	twr.tween_property(ring, "scale", Vector3.ONE * float(imp["radius"]), 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	twr.parallel().tween_property(ring, "material_override:albedo_color:a", 0.0, 0.55)
+	twr.tween_callback(ring.queue_free)
 	_cloud(pos, col, 45, 7.0, 0.7, 0.0, 0.1)
 	var hits := 0
 	for e: WolfChar in entities.duplicate():
@@ -4031,6 +4291,33 @@ func _prompt_for(p: WolfChar) -> String:
 		var imp: Dictionary = WolfCfg.IMPLANTS[str(rs["implant"])]
 		var frac := clampf(float(_surgery["t"]) / float(imp["time"]), 0.0, 1.0)
 		return "ОПЕРАЦИЯ: %s — %d%% (не отпускай E, ты беспомощен)" % [imp["name"], int(frac * 100.0)]
+	# Заведения хаба.
+	if _hub_act != "":
+		var titles := {"workshop": "ПЕРЕКОВКА", "bar": "НАЛИВАЮТ", "noodles": "ЕШЬ", "dance": "ТАНЦПОЛ"}
+		return "%s… %d%% (держи E)" % [titles.get(_hub_act, "…"), int(clampf(_hub_t / 2.6, 0.0, 1.0) * 100.0)]
+	var hi := _nearest_hub(p.global_position)
+	if hi >= 0:
+		var h: Dictionary = hub_points[hi]
+		var kind := str(h["kind"])
+		if kind != "ripper":
+			if bool(h["used"]):
+				return "%s — уже воспользовался" % h["title"]
+			match kind:
+				"workshop":
+					return "[держать E] ПЕРЕКОВАТЬ ОРУЖИЕ — +30%% урона, +12%% скорости"
+				"bar":
+					return "[держать E] ВЫПИТЬ — прибавка к живучести (собутыльники добавляют)"
+				"noodles":
+					return "[держать E] ПОЕСТЬ — +60 HP"
+				"dance":
+					return "[держать E] ПОТАНЦЕВАТЬ — дыхание и стамина"
+	if location == "hub" and p.faction in ["killer", "survivor"]:
+		var npc2 := _npc_near(p)
+		if npc2 != null:
+			if npc2.get_meta("buddy", false):
+				return "«%s» — уже с тобой" % (npc2.char_name if npc2.char_name != "" else "местный")
+			return "[E] ПОГОВОРИТЬ  ·  [Q] ПОЗВАТЬ ВЫПИТЬ"
+
 	# Возня с гражданскими важнее прочих подсказок.
 	if p.feed_t > 0.0:
 		return "ТРАПЕЗА… %d%% — тело уходит в дело" % int((1.0 - p.feed_t / WolfCfg.FEED_TIME) * 100.0)
@@ -4113,7 +4400,8 @@ func _prompt_for(p: WolfChar) -> String:
 		if not bomb_planted and not bomb_carried:
 			return "Разведка — взрывчатка в одном из мест: %s" % " · ".join(bomb_hints)
 		if not bomb_planted:
-			return "Взрывчатка у тебя — заложи в ГРАВ-ЛИФТ [держать E у шахты]" 
+			return ("Взрывчатка у тебя — заложи У СЦЕНЫ КЛУБА [держать E]" if location == "hub"
+				else "Взрывчатка у тебя — заложи в ГРАВ-ЛИФТ [держать E у шахты]") 
 		if not _in_zone(p.global_position, evac_pos, evac_half):
 			return "Бомба заложена — уходи через лобби!"
 		return ""
@@ -4178,6 +4466,12 @@ func _update_hud() -> void:
 		stance.append("бег")
 	ui.stance_label.text = "  ·  ".join(stance)
 	ui.prompt_label.text = _prompt_for(p)
+	# «Отображение»: список начинок с клавишами — видно, что заряжено.
+	var show_panel := p.faction in ["killer", "cannibal", "ghoul"] and not p.is_dead
+	if show_panel:
+		var civ_here := _civ_target(p)
+		show_panel = armed > 0 or (civ_here != null and civ_here.downed) or _act_kind == "civimplant"
+	ui.set_implant_panel(show_panel, _implant_pick)
 
 
 # ---------------------------------------------------------------------------
@@ -4320,6 +4614,8 @@ func _run_test(delta: float) -> void:
 			_test_anim(delta)
 		"ghoul":
 			_test_ghoul(delta)
+		"hub":
+			_test_hub(delta)
 		"civdev":
 			_test_civdev(delta)
 		"civbomb":
@@ -4559,6 +4855,71 @@ func _test_ghoul(_delta: float) -> void:
 			Input.parse_input_event(ev)
 	elif _test_t > 45.0:
 		print("TEST RESULT: ghoul FAIL feeds=%d" % player.feeds)
+		get_tree().quit(1)
+
+
+## ХАБ: локация грузится, заведения на месте, мастерская и бар работают,
+## местного можно позвать выпить. WOLF_HUB=workshop|bar|talk выбирает опыт.
+func _test_hub(_delta: float) -> void:
+	var what := OS.get_environment("WOLF_HUB")
+	if what == "":
+		what = "workshop"
+	if _test_t > 0.5 and mode == "menu":
+		ui.location_pick = "hub"
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.6 and not _test_staged:
+		_test_staged = true
+		_hub_before = player.weapon.get("dmg", 1.0)
+		_hub_hp_before = player.max_hp
+		var want := "workshop" if what == "workshop" else ("bar" if what == "bar" else "")
+		if want != "":
+			for h: Dictionary in hub_points:
+				if str(h["kind"]) == want:
+					player.global_position = (h["pos"] as Vector3) + Vector3(0.4, 0.2, 0.4)
+					break
+		else:
+			# Разговор: подтаскиваем местного вплотную.
+			_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
+			_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+	elif _test_staged and not _test_shot_taken:
+		if what == "talk":
+			_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+			_duel_bot.move_input = Vector2.ZERO
+			_tap_key(KEY_Q)
+			if drink_buddies > 0:
+				_test_shot_taken = true
+		else:
+			var ev := InputEventKey.new()
+			ev.keycode = KEY_E
+			ev.physical_keycode = KEY_E
+			ev.pressed = true
+			Input.parse_input_event(ev)
+			var done := false
+			if what == "workshop":
+				done = float(player.weapon.get("dmg", 1.0)) > _hub_before + 0.01
+			else:
+				done = player.max_hp > _hub_hp_before + 1.0
+			if done:
+				_test_shot_taken = true
+		if _test_shot_taken and _test_shot != "":
+			await _save_shot()
+	elif _test_shot_taken:
+		var ok := hub_points.size() >= 4 and location == "hub"
+		var info := "заведений=%d" % hub_points.size()
+		match what:
+			"workshop":
+				ok = ok and float(player.weapon.get("dmg", 1.0)) > _hub_before + 0.01
+				info += " урон %.2f->%.2f" % [_hub_before, player.weapon.get("dmg", 1.0)]
+			"bar":
+				ok = ok and player.max_hp > _hub_hp_before
+				info += " HP %.0f->%.0f" % [_hub_hp_before, player.max_hp]
+			"talk":
+				ok = ok and drink_buddies > 0
+				info += " собутыльников=%d" % drink_buddies
+		print("TEST RESULT: hub %s %s %s" % [what, info, "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+	elif _test_t > 25.0:
+		print("TEST RESULT: hub %s FAIL (заведений=%d)" % [what, hub_points.size()])
 		get_tree().quit(1)
 
 

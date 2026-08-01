@@ -29,6 +29,10 @@ var stamina_fill: ColorRect
 var timer_label: Label
 var dir_chips: Array = []   # [left, right, overhead] ColorRects around the crosshair
 var hitmark: Control        # крестик-хитмаркер вокруг прицела
+var implant_panel: VBoxContainer   # список начинок с клавишами
+var implant_rows: Array = []
+var drunk_overlay: ColorRect       # хмель: тёплая муть по краям
+var location_pick := "tower"       # выбранная локация
 var blind_overlay: ColorRect  # залитый слизью экран
 var vampire_unlocked := false # КИБЕР-ВАМПИР открыт мутацией
 
@@ -103,6 +107,13 @@ func _build_vignette() -> void:
 	damage_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(damage_flash)
 
+	# Хмель: тёплая муть по всему кадру.
+	drunk_overlay = ColorRect.new()
+	_full_rect(drunk_overlay)
+	drunk_overlay.color = Color(0.9, 0.55, 0.2, 0.0)
+	drunk_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(drunk_overlay)
+
 	# Био-слизь залепила глаза: густая зелёная муть поверх всего.
 	blind_overlay = ColorRect.new()
 	_full_rect(blind_overlay)
@@ -149,6 +160,16 @@ func _build_menu() -> void:
 		b.pressed.connect(_on_faction.bind(c[0]))
 
 	_label(box, "Мышь — осмотр · WASD — движение · двойное WASD — дэш · Shift — бег · C — присед · SPACE в грав-шахте — вверх\nЛКМ — удар · ПКМ — блок (в последний момент = парирование) · Q — нож · F — добивание / трапеза гуля / фонарь\nE — двери, взрывчатка, раненые (держать) · 1-8 — начинка для раненых · G — активировать начинку · ESC — курсор", 14, Color(0.45, 0.52, 0.66))
+
+	var loc := Button.new()
+	loc.text = "ЛОКАЦИЯ: АРАСАКА-ТАУЭР (16 этажей, лифт-шахта, полиция едет долго)"
+	loc.add_theme_font_size_override("font_size", 16)
+	loc.add_theme_color_override("font_color", Color(1.0, 0.75, 0.2))
+	loc.pressed.connect(func() -> void:
+		location_pick = "hub" if location_pick == "tower" else "tower"
+		loc.text = ("ЛОКАЦИЯ: ХАБ «СУХОЙ ДОК» (рынок: мастерская, бар, клуб, местные)"
+			if location_pick == "hub" else "ЛОКАЦИЯ: АРАСАКА-ТАУЭР (16 этажей, лифт-шахта, полиция едет долго)"))
+	box.add_child(loc)
 
 	var gfx := Button.new()
 	gfx.text = "ГРАФИКА: БЫСТРАЯ (максимум FPS)"
@@ -359,6 +380,27 @@ func _build_hud() -> void:
 	hitmark.modulate.a = 0.0
 	hud.add_child(hitmark)
 
+	# Панель начинок: список с клавишами, активная подсвечена. Появляется,
+	# когда рядом раненый или уже есть заряженные тела.
+	implant_panel = VBoxContainer.new()
+	implant_panel.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	implant_panel.position = Vector2(-250, -170)
+	implant_panel.add_theme_constant_override("separation", 2)
+	implant_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	implant_panel.visible = false
+	hud.add_child(implant_panel)
+	var keys := ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+	var ids := ["bomb", "slime", "softener", "flare", "cryo", "emp", "singularity", "holo", "brood", "puppet"]
+	for i in ids.size():
+		var row := Label.new()
+		row.name = ids[i]
+		row.text = "[%s] %s" % [keys[i], WolfCfg.CIV_IMPLANTS[ids[i]]["name"]]
+		row.add_theme_font_size_override("font_size", 15)
+		row.add_theme_color_override("font_color", WolfCfg.CIV_IMPLANTS[ids[i]]["color"])
+		row.modulate.a = 0.45
+		implant_panel.add_child(row)
+		implant_rows.append(row)
+
 	pause_hint = Label.new()
 	pause_hint.set_anchors_preset(Control.PRESET_CENTER)
 	pause_hint.position = Vector2(-300, 60)
@@ -432,6 +474,23 @@ func flash_damage() -> void:
 func set_blind(on: bool) -> void:
 	var tw := create_tween()
 	tw.tween_property(blind_overlay, "color:a", 0.88 if on else 0.0, 0.18 if on else 0.6)
+
+
+## Показывает панель начинок и подсвечивает выбранную.
+func set_implant_panel(visible_now: bool, current: String) -> void:
+	implant_panel.visible = visible_now
+	if not visible_now:
+		return
+	for row: Label in implant_rows:
+		var on: bool = row.name == current
+		row.modulate.a = 1.0 if on else 0.4
+		row.add_theme_font_size_override("font_size", 17 if on else 15)
+
+
+## Хмель после бара: тёплая муть и лёгкое покачивание картинки.
+func set_drunk(on: bool) -> void:
+	var tw := create_tween()
+	tw.tween_property(drunk_overlay, "color:a", 0.16 if on else 0.0, 1.2)
 
 
 func show_hitmark() -> void:
