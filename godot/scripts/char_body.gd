@@ -83,7 +83,9 @@ var floating := false   # парит в грав-шахте (анимация Fl
 var follow_target: WolfChar = null  # ведомый: идёт за тем, кто его позвал
 var interrogated := false           # уже раскололся наёмнику
 var revive_t := 0.0                 # бот-медтех поднимает лежачего
-var civ_implant := ""               # начинка тела: "bomb" | "slime" | "softener"
+var civ_implant := ""               # начинка тела (см. WolfCfg.CIV_IMPLANTS)
+var chill_t := 0.0                  # обморожен крио-зарядом: ползёт вдвое медленнее
+var emp_t := 0.0                    # импланты выбиты ЭМИ-разрядом
 var slime_cd := 0.0                 # откат био-слизи
 var blind_t := 0.0                  # ослеплён пузырями — ничего не видит
 
@@ -217,6 +219,8 @@ func _tint_color() -> Color:
 # ---------------------------------------------------------------------------
 
 func has_implant(id: String) -> bool:
+	if emp_t > 0.0:
+		return false   # ЭМИ вырубил всё железо
 	return implants.get(id, false)
 
 

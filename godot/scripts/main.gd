@@ -99,6 +99,39 @@ var _test_staged := false
 var _test_shot_taken := false
 var _test_hints_before := 0
 var _psycho_probe: WolfChar = null
+var _dev_probe_pos := Vector3.ZERO
+var _dev_probe_hp := 0.0
+var _dev_shot_done := false
+var _dev_fire_t := 0.0
+
+
+## Тестовый ввод: короткий щелчок клавишей (нажатие + отпускание по циклу).
+func _tap_key(code: Key) -> void:
+	var ev := InputEventKey.new()
+	ev.keycode = code
+	ev.physical_keycode = code
+	ev.pressed = fmod(_test_t, 0.4) < 0.2
+	Input.parse_input_event(ev)
+
+
+func _release_key(code: Key) -> void:
+	var ev := InputEventKey.new()
+	ev.keycode = code
+	ev.physical_keycode = code
+	ev.pressed = false
+	Input.parse_input_event(ev)
+
+
+## Когда ловить кадр: мгновенные эффекты — почти сразу, долгие — позже.
+func _dev_shot_delay() -> float:
+	match OS.get_environment("WOLF_DEV"):
+		"emp":
+			return 0.25       # молнии живут доли секунды
+		"singularity":
+			return 0.8        # воронка тянет
+		"holo":
+			return 0.8        # двойник ещё рядом
+	return 1.2
 var _test_yaw_before := 0.0
 
 const RESULT_COPY := {
@@ -261,6 +294,13 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 	blueprints = 0
 	_loot_msg_t = 0.0
 	_surgery = {}
+	for arr: Array in [_flares, _singularities, _holos]:
+		for d: Dictionary in arr:
+			for key: String in ["core", "light", "halo", "node"]:
+				var n: Node = d.get(key)
+				if n != null and is_instance_valid(n):
+					n.queue_free()
+		arr.clear()
 	_act_kind = ""
 	_act_target = null
 	_act_t = 0.0
@@ -810,7 +850,8 @@ func _update_player_input(delta: float) -> void:
 
 	# Выбор начинки для раненых: 1 — заряд, 2 — био-слизь, 3 — размягчитель.
 	if p.faction in ["killer", "cannibal", "ghoul"]:
-		for pair: Array in [[KEY_1, "bomb"], [KEY_2, "slime"], [KEY_3, "softener"]]:
+		for pair: Array in [[KEY_1, "bomb"], [KEY_2, "slime"], [KEY_3, "softener"],
+				[KEY_4, "flare"], [KEY_5, "cryo"], [KEY_6, "emp"], [KEY_7, "singularity"], [KEY_8, "holo"]]:
 			if _key_pressed_once(pair[0] as Key):
 				_implant_pick = pair[1] as String
 				_loot_msg = "Загружено: %s" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"]
@@ -1844,6 +1885,8 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.lunge_cd = maxf(0.0, e.lunge_cd - delta)
 	e.gunshot_t = maxf(0.0, e.gunshot_t - delta)
 	e.dermal_cd = maxf(0.0, e.dermal_cd - delta)
+	e.chill_t = maxf(0.0, e.chill_t - delta)
+	e.emp_t = maxf(0.0, e.emp_t - delta)
 	e.glued_t = maxf(0.0, e.glued_t - delta)
 	if e.blind_t > 0.0:
 		e.blind_t = maxf(0.0, e.blind_t - delta)
@@ -1930,6 +1973,8 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 		speed *= 0.35
 	if e.carrying != null:
 		speed *= WolfCfg.DRAG_SPEED_MUL  # с телом на руках не разбежишься
+	if e.chill_t > 0.0:
+		speed *= WolfCfg.CHILL_SPEED_MUL # иней сковал
 
 	if not e.is_player:
 		e.rotation.y = lerp_angle(e.rotation.y, e.desired_yaw, minf(1.0, delta * 10.0))
@@ -2479,11 +2524,7 @@ func _do_civ_implant(surgeon: WolfChar, t: WolfChar) -> void:
 	sph.height = 0.14
 	mi.mesh = sph
 	var m := StandardMaterial3D.new()
-	var col := Color(1.0, 0.1, 0.1)
-	if _implant_pick == "slime":
-		col = Color(0.5, 1.0, 0.15)
-	elif _implant_pick == "softener":
-		col = Color(0.3, 0.7, 1.0)
+	var col: Color = imp.get("color", Color(1.0, 0.1, 0.1))
 	m.albedo_color = col
 	m.emission_enabled = true
 	m.emission = col
@@ -2564,12 +2605,28 @@ func _activate_devices(actor: WolfChar) -> void:
 		_detonate_bait(actor)
 		did = true
 	for t: WolfChar in entities.duplicate():
-		if t.civ_implant == "bomb":
-			_detonate_body(t, actor)
-			did = true
-		elif t.civ_implant == "softener":
-			_shock_body(t, actor)
-			did = true
+		match t.civ_implant:
+			"bomb":
+				_detonate_body(t, actor)
+				did = true
+			"softener":
+				_shock_body(t, actor)
+				did = true
+			"flare":
+				_ignite_flare(t, actor)
+				did = true
+			"cryo":
+				_burst_cryo(t, actor)
+				did = true
+			"emp":
+				_discharge_emp(t, actor)
+				did = true
+			"singularity":
+				_collapse_singularity(t, actor)
+				did = true
+			"holo":
+				_project_holo(t, actor)
+				did = true
 	if not did and actor.is_player:
 		_loot_msg = "Нечего активировать — сначала начини тело [держать E]"
 		_loot_msg_t = 3.0
@@ -2606,6 +2663,441 @@ func _detonate_body(t: WolfChar, source: WolfChar) -> void:
 		_damage(e, float(imp["dmg"]) * (1.0 - clampf(flat / (radius + 1.5), 0.0, 0.6)), source)
 	if not t.is_dead:
 		_damage(t, 99999.0, source)
+
+
+## Общий помощник: расширяющаяся сфера-ударная волна нужного цвета.
+func _shock_ring(pos: Vector3, color: Color, to_scale: float, secs: float) -> void:
+	var wave := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.5
+	sph.height = 1.0
+	wave.mesh = sph
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(color.r, color.g, color.b, 0.45)
+	m.emission_enabled = true
+	m.emission = color
+	m.emission_energy_multiplier = 2.6
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.cull_mode = BaseMaterial3D.CULL_FRONT
+	wave.material_override = m
+	wave.position = pos
+	add_child(wave)
+	var tw := create_tween()
+	tw.tween_property(wave, "scale", Vector3.ONE * to_scale, secs).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(wave, "material_override:albedo_color:a", 0.0, secs)
+	tw.tween_callback(wave.queue_free)
+
+
+## Светящаяся дуга-молния между двумя точками (вытянутая emissive-коробка).
+func _arc(a: Vector3, b: Vector3, color: Color, life := 0.22) -> void:
+	var mi := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.06, 0.06, a.distance_to(b))
+	mi.mesh = box
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.emission_enabled = true
+	m.emission = color
+	m.emission_energy_multiplier = 5.0
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mi.material_override = m
+	mi.name = "EmpArc"
+	add_child(mi)
+	mi.global_position = (a + b) / 2.0
+	if a.distance_to(b) > 0.05 and absf((b - a).normalized().dot(Vector3.UP)) < 0.98:
+		mi.look_at(b, Vector3.UP)
+	var tw := create_tween()
+	tw.tween_property(mi, "scale", Vector3(0.2, 0.2, 1.0), life)
+	tw.parallel().tween_property(mi, "material_override:emission_energy_multiplier", 0.0, life)
+	tw.tween_callback(mi.queue_free)
+
+
+## Облако частиц заданного цвета (искры, иней, наниты).
+func _cloud(pos: Vector3, color: Color, amount: int, speed: float, life: float,
+		grav: float, size: float) -> void:
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.explosiveness = 0.9
+	p.amount = amount
+	p.lifetime = life
+	p.direction = Vector3(0, 1, 0)
+	p.spread = 90.0
+	p.initial_velocity_min = speed * 0.35
+	p.initial_velocity_max = speed
+	p.gravity = Vector3(0, grav, 0)
+	p.scale_amount_min = size * 0.5
+	p.scale_amount_max = size
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(size, size)
+	p.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 2.4
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	p.mesh.surface_set_material(0, mat)
+	p.position = pos
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(life * 2.0 + 0.5).timeout.connect(p.queue_free)
+
+
+func _clear_body_implant(t: WolfChar) -> void:
+	t.civ_implant = ""
+	var mark := t.get_node_or_null("CivImplantMark")
+	if mark != null:
+		mark.queue_free()
+
+
+## ИОН-ФАКЕЛ: тело всплывает над полом и горит белым солнцем — этаж залит
+## светом, а всех рядом медленно поджаривает.
+func _ignite_flare(t: WolfChar, source: WolfChar) -> void:
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["flare"]
+	var col: Color = imp["color"]
+	_clear_body_implant(t)
+	if not t.is_dead:
+		_kill(t)
+	var pos := t.global_position
+	# Тело поднимается на антиграв-подушке и висит, вращаясь.
+	var tw := create_tween()
+	tw.tween_property(t, "global_position", pos + Vector3(0, 1.7, 0), 1.1).set_trans(Tween.TRANS_SINE)
+	tw.parallel().tween_property(t, "rotation:y", t.rotation.y + PI, 1.1)
+
+	var core := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.35
+	sph.height = 0.7
+	core.mesh = sph
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.emission_enabled = true
+	m.emission = col
+	m.emission_energy_multiplier = 6.0
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core.material_override = m
+	core.position = pos + Vector3(0, 2.0, 0)
+	add_child(core)
+	var l := OmniLight3D.new()
+	l.light_color = col
+	l.light_energy = 7.0
+	l.omni_range = 28.0
+	l.position = pos + Vector3(0, 2.0, 0)
+	add_child(l)
+	_shock_ring(pos + Vector3(0, 1.2, 0), col, 9.0, 0.6)
+	_cloud(pos + Vector3(0, 1.2, 0), col, 40, 5.0, 1.1, 1.5, 0.12)
+
+	var burn: float = imp["burn_t"]
+	var radius: float = imp["radius"]
+	var dps: float = imp["dmg"]
+	# Факел живёт своим тиком: пульсирует, жжёт и гаснет.
+	_flares.append({"core": core, "light": l, "pos": pos, "t": burn, "radius": radius,
+		"dps": dps, "src": source, "elapsed": 0.0})
+
+
+## КРИО-ЗАРЯД: тело лопается облаком азота — иней, осколки, сковывающий холод.
+func _burst_cryo(t: WolfChar, source: WolfChar) -> void:
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["cryo"]
+	var col: Color = imp["color"]
+	var pos := t.global_position + Vector3(0, 0.9, 0)
+	_clear_body_implant(t)
+	_shock_ring(pos, col, float(imp["radius"]) * 2.0, 0.5)
+	_cloud(pos, col, 70, 6.0, 1.4, -2.0, 0.16)
+	_cloud(pos, Color(0.85, 0.95, 1.0), 30, 3.0, 2.2, -0.5, 0.09)
+	var l := OmniLight3D.new()
+	l.light_color = col
+	l.light_energy = 4.5
+	l.omni_range = 12.0
+	l.position = pos
+	add_child(l)
+	var tw := create_tween()
+	tw.tween_property(l, "light_energy", 0.0, 0.9)
+	tw.tween_callback(l.queue_free)
+	# Ледяная корка на полу.
+	var ice := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = float(imp["radius"])
+	disc.bottom_radius = float(imp["radius"])
+	disc.height = 0.02
+	ice.mesh = disc
+	var im := StandardMaterial3D.new()
+	im.albedo_color = Color(col.r, col.g, col.b, 0.35)
+	im.emission_enabled = true
+	im.emission = col
+	im.emission_energy_multiplier = 0.7
+	im.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ice.material_override = im
+	ice.position = Vector3(pos.x, floorf(t.global_position.y / WolfCfg.FLOOR_H + 0.5) * WolfCfg.FLOOR_H + 0.02, pos.z)
+	ice.scale = Vector3(0.1, 1.0, 0.1)
+	add_child(ice)
+	var tw2 := create_tween()
+	tw2.tween_property(ice, "scale", Vector3.ONE, 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw2.tween_interval(9.0)
+	tw2.tween_property(ice, "material_override:albedo_color:a", 0.0, 2.5)
+	tw2.tween_callback(ice.queue_free)
+
+	for e: WolfChar in entities.duplicate():
+		if e == t or e.is_dead:
+			continue
+		var dp := e.global_position - t.global_position
+		if absf(dp.y) > 3.0 or Vector2(dp.x, dp.z).length() > float(imp["radius"]):
+			continue
+		e.chill_t = maxf(e.chill_t, float(imp["chill"]))
+		e.hit_flash = 0.3
+		_cloud(e.global_position + Vector3(0, 1.1, 0), col, 12, 1.6, 1.0, -1.0, 0.07)
+		_damage(e, float(imp["dmg"]), source)
+	if not t.is_dead:
+		_damage(t, 99999.0, source)
+
+
+## ЭМИ-СЕРДЦЕ: цепные молнии по всем вокруг, чужое железо глохнет, свет гаснет.
+func _discharge_emp(t: WolfChar, source: WolfChar) -> void:
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["emp"]
+	var col: Color = imp["color"]
+	var pos := t.global_position + Vector3(0, 1.1, 0)
+	_clear_body_implant(t)
+	_shock_ring(pos, col, float(imp["radius"]) * 2.2, 0.9)
+	_cloud(pos, col, 45, 7.0, 0.7, 0.0, 0.1)
+	var hits := 0
+	for e: WolfChar in entities.duplicate():
+		if e == t or e.is_dead:
+			continue
+		var dp := e.global_position - t.global_position
+		if absf(dp.y) > 3.5 or Vector2(dp.x, dp.z).length() > float(imp["radius"]):
+			continue
+		hits += 1
+		_arc(pos, e.global_position + Vector3(0, 1.2, 0), col, 1.5)
+		_arc(pos + Vector3(randf_range(-0.3, 0.3), 0.2, randf_range(-0.3, 0.3)),
+				e.global_position + Vector3(0, 1.5, 0), Color(1, 1, 1), 1.1)
+		e.emp_t = maxf(e.emp_t, float(imp["emp_t"]))
+		e.hit_flash = 0.4
+		_damage(e, float(imp["dmg"]), source)
+	# Свет на этаже вырубает: мигнул и погас.
+	for n in _flicker_lights:
+		var fl := n as OmniLight3D
+		if fl == null or not is_instance_valid(fl):
+			continue
+		if absf(fl.global_position.y - t.global_position.y) > WolfCfg.FLOOR_H:
+			continue
+		fl.light_energy = 0.0
+	if source != null and source.is_player:
+		_loot_msg = "ЭМИ: железо выбито у %d — %d сек" % [hits, int(imp["emp_t"])]
+		_loot_msg_t = 5.0
+	if not t.is_dead:
+		_damage(t, 99999.0, source)
+
+
+## ГРАВ-КОЛЛАПС: воронка стягивает всех к телу, потом схлопывается хлопком.
+func _collapse_singularity(t: WolfChar, source: WolfChar) -> void:
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["singularity"]
+	var col: Color = imp["color"]
+	_clear_body_implant(t)
+	var pos := t.global_position + Vector3(0, 1.0, 0)
+	# Чёрное ядро с фиолетовым ореолом, которое раскручивается и схлопывается.
+	var core := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.25
+	sph.height = 0.5
+	core.mesh = sph
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.02, 0.0, 0.05)
+	m.emission_enabled = true
+	m.emission = col
+	m.emission_energy_multiplier = 1.4
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core.material_override = m
+	core.position = pos
+	add_child(core)
+	var halo := MeshInstance3D.new()
+	var tor := TorusMesh.new()
+	tor.inner_radius = 0.5
+	tor.outer_radius = 1.1
+	halo.mesh = tor
+	var hm := StandardMaterial3D.new()
+	hm.albedo_color = Color(col.r, col.g, col.b, 0.5)
+	hm.emission_enabled = true
+	hm.emission = col
+	hm.emission_energy_multiplier = 3.0
+	hm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	hm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	halo.material_override = hm
+	halo.position = pos
+	halo.rotation_degrees = Vector3(80, 0, 0)
+	add_child(halo)
+	var tw := create_tween()
+	tw.tween_property(core, "scale", Vector3.ONE * 3.0, float(imp["pull_t"]))
+	tw.parallel().tween_property(halo, "scale", Vector3.ONE * 2.4, float(imp["pull_t"]))
+	tw.parallel().tween_property(halo, "rotation:y", TAU * 3.0, float(imp["pull_t"]))
+	_singularities.append({"pos": pos, "t": float(imp["pull_t"]), "radius": float(imp["radius"]),
+		"dmg": float(imp["dmg"]), "src": source, "core": core, "halo": halo, "body": t})
+
+
+## ГОЛО-ПРОЕКТОР: из тела выходит светящийся двойник и уводит стаю за собой.
+func _project_holo(t: WolfChar, source: WolfChar) -> void:
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["holo"]
+	var col: Color = imp["color"]
+	_clear_body_implant(t)
+	var pos := t.global_position
+	var holo := Node3D.new()
+	holo.name = "HoloDecoy"
+	holo.position = pos + Vector3(0, 0.05, 0)
+	add_child(holo)
+	# Силуэт из примитивов: корпус, голова, руки, ноги — всё светится.
+	var hm := StandardMaterial3D.new()
+	hm.albedo_color = Color(col.r, col.g, col.b, 0.45)
+	hm.emission_enabled = true
+	hm.emission = col
+	hm.emission_energy_multiplier = 2.8
+	hm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	hm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	for part: Array in [[Vector3(0, 1.15, 0), Vector3(0.42, 0.72, 0.24)],
+			[Vector3(0, 1.68, 0), Vector3(0.24, 0.28, 0.24)],
+			[Vector3(-0.3, 1.15, 0), Vector3(0.14, 0.66, 0.14)],
+			[Vector3(0.3, 1.15, 0), Vector3(0.14, 0.66, 0.14)],
+			[Vector3(-0.14, 0.4, 0), Vector3(0.17, 0.8, 0.17)],
+			[Vector3(0.14, 0.4, 0), Vector3(0.17, 0.8, 0.17)]]:
+		var mi := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = part[1]
+		mi.mesh = box
+		mi.position = part[0]
+		mi.material_override = hm
+		holo.add_child(mi)
+	var l := OmniLight3D.new()
+	l.light_color = col
+	l.light_energy = 2.2
+	l.omni_range = 7.0
+	l.position = Vector3(0, 1.2, 0)
+	holo.add_child(l)
+	_cloud(pos + Vector3(0, 1.0, 0), col, 26, 3.0, 0.8, 0.4, 0.1)
+	var dir := Vector3(randf_range(-1.0, 1.0), 0, randf_range(-1.0, 1.0)).normalized()
+	if source != null:
+		dir = -(source.global_transform.basis.z)   # уходит от тебя, прочь
+		dir.y = 0.0
+		dir = dir.normalized()
+	_holos.append({"node": holo, "t": float(imp["walk_t"]), "dir": dir,
+		"lure": float(imp["lure"]), "mat": hm})
+	if source != null and source.is_player:
+		_loot_msg = "ДВОЙНИК ПОШЁЛ — стая идёт за ним"
+		_loot_msg_t = 5.0
+
+
+var _flares: Array = []
+var _singularities: Array = []
+var _holos: Array = []
+
+
+## Тик долгоиграющих устройств: факел жжёт, воронка тянет, двойник уходит.
+func _tick_devices(delta: float) -> void:
+	# --- Ион-факел ---
+	for i in range(_flares.size() - 1, -1, -1):
+		var f: Dictionary = _flares[i]
+		f["t"] = float(f["t"]) - delta
+		var core: Node3D = f["core"]
+		var lite: OmniLight3D = f["light"]
+		if not is_instance_valid(core) or not is_instance_valid(lite) or float(f["t"]) <= 0.0:
+			if is_instance_valid(core):
+				core.queue_free()
+			if is_instance_valid(lite):
+				lite.queue_free()
+			_flares.remove_at(i)
+			continue
+		var pulse := 5.0 + sin(Time.get_ticks_msec() / 90.0) * 2.0
+		lite.light_energy = pulse
+		(core.get("material_override") as StandardMaterial3D).emission_energy_multiplier = pulse
+		core.rotation.y += delta * 3.0
+		f["elapsed"] = float(f["elapsed"]) + delta
+		if float(f["elapsed"]) >= 1.0:      # раз в секунду поджаривает округу
+			f["elapsed"] = 0.0
+			var fp: Vector3 = f["pos"]
+			for e: WolfChar in entities.duplicate():
+				if e.is_dead or e.faction == "survivor":
+					continue
+				var dp := e.global_position - fp
+				if absf(dp.y) > 3.0 or Vector2(dp.x, dp.z).length() > float(f["radius"]):
+					continue
+				_cloud(e.global_position + Vector3(0, 1.4, 0), Color(1.0, 0.7, 0.25), 8, 1.4, 0.7, 1.0, 0.06)
+				_damage(e, float(f["dps"]), f["src"])
+
+	# --- Грав-коллапс ---
+	for i in range(_singularities.size() - 1, -1, -1):
+		var g: Dictionary = _singularities[i]
+		g["t"] = float(g["t"]) - delta
+		var gp: Vector3 = g["pos"]
+		if float(g["t"]) > 0.0:
+			for e: WolfChar in entities:
+				if e.is_dead:
+					continue
+				var dp := gp - e.global_position
+				var flat := Vector2(dp.x, dp.z).length()
+				if absf(dp.y) > 3.5 or flat > float(g["radius"]) or flat < 0.4:
+					continue
+				# Тянет тем сильнее, чем ближе.
+				# Вблизи воронка сильнее спринта — вырваться можно только с краю.
+				var pull := (1.0 - flat / float(g["radius"])) * 15.0
+				e.global_position += Vector3(dp.x, 0, dp.z).normalized() * pull * delta
+			continue
+		# Схлопывание: хлопок, урон, всё гаснет.
+		var core2: Node3D = g["core"]
+		var halo2: Node3D = g["halo"]
+		if is_instance_valid(core2):
+			core2.queue_free()
+		if is_instance_valid(halo2):
+			halo2.queue_free()
+		var col2 := Color(0.75, 0.3, 1.0)
+		_shock_ring(gp, col2, 10.0, 0.35)
+		_cloud(gp, col2, 60, 9.0, 0.8, 0.0, 0.13)
+		_blood_burst(gp, 40, 5.0)
+		for e: WolfChar in entities.duplicate():
+			if e.is_dead:
+				continue
+			var dp2 := e.global_position - gp
+			var flat2 := Vector2(dp2.x, dp2.z).length()
+			if absf(dp2.y) > 3.5 or flat2 > 5.0:
+				continue
+			_damage(e, float(g["dmg"]) * (1.0 - clampf(flat2 / 7.0, 0.0, 0.6)), g["src"])
+		var body: WolfChar = g["body"]
+		if is_instance_valid(body) and not body.is_dead:
+			_damage(body, 99999.0, g["src"])
+		_singularities.remove_at(i)
+
+	# --- Голо-двойник ---
+	for i in range(_holos.size() - 1, -1, -1):
+		var h: Dictionary = _holos[i]
+		h["t"] = float(h["t"]) - delta
+		var node: Node3D = h["node"]
+		if not is_instance_valid(node) or float(h["t"]) <= 0.0:
+			if is_instance_valid(node):
+				node.queue_free()
+			_holos.remove_at(i)
+			continue
+		var dir: Vector3 = h["dir"]
+		var from := node.global_position + Vector3(0, 1.0, 0)
+		var probe := PhysicsRayQueryParameters3D.create(from, from + dir * 1.1, 1)
+		if not get_world_3d().direct_space_state.intersect_ray(probe).is_empty():
+			# Упёрся в стену — двойник «глитчит» и сворачивает в сторону.
+			dir = dir.rotated(Vector3.UP, randf_range(PI * 0.4, PI * 0.9)).normalized()
+			h["dir"] = dir
+			_cloud(from, Color(0.2, 0.9, 1.0), 10, 2.0, 0.4, 0.0, 0.08)
+		node.global_position += dir * WolfCfg.HOLO_SPEED * delta
+		node.global_position.x = clampf(node.global_position.x, -WolfCfg.BOUND_X + 1.0, WolfCfg.BOUND_X - 1.0)
+		node.global_position.z = clampf(node.global_position.z, -WolfCfg.BOUND_Z + 1.0, WolfCfg.BOUND_Z - 1.0)
+		node.rotation.y = atan2(dir.x, dir.z)
+		# Глитч: силуэт мерцает и «рвётся».
+		var mat: StandardMaterial3D = h["mat"]
+		mat.albedo_color.a = 0.28 + absf(sin(Time.get_ticks_msec() / 70.0)) * 0.35
+		node.scale.y = 1.0 + sin(Time.get_ticks_msec() / 55.0) * 0.04
+		# Стая идёт за двойником.
+		for e: WolfChar in entities:
+			if e.faction not in ["cannibal", "ghoul"] or e.is_dead or e.is_player:
+				continue
+			if e.global_position.distance_to(node.global_position) > float(h["lure"]):
+				continue
+			e.investigate_pos = node.global_position
+			e.investigate_t = 2.0
 
 
 ## Шоковая терапия: размягчённое тело бьётся и вопит — убийцы идут на звук.
@@ -3029,7 +3521,7 @@ func _prompt_for(p: WolfChar) -> String:
 		return "[F] ЖРАТЬ (%d/%d до мутации)" % [p.feeds, WolfCfg.FEEDS_TO_MUTATE]
 	var civ := _civ_target(p)
 	if civ != null and civ.downed and civ.civ_implant == "" and p.faction in ["killer", "cannibal", "ghoul"]:
-		return "[держать E] НАЧИНИТЬ РАНЕНОГО: %s  ·  1/2/3 — выбор" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"]
+		return "[держать E] НАЧИНИТЬ РАНЕНОГО: %s  ·  1-8 меняют начинку" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"]
 	if civ != null:
 		match p.faction:
 			"survivor":
@@ -3136,6 +3628,8 @@ func _update_hud() -> void:
 			armed += 1
 	if armed > 0:
 		stance.append("Начинённых тел: %d [G]" % armed)
+	if p.faction in ["killer", "cannibal", "ghoul"]:
+		stance.append("Начинка: %s" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"])
 	var followers := _followers(p)
 	if followers > 0:
 		stance.append("Ведомых: %d" % followers)
@@ -3195,6 +3689,7 @@ func _physics_process(delta: float) -> void:
 	_tick_surgery(delta)
 	_tick_drags(delta)
 	_tick_civ_implants(delta)
+	_tick_devices(delta)
 	_loot_msg_t = maxf(0.0, _loot_msg_t - delta)
 	# Conditions like "merc stands in the evac zone" change without anyone
 	# dying, so the win check runs every tick, not only on kill events.
@@ -3294,6 +3789,8 @@ func _run_test(delta: float) -> void:
 			_test_anim(delta)
 		"ghoul":
 			_test_ghoul(delta)
+		"civdev":
+			_test_civdev(delta)
 		"civbomb":
 			_test_civbomb(delta)
 		"slime":
@@ -3534,6 +4031,81 @@ func _test_ghoul(_delta: float) -> void:
 		get_tree().quit(1)
 
 
+## Новые начинки (WOLF_DEV=cryo|emp|singularity|flare|holo): вживить в
+## раненого, поставить психа рядом, нажать [G] и проверить эффект.
+func _test_civdev(_delta: float) -> void:
+	var kind := OS.get_environment("WOLF_DEV")
+	if kind == "":
+		kind = "cryo"
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_implant_pick = kind
+		player.max_hp = 9999.0     # чистота опыта: экспериментатора не режут
+		player.hp = 9999.0
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		_damage(_duel_bot, 999.0, null)
+	elif _test_staged and not _test_shot_taken and _duel_bot.civ_implant == "" and _test_t < 9.0:
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_E
+		ev.physical_keycode = KEY_E
+		ev.pressed = true
+		Input.parse_input_event(ev)
+	elif _duel_bot.civ_implant == kind and not _test_shot_taken:
+		_test_shot_taken = true
+		_psycho_probe = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_leader)[0]
+		_psycho_probe.global_position = _duel_bot.global_position + Vector3(2.0, 0, 0)
+		_dev_probe_pos = _psycho_probe.global_position
+		_dev_probe_hp = _psycho_probe.hp
+		player.global_position = _duel_bot.global_position + Vector3(-10.0, 0.2, 0)
+		_release_key(KEY_E)     # иначе удержание цепляет случайного соседа
+		_tap_key(KEY_G)
+		_dev_fire_t = _test_t
+	elif _test_shot_taken and _duel_bot.civ_implant != "" and _test_t < 7.0:
+		_tap_key(KEY_G)
+	elif _test_shot_taken and _test_shot != "" and not _dev_shot_done and _test_t > _dev_fire_t + _dev_shot_delay():
+		_dev_shot_done = true
+		var cam_off := Vector3(-5.0, 0.9, -3.6)
+		player.velocity = Vector3.ZERO      # чтобы отдача не уволокла камеру
+		player.knockback = Vector3.ZERO
+		player.stagger_t = 0.0
+		player.global_position = _duel_bot.global_position + cam_off
+		player.rotation.y = _yaw_toward(-cam_off.x, -cam_off.z)   # лицом к телу
+		await _save_shot()
+	elif _test_shot_taken and _test_t > 8.5:
+		var ok := false
+		var info := ""
+		match kind:
+			"cryo":
+				ok = _psycho_probe.chill_t > 0.0 or _psycho_probe.is_dead
+				info = "chill=%.1f" % _psycho_probe.chill_t
+			"emp":
+				ok = _psycho_probe.emp_t > 0.0 or _psycho_probe.is_dead
+				info = "emp=%.1f" % _psycho_probe.emp_t
+			"singularity":
+				ok = _psycho_probe.is_dead or _psycho_probe.hp < _dev_probe_hp
+				info = "hp %.0f->%.0f dead=%s" % [_dev_probe_hp, _psycho_probe.hp, str(_psycho_probe.is_dead)]
+			"flare":
+				ok = _psycho_probe.is_dead or _psycho_probe.hp < _dev_probe_hp
+				info = "hp %.0f->%.0f факелов=%d" % [_dev_probe_hp, _psycho_probe.hp, _flares.size()]
+			"holo":
+				ok = _holos.size() > 0
+				info = "двойников=%d" % _holos.size()
+			"slime", "softener", "bomb":
+				# Пассивные/старые начинки проверяют отдельные тесты.
+				ok = _duel_bot.civ_implant == kind or _duel_bot.is_dead
+				info = "начинка на месте"
+		print("TEST RESULT: civdev %s %s %s" % [kind, info, "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+	elif _test_t > 22.0:
+		print("TEST RESULT: civdev %s FAIL implant=%s" % [kind, _duel_bot.civ_implant])
+		get_tree().quit(1)
+
+
 ## Заряд в грудине раненого: [G] рвёт всё вокруг тела.
 func _test_civbomb(_delta: float) -> void:
 	if _test_t > 0.5 and mode == "menu":
@@ -3545,7 +4117,7 @@ func _test_civbomb(_delta: float) -> void:
 		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
 		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
 		_damage(_duel_bot, 999.0, null)      # уронили в агонию
-	elif _test_staged and _duel_bot.civ_implant == "" and _test_t < 9.0:
+	elif _test_staged and not _test_shot_taken and _duel_bot.civ_implant == "" and _test_t < 9.0:
 		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
 		var ev := InputEventKey.new()
 		ev.keycode = KEY_E
@@ -3557,11 +4129,10 @@ func _test_civbomb(_delta: float) -> void:
 		_psycho_probe = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_leader)[0]
 		_psycho_probe.global_position = _duel_bot.global_position + Vector3(1.2, 0, 0)
 		player.global_position = _duel_bot.global_position + Vector3(-9.0, 0.2, 0)
-		var gev := InputEventKey.new()
-		gev.keycode = KEY_G
-		gev.physical_keycode = KEY_G
-		gev.pressed = true
-		Input.parse_input_event(gev)
+		_release_key(KEY_E)     # иначе удержание цепляет случайного соседа
+		_tap_key(KEY_G)
+	elif _test_shot_taken and _duel_bot.civ_implant != "" and _test_t < 11.0:
+		_tap_key(KEY_G)
 	elif _test_shot_taken and _test_t > 12.0:
 		var ok := _psycho_probe.is_dead and _duel_bot.is_dead
 		print("TEST RESULT: civbomb псих=%s тело=%s %s" % [str(_psycho_probe.is_dead), str(_duel_bot.is_dead), "OK" if ok else "FAIL"])
@@ -3582,7 +4153,7 @@ func _test_slime(_delta: float) -> void:
 		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
 		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
 		_damage(_duel_bot, 999.0, null)
-	elif _test_staged and _duel_bot.civ_implant == "" and _test_t < 9.0:
+	elif _test_staged and not _test_shot_taken and _duel_bot.civ_implant == "" and _test_t < 9.0:
 		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
 		var ev := InputEventKey.new()
 		ev.keycode = KEY_E
