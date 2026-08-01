@@ -10,6 +10,7 @@ extends Node3D
 ## also rides the atrium elevator. WOLF_TEST env drives headless verification.
 
 const KnifeScene := preload("res://scripts/knife.gd")
+const WOUND_SHADER := preload("res://shaders/wound.gdshader")
 
 const CHAR_SCENE_PATHS := {
 	"survivor_a": "res://scenes/chars/survivor.tscn",
@@ -2587,8 +2588,191 @@ func _flesh_box(parent: Node3D, pos: Vector3, size: Vector3, mat: Material, rot 
 	return mi
 
 
-## Вскрытая полость: кожа отогнута лоскутами, видны рёбра, внутри — железо.
-## frac 0..1 — насколько разрез уже раскрыт (растёт по ходу операции).
+## Переводит материалы тела на шейдер с ВЫРЕЗОМ: указанный кусок геометрии
+## перестаёт рисоваться совсем (discard), а не закрывается накладкой.
+func _cut_open(t: WolfChar, radius: float) -> void:
+	if not t.wound_mats.is_empty() or t.visual == null:
+		return
+	var meshes: Array = []
+	_collect_meshes(t.visual, meshes)
+	for mi: MeshInstance3D in meshes:
+		var count := maxi(1, mi.get_surface_override_material_count())
+		for i in count:
+			var src := mi.get_active_material(i) as StandardMaterial3D
+			var sm := ShaderMaterial.new()
+			sm.shader = WOUND_SHADER
+			if src != null and src.albedo_texture != null:
+				sm.set_shader_parameter("tex_albedo", src.albedo_texture)
+				sm.set_shader_parameter("has_tex", true)
+			else:
+				sm.set_shader_parameter("has_tex", false)
+			sm.set_shader_parameter("tint", src.albedo_color if src != null else Color.WHITE)
+			sm.set_shader_parameter("rough", src.roughness if src != null else 0.7)
+			sm.set_shader_parameter("metal", src.metallic if src != null else 0.0)
+			sm.set_shader_parameter("wound_r", radius)
+			sm.set_shader_parameter("wound_h", 1.35)
+			mi.set_surface_override_material(i, sm)
+			t.wound_mats.append(sm)
+
+
+func _collect_meshes(node: Node, out: Array) -> void:
+	if node is MeshInstance3D:
+		out.append(node)
+	for c in node.get_children():
+		_collect_meshes(c, out)
+
+
+## Начинка полости — у каждого импланта своя, узнаваемая с одного взгляда.
+func _wound_contents(host: Node3D, kind: String) -> void:
+	var col: Color = WolfCfg.CIV_IMPLANTS.get(kind, {}).get("color", Color(1, 0.2, 0.2))
+	var meat := _flesh_mat(Color(0.26, 0.03, 0.04), 0.0, 0.25)
+	var metal := _flesh_mat(Color(0.22, 0.23, 0.27), 0.0, 0.35)
+	var glow := _flesh_mat(col, 2.6, 0.3)
+	match kind:
+		"bomb":
+			# Три брикета, стянутые лентой, с красным детонатором и таймером.
+			for i in 3:
+				_flesh_box(host, Vector3(-0.06 + i * 0.06, 0.02, 0.06), Vector3(0.05, 0.13, 0.06),
+						_flesh_mat(Color(0.68, 0.58, 0.38), 0.0, 0.8))
+			_flesh_box(host, Vector3(0, 0.02, 0.075), Vector3(0.20, 0.03, 0.03), _flesh_mat(Color(0.1, 0.1, 0.11), 0.0, 0.9))
+			_flesh_box(host, Vector3(0.05, 0.09, 0.07), Vector3(0.035, 0.02, 0.03), glow).name = "WoundCore"
+			_flesh_box(host, Vector3(-0.04, 0.09, 0.07), Vector3(0.05, 0.025, 0.02), _flesh_mat(Color(0.2, 1.0, 0.35), 1.6, 0.3))
+		"slime":
+			# Пульсирующие мешки с зелёной жижей и трубками в мясо.
+			for i in 3:
+				var sac := MeshInstance3D.new()
+				var sp := SphereMesh.new()
+				sp.radius = 0.045 - i * 0.007
+				sp.height = sp.radius * 2.0
+				sac.mesh = sp
+				sac.position = Vector3(-0.06 + i * 0.06, -0.02 + i * 0.03, 0.07)
+				sac.material_override = glow
+				host.add_child(sac)
+				if i == 1:
+					sac.name = "WoundCore"
+			for i in 4:
+				_flesh_box(host, Vector3(-0.07 + i * 0.045, 0.08, 0.06), Vector3(0.012, 0.09, 0.012), meat)
+		"softener":
+			# Электродная решётка, вбитая в мясо, и провода.
+			for i in 4:
+				_flesh_box(host, Vector3(-0.07 + i * 0.047, 0.0, 0.075), Vector3(0.02, 0.16, 0.02), metal)
+			_flesh_box(host, Vector3(0, 0.08, 0.075), Vector3(0.19, 0.02, 0.02), glow).name = "WoundCore"
+			_flesh_box(host, Vector3(0, -0.09, 0.07), Vector3(0.16, 0.015, 0.015), _flesh_mat(Color(0.6, 0.4, 0.05), 0.4, 0.6))
+		"flare":
+			# Толстый стержень-ТЭН в кожухе: греется прямо в брюхе.
+			var rod := MeshInstance3D.new()
+			var cyl := CylinderMesh.new()
+			cyl.top_radius = 0.03
+			cyl.bottom_radius = 0.03
+			cyl.height = 0.22
+			rod.mesh = cyl
+			rod.position = Vector3(0, 0.0, 0.07)
+			rod.material_override = glow
+			rod.name = "WoundCore"
+			host.add_child(rod)
+			for s2: float in [-1.0, 1.0]:
+				_flesh_box(host, Vector3(0.06 * s2, 0.0, 0.07), Vector3(0.02, 0.2, 0.05), metal)
+		"cryo":
+			# Два баллона в инее и намёрзшая корка по краям разреза.
+			for s2: float in [-1.0, 1.0]:
+				var tank := MeshInstance3D.new()
+				var cyl2 := CylinderMesh.new()
+				cyl2.top_radius = 0.035
+				cyl2.bottom_radius = 0.035
+				cyl2.height = 0.19
+				tank.mesh = cyl2
+				tank.position = Vector3(0.055 * s2, 0.0, 0.07)
+				tank.material_override = glow if s2 > 0.0 else _flesh_mat(Color(0.7, 0.85, 0.95), 0.8, 0.2)
+				host.add_child(tank)
+				if s2 > 0.0:
+					tank.name = "WoundCore"
+			for i in 5:
+				_flesh_box(host, Vector3(-0.1 + i * 0.05, 0.11, 0.06), Vector3(0.02, 0.03, 0.02),
+						_flesh_mat(Color(0.8, 0.92, 1.0), 0.6, 0.15), Vector3(0, 0, 20.0 - i * 10.0))
+		"emp":
+			# Катушка с обмоткой и конденсаторы по бокам.
+			var coil := MeshInstance3D.new()
+			var tor := TorusMesh.new()
+			tor.inner_radius = 0.03
+			tor.outer_radius = 0.065
+			coil.mesh = tor
+			coil.position = Vector3(0, 0.0, 0.07)
+			coil.rotation_degrees = Vector3(90, 0, 0)
+			coil.material_override = glow
+			coil.name = "WoundCore"
+			host.add_child(coil)
+			for s2: float in [-1.0, 1.0]:
+				_flesh_box(host, Vector3(0.09 * s2, 0.0, 0.07), Vector3(0.03, 0.1, 0.03), metal)
+		"singularity":
+			# Чёрное зерно в кольце-ускорителе, оно уже подрагивает.
+			var seed_m := MeshInstance3D.new()
+			var sp2 := SphereMesh.new()
+			sp2.radius = 0.035
+			sp2.height = 0.07
+			seed_m.mesh = sp2
+			seed_m.position = Vector3(0, 0.0, 0.07)
+			seed_m.material_override = _flesh_mat(Color(0.02, 0.0, 0.04), 0.0, 0.1)
+			host.add_child(seed_m)
+			var ring := MeshInstance3D.new()
+			var tor2 := TorusMesh.new()
+			tor2.inner_radius = 0.05
+			tor2.outer_radius = 0.075
+			ring.mesh = tor2
+			ring.position = Vector3(0, 0.0, 0.07)
+			ring.rotation_degrees = Vector3(75, 0, 0)
+			ring.material_override = glow
+			ring.name = "WoundCore"
+			host.add_child(ring)
+		"holo":
+			# Линза проектора и рёбра радиатора.
+			var lens := MeshInstance3D.new()
+			var cyl3 := CylinderMesh.new()
+			cyl3.top_radius = 0.055
+			cyl3.bottom_radius = 0.02
+			cyl3.height = 0.05
+			lens.mesh = cyl3
+			lens.position = Vector3(0, 0.02, 0.08)
+			lens.rotation_degrees = Vector3(90, 0, 0)
+			lens.material_override = glow
+			lens.name = "WoundCore"
+			host.add_child(lens)
+			for i in 4:
+				_flesh_box(host, Vector3(0, -0.05 - i * 0.022, 0.07), Vector3(0.16, 0.012, 0.04), metal)
+		"brood":
+			# Кладка: мокрые яйца, внутри что-то шевелится.
+			for i in 5:
+				var egg := MeshInstance3D.new()
+				var sp3 := SphereMesh.new()
+				sp3.radius = 0.032
+				sp3.height = 0.075
+				egg.mesh = sp3
+				egg.position = Vector3(-0.07 + (i % 3) * 0.07, 0.05 - int(i / 3) * 0.08, 0.07)
+				egg.material_override = _flesh_mat(Color(0.72, 0.45, 0.42), 0.5, 0.15)
+				host.add_child(egg)
+				if i == 0:
+					egg.name = "WoundCore"
+			_flesh_box(host, Vector3(0, -0.02, 0.055), Vector3(0.22, 0.16, 0.02), _flesh_mat(Color(0.45, 0.6, 0.2), 0.7, 0.2))
+		"puppet":
+			# Слизень свернулся в полости, усики наружу.
+			var slug := MeshInstance3D.new()
+			var cap := CapsuleMesh.new()
+			cap.radius = 0.045
+			cap.height = 0.17
+			slug.mesh = cap
+			slug.position = Vector3(0, 0.0, 0.07)
+			slug.rotation_degrees = Vector3(0, 0, 70)
+			slug.material_override = glow
+			slug.name = "WoundCore"
+			host.add_child(slug)
+			for s2: float in [-1.0, 1.0]:
+				_flesh_box(host, Vector3(0.05 * s2, 0.08, 0.075), Vector3(0.014, 0.09, 0.014),
+						glow, Vector3(0, 0, 22.0 * s2))
+		_:
+			_flesh_box(host, Vector3(0, 0, 0.07), Vector3(0.14, 0.16, 0.05), glow).name = "WoundCore"
+
+
+## Вскрытая полость: часть тела ВЫРЕЗАНА шейдером, внутри — мясо, обломки
+## рёбер и своя начинка. frac 0..1 — насколько уже раскрыт разрез.
 func _build_wound(t: WolfChar, kind: String, frac: float) -> void:
 	if t.visual == null:
 		return
@@ -2606,28 +2790,17 @@ func _build_wound(t: WolfChar, kind: String, frac: float) -> void:
 		var comp := Vector3(1.0 / maxf(gs.x, 0.0001), 1.0 / maxf(gs.y, 0.0001), 1.0 / maxf(gs.z, 0.0001))
 		host.set_meta("comp", comp)
 		t.wound_kind = kind
-
-		var meat := _flesh_mat(Color(0.30, 0.03, 0.04), 0.0, 0.25)
-		var skin := _flesh_mat(Color(0.62, 0.44, 0.36), 0.0, 0.7)
+		# Дыра в самом теле: кожи и мяса там просто НЕТ.
+		_cut_open(t, 0.135)
+		# Изнутри — тёмное мясо задней стенки и обломки рёбер поперёк.
+		var meat := _flesh_mat(Color(0.24, 0.02, 0.03), 0.0, 0.2)
 		var bone_m := _flesh_mat(Color(0.86, 0.83, 0.72), 0.0, 0.5)
-		# Полость — тёмное мясо.
-		_flesh_box(host, Vector3(0, 0.06, 0.10), Vector3(0.30, 0.34, 0.06), meat)
-		# Отогнутые лоскуты кожи по краям разреза.
-		for s: float in [-1.0, 1.0]:
-			_flesh_box(host, Vector3(0.17 * s, 0, 0.13), Vector3(0.10, 0.34, 0.03), skin,
-					Vector3(0, 34.0 * s, 6.0 * s))
-		_flesh_box(host, Vector3(0, 0.19, 0.13), Vector3(0.30, 0.08, 0.03), skin, Vector3(-28, 0, 0))
-		_flesh_box(host, Vector3(0, -0.19, 0.13), Vector3(0.30, 0.08, 0.03), skin, Vector3(26, 0, 0))
-		# Рёбра-обломки поперёк полости.
+		_flesh_box(host, Vector3(0, 0, 0.02), Vector3(0.26, 0.30, 0.03), meat)
 		for i in 3:
-			_flesh_box(host, Vector3(0, 0.11 - i * 0.11, 0.12), Vector3(0.26, 0.018, 0.02), bone_m,
-					Vector3(0, 0, -6.0 + i * 6.0))
-		# Само устройство внутри — цветом своей начинки.
-		var col: Color = WolfCfg.CIV_IMPLANTS.get(kind, {}).get("color", Color(1, 0.2, 0.2))
-		var dev := _flesh_box(host, Vector3(0, 0, 0.115), Vector3(0.14, 0.16, 0.05),
-				_flesh_mat(col, 2.4, 0.3))
-		dev.name = "WoundCore"
-		# Кровь сочится из разреза.
+			_flesh_box(host, Vector3(0, 0.10 - i * 0.10, 0.055), Vector3(0.24, 0.016, 0.018), bone_m,
+					Vector3(0, 0, -7.0 + i * 7.0))
+		_wound_contents(host, kind)
+		# Кровь стекает из разреза.
 		var drip := CPUParticles3D.new()
 		drip.name = "WoundDrip"
 		drip.amount = 10
@@ -2647,13 +2820,15 @@ func _build_wound(t: WolfChar, kind: String, frac: float) -> void:
 		dmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		dmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 		drip.mesh.surface_set_material(0, dmat)
-		drip.position = Vector3(0, -0.16, 0.12)
+		drip.position = Vector3(0, -0.14, 0.06)
 		host.add_child(drip)
 		drip.emitting = true
 	# Разрез раскрывается по мере работы: сперва щель, потом дыра.
 	var f := clampf(frac, 0.12, 1.0)
 	var comp2: Vector3 = host.get_meta("comp", Vector3.ONE)
 	host.scale = Vector3(comp2.x * f, comp2.y, comp2.z)
+	for m: ShaderMaterial in t.wound_mats:
+		m.set_shader_parameter("wound_r", 0.135 * f)
 
 
 ## Пульс железа в ране (перед подрывом частит) + подсветка типа.
@@ -2664,6 +2839,10 @@ func _tick_wounds(_delta: float) -> void:
 		var host := t.get_node_or_null("%WoundHost") as Node3D
 		if host == null:
 			continue
+		# Дыра держится за телом: центр выреза едет вместе с костью.
+		var wp := host.global_position
+		for m: ShaderMaterial in t.wound_mats:
+			m.set_shader_parameter("wound_pos", wp)
 		var core := host.get_node_or_null("WoundCore") as MeshInstance3D
 		if core == null:
 			continue
@@ -3622,8 +3801,8 @@ func _seed_bot_implants(e: WolfChar) -> void:
 	if e.is_player:
 		return
 	if e.is_leader:
-		e.install_implant("subdermal")
-		e.install_implant("dermal")     # Альфу так просто не добить
+		e.install_implant("subdermal")  # только броня: железу-разжижитель убрали
+		e.dmg_mul = WolfCfg.ALPHA_DMG_MUL
 		return
 	var roll := randf()
 	if e.faction == "cannibal":
@@ -4421,7 +4600,7 @@ func _test_civdev(_delta: float) -> void:
 		_tap_key(KEY_G)
 	elif _test_shot_taken and _test_shot != "" and not _dev_shot_done and _test_t > _dev_fire_t + _dev_shot_delay():
 		_dev_shot_done = true
-		var cam_off := Vector3(-5.0, 0.9, -3.6)
+		var cam_off := Vector3(-1.7, 0.15, -1.3)   # крупный план раны
 		player.velocity = Vector3.ZERO      # чтобы отдача не уволокла камеру
 		player.knockback = Vector3.ZERO
 		player.stagger_t = 0.0

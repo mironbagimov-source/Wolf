@@ -41,13 +41,14 @@ const CONFIG := {
 	"ghoul": {"speed": 3.4, "sprint_mul": 1.5, "hp": 150.0,
 		"attack_range": 2.1, "attack_damage": 30.0, "attack_cd": 0.75,
 		"sense_radius": 18.0},
-	"killer": {"speed": 3.5, "sprint_mul": 1.55, "hp": 220.0,
-		"attack_range": 2.5, "attack_damage": 45.0, "attack_cd": 0.7,
+	"killer": {"speed": 3.65, "sprint_mul": 1.6, "hp": 270.0,
+		"attack_range": 2.6, "attack_damage": 54.0, "attack_cd": 0.62,
 		"block_speed_mul": 0.55,
-		"knives": 3, "throw_damage": 140.0, "throw_speed": 26.0, "throw_range": 24.0, "throw_cd": 0.55},
+		"knives": 4, "throw_damage": 175.0, "throw_speed": 28.0, "throw_range": 26.0, "throw_cd": 0.5},
 }
 
-const ALPHA_HP := 560.0
+const ALPHA_HP := 360.0        # босса ужали: раньше он в одиночку решал матч
+const ALPHA_DMG_MUL := 0.8     # и бьёт мягче рядового психа
 
 # --- Кибер-гуль: кормёжка и мутация в вампира ------------------------------
 const GHOUL_COUNT := 3            # сколько гулей рыщет по башне
@@ -251,9 +252,9 @@ const EXECUTE_RANGE := 2.4
 const EXECUTE_CAM_TIME := 2.4
 
 const MERC_BOT_COUNT := 3
-const MERC_BOT_HP := 150.0
-const MERC_BOT_DMG_MUL := 0.75
-const MERC_BOT_KNIVES := 1
+const MERC_BOT_HP := 200.0
+const MERC_BOT_DMG_MUL := 0.9
+const MERC_BOT_KNIVES := 2
 const MERC_BOT_SENSE := 13.0
 const MERC_BOT_THROW_MIN := 5.0
 const MERC_BOT_THROW_MAX := 12.0

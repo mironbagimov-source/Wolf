@@ -89,6 +89,7 @@ var emp_t := 0.0                    # импланты выбиты ЭМИ-ра�
 var puppet_t := 0.0                 # захвачен слизнем-кукловодом
 var puppet_owner := ""              # чью сторону держит марионетка
 var wound_kind := ""                # какая рана вскрыта на теле
+var wound_mats: Array = []          # ShaderMaterial'ы тела с вырезом
 var slime_cd := 0.0                 # откат био-слизи
 var blind_t := 0.0                  # ослеплён пузырями — ничего не видит
 
@@ -464,6 +465,8 @@ func flash_materials(delta: float) -> void:
 			var mat := (mi as MeshInstance3D).get_surface_override_material(i)
 			if mat is StandardMaterial3D:
 				(mat as StandardMaterial3D).emission_energy_multiplier = energy
+			elif mat is ShaderMaterial:
+				(mat as ShaderMaterial).set_shader_parameter("flash", energy * 0.12)
 
 
 # ---------------------------------------------------------------------------
