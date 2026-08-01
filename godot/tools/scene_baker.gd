@@ -2,6 +2,7 @@ extends SceneTree
 
 const Forge = preload("res://tools/anim_forge.gd")
 const Hub = preload("res://scripts/hub.gd")
+const City = preload("res://scripts/city.gd")
 ## Bakes the code-built content into REAL .tscn scenes the Godot editor can
 ## open and edit: the full night district (geometry, lights, props, objective
 ## nodes, Marker3D spawn points) and the four faction character scenes.
@@ -63,6 +64,27 @@ func _init() -> void:
 	hub.remove_child(hgeo)
 	hnav.add_child(hgeo)
 	_save(hub, "res://scenes/hub.tscn")
+
+	# --- третья локация: ОТКРЫТЫЙ КВАРТАЛ (мирный, без боёвки) ---
+	var city := Node3D.new()
+	city.name = "District"
+	City.build_environment(city)
+	City.build_district(city)
+	var cnav := NavigationRegion3D.new()
+	cnav.name = "Nav"
+	var cmesh := NavigationMesh.new()
+	cmesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	cmesh.geometry_collision_mask = 1
+	cmesh.agent_radius = 0.45
+	cmesh.agent_height = 1.8
+	cmesh.agent_max_slope = 35.0
+	cmesh.agent_max_climb = 0.4
+	cnav.navigation_mesh = cmesh
+	city.add_child(cnav)
+	var cgeo := city.get_node("Geometry")
+	city.remove_child(cgeo)
+	cnav.add_child(cgeo)
+	_save(city, "res://scenes/city.tscn")
 
 	# --- characters (one editable scene per archetype body) ---
 	var chars := [

@@ -77,8 +77,19 @@ var _bait_beacon: MeshInstance3D = null
 var ripper_points: Array = []
 # Локация матча: "tower" (Арасака-тауэр) или "hub" (рынок «Сухой док»).
 var location := "tower"
-const LOCATION_SCENES := {"tower": "res://scenes/district.tscn", "hub": "res://scenes/hub.tscn"}
+const LOCATION_SCENES := {"tower": "res://scenes/district.tscn", "hub": "res://scenes/hub.tscn",
+	"city": "res://scenes/city.tscn"}
 var hub_points: Array = []         # [{pos, kind, title, used}]
+# --- Мирный город: без боя, зато с людьми ---------------------------------
+var peaceful := false              # в квартале никто не дерётся
+var city_role := "fixer"           # фиксер / инфоброкер / курьер
+var npc_posts: Array = []          # [{pos, prof, place, who}]
+var bound := Vector2(WolfCfg.BOUND_X, WolfCfg.BOUND_Z)   # границы текущей локации
+var role_progress := 0
+var deals_with := {}               # профессии, с которыми уже есть сделка
+var stories := {}                  # собранные истории
+var parcel := ""                   # у курьера: кому несём
+var _talked := {}                  # id NPC -> уже говорили в этом месте
 var _hub_act := ""                 # что делаем сейчас: workshop/bar/noodles/dance
 var _hub_t := 0.0
 var drink_buddies := 0             # сколько NPC позвал выпить
@@ -150,6 +161,7 @@ const RESULT_COPY := {
 	"psychos_dead": ["Психи уничтожены", "Наёмники зачистили башню — гражданские спасены.", "killer"],
 	"merc_done": ["Контракт закрыт", "Бомба заложена, наёмники растворились до сирен.", "killer"],
 	"ghoul_win": ["Башня обглодана", "Живых больше нет. Стая сыта.", "ghoul"],
+	"city_done": ["Смена закрыта", "Квартал тебя запомнил. Дела сделаны.", "survivor"],
 }
 
 
@@ -208,6 +220,9 @@ func _apply_graphics(high: bool) -> void:
 
 
 func _on_character_picked(faction: String, char_index: int) -> void:
+	if ui != null and ui.location_pick == "city":
+		_start_match("survivor", char_index, -1)   # мирный город: без оружия
+		return
 	# Третий архетип гуля — сразу высшая форма (открывается мутацией).
 	_vampire_pick = faction == "ghoul" and bool(WolfCfg.CHARACTERS[faction][char_index].get("vampire", false))
 	if faction == "survivor":
@@ -251,6 +266,15 @@ func _collect_layout() -> void:
 		for child in lb.get_children():
 			loot_bodies.append({"pos": (child as Marker3D).global_position,
 				"desc": String(child.get_meta("desc", "")), "looted": false})
+	bound = WolfCfg.LOCATION_BOUNDS.get(location, Vector2(WolfCfg.BOUND_X, WolfCfg.BOUND_Z))
+	npc_posts.clear()
+	var np := district.get_node_or_null("NpcPosts")
+	if np != null:
+		for child in np.get_children():
+			npc_posts.append({"pos": (child as Marker3D).global_position,
+				"prof": String(child.get_meta("prof", "прохожий")),
+				"place": String(child.get_meta("place", "street")),
+				"who": String(child.get_meta("who", "местный"))})
 	hub_points.clear()
 	var hp := district.get_node_or_null("HubPoints")
 	if hp != null:
@@ -320,6 +344,7 @@ func _load_location(loc: String) -> void:
 
 func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout := {}) -> void:
 	_load_location(ui.location_pick if ui != null else "tower")
+	peaceful = location == "city"
 	for e in entities:
 		e.queue_free()
 	for k in knives:
@@ -390,6 +415,34 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 	for d in doors:
 		if (d as WolfDoor).is_open and not (d as WolfDoor).is_broken:
 			(d as WolfDoor).toggle()  # matches start with doors closed
+
+	# --- МИРНЫЙ ГОРОД: ни психов, ни гулей, ни полиции. Только люди. -----
+	if peaceful:
+		city_role = ["fixer", "broker", "courier"][clampi(arche_index, 0, 2)]
+		role_progress = 0
+		deals_with.clear()
+		stories.clear()
+		parcel = ""
+		_talked.clear()
+		var pl_spawns := _spawn_positions("Player")
+		var pl := _spawn_char("survivor", pl_spawns[0] if not pl_spawns.is_empty() else Vector3(0, 0.2, 14), true, false, 0)
+		pl.char_name = WolfCfg.CITY_ROLES[city_role]["name"]
+		pl.max_hp = 200.0
+		pl.hp = 200.0
+		# Горожане по постам: каждый со своей профессией и местом.
+		for i in npc_posts.size():
+			var post: Dictionary = npc_posts[i]
+			var npc := _spawn_char("survivor", (post["pos"] as Vector3) + Vector3(0, 0.2, 0), false, false, i % 2)
+			npc.char_name = str(post["who"])
+			npc.set_meta("prof", post["prof"])
+			npc.set_meta("place", post["place"])
+			npc.set_meta("post", post["pos"])
+			_npc_badge(npc, str(post["prof"]), str(post["who"]))
+		_setup_player_camera()
+		mode = "playing"
+		ui.show_hud()
+		_capture_mouse(true)
+		return
 
 	# Каждый архетип носит свою модель: игрок — выбранную, боты чередуются.
 	var civ_spawns := _spawn_positions("Survivor")
@@ -772,6 +825,9 @@ func _alive(faction: String) -> int:
 func _check_win() -> void:
 	if mode != "playing":
 		return
+	if peaceful:
+		_check_city_win()   # в городе не убивают — считают дела
+		return
 	if _alive("survivor") == 0:
 		_end_game("ghoul_win" if player.faction == "ghoul" else "civs_dead")
 		return
@@ -911,7 +967,7 @@ func _update_player_input(delta: float) -> void:
 		if flashlight != null:
 			flashlight.light_energy = 4.0 if p.flashlight_on else 0.0
 
-	if p.faction != "survivor":
+	if p.faction != "survivor" and not peaceful:
 		p.is_blocking = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and not p.charging
 		# Charge-and-release melee: tap = quick strike, hold = charged strike.
 		var lmb := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or (_key(KEY_SPACE) and not _in_shaft(p.global_position))
@@ -1716,6 +1772,9 @@ func _update_bot(e: WolfChar, delta: float) -> void:
 		_bot_police(e, delta)
 		_bot_open_or_break_door(e)
 		return
+	if peaceful:
+		_bot_citizen(e, delta)
+		return
 	match e.faction:
 		"survivor":
 			_bot_civilian(e, delta)
@@ -2092,8 +2151,8 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	else:
 		e.velocity.y = maxf(e.velocity.y - 20.0 * delta, -30.0)
 	e.move_and_slide()
-	e.global_position.x = clampf(e.global_position.x, -WolfCfg.BOUND_X, WolfCfg.BOUND_X)
-	e.global_position.z = clampf(e.global_position.z, -WolfCfg.BOUND_Z, WolfCfg.BOUND_Z)
+	e.global_position.x = clampf(e.global_position.x, -bound.x, bound.x)
+	e.global_position.z = clampf(e.global_position.z, -bound.y, bound.y)
 
 	if e.wants_execute and not stunned and e.can_execute:
 		# Гуль сперва проверяет, нет ли под ногами падали: [F] — трапеза.
@@ -2118,6 +2177,19 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 
 func _apply_interact(e: WolfChar, delta: float) -> void:
 	if not e.is_player:
+		return
+
+	# --- МИРНЫЙ ГОРОД: только разговоры и заказы ---
+	if peaceful:
+		if e.interact_pressed:
+			var who := _city_npc(e)
+			if who != null:
+				_city_talk(who, e)
+				return
+			var hi2 := _nearest_hub(e.global_position)
+			if hi2 >= 0 and str((hub_points[hi2] as Dictionary)["kind"]) == "dispatch":
+				_take_parcel(e)
+				return
 		return
 
 	# Заведения хаба (мастерская, бар, лапша, танцпол) — до всего прочего.
@@ -2204,6 +2276,159 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 						bomb_pickup.visible = true
 			else:
 				bomb_progress = maxf(0.0, bomb_progress - delta * 2.0)
+
+
+# ---------------------------------------------------------------------------
+# МИРНЫЙ ГОРОД: профессии, разговоры по месту, дела вместо драки
+# ---------------------------------------------------------------------------
+
+## Табличка над горожанином: имя и профессия цветом ремесла.
+func _npc_badge(npc: WolfChar, prof: String, who: String) -> void:
+	var lbl := Label3D.new()
+	lbl.name = "Badge"
+	lbl.text = "%s\n%s" % [who, prof]
+	lbl.font_size = 96
+	lbl.pixel_size = 0.0022
+	lbl.modulate = WolfCfg.PROFESSIONS.get(prof, Color.WHITE)
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = false
+	lbl.position = Vector3(0, 2.05, 0)
+	npc.add_child(lbl)
+
+
+## Где мы находимся: у стойки заведения — его вид, иначе улица.
+func _place_at(pos: Vector3) -> String:
+	var best := ""
+	var best_d := 7.0
+	for h: Dictionary in hub_points:
+		var d := (h["pos"] as Vector3).distance_to(pos)
+		if d < best_d:
+			best_d = d
+			best = str(h["kind"])
+	return best if best != "" else "street"
+
+
+## Разговор: реплика зависит от профессии И от места встречи.
+func _city_talk(npc: WolfChar, p: WolfChar) -> void:
+	var prof := str(npc.get_meta("prof", ""))
+	var place := _place_at(npc.global_position)
+	var table: Dictionary = WolfCfg.TALK.get(prof, {})
+	var entry: Array = table.get(place, [])
+	if entry.is_empty():
+		# На чужом месте человек говорит своё «уличное».
+		entry = table.get("street", ["«Не сейчас.»", "story", "Пустой разговор"])
+		place = "street"
+	var key := "%d:%s" % [npc.get_instance_id(), place]
+	npc.play_oneshot("Interact")
+	npc.desired_yaw = _yaw_toward(p.global_position.x - npc.global_position.x,
+			p.global_position.z - npc.global_position.z)
+	# Повтор — та же реплика покороче, но дело (доставку) всё равно закрываем.
+	var repeat: bool = _talked.get(key, false)
+	_talked[key] = true
+	var kind := str(entry[1])
+	var gain := str(entry[2])
+	if repeat:
+		_loot_msg = "%s (%s): %s" % [npc.char_name, prof, entry[0]]
+		_loot_msg_t = 5.0
+	else:
+		_loot_msg = "%s (%s, %s): %s\n%s" % [npc.char_name, prof,
+			"на улице" if place == "street" else "на месте", entry[0], gain]
+		_loot_msg_t = 7.0
+	# Курьеру важна доставка, остальным — сделки и истории.
+	match city_role:
+		"fixer":
+			if kind == "deal" and not deals_with.has(prof):
+				deals_with[prof] = true
+				role_progress = deals_with.size()
+				_spark_burst(npc.global_position + Vector3(0, 1.6, 0))
+		"broker":
+			if kind == "story" and not stories.has(gain):
+				stories[gain] = true
+				role_progress = stories.size()
+				_spark_burst(npc.global_position + Vector3(0, 1.6, 0))
+		"courier":
+			if parcel != "" and prof == parcel:
+				parcel = ""
+				role_progress += 1
+				_spark_burst(npc.global_position + Vector3(0, 1.6, 0))
+				_loot_msg = "ДОСТАВЛЕНО: %s расписался. Возвращайся в диспетчерскую." % npc.char_name
+				_loot_msg_t = 6.0
+	_check_city_win()
+
+
+## Диспетчерская: курьер берёт следующую посылку.
+func _take_parcel(p: WolfChar) -> void:
+	if city_role != "courier":
+		_loot_msg = "Диспетчер: «Ты не по этой части.»"
+		_loot_msg_t = 4.0
+		return
+	if parcel != "":
+		_loot_msg = "Посылка уже у тебя: адресат — %s" % parcel
+		_loot_msg_t = 4.0
+		return
+	var profs: Array = []
+	for post: Dictionary in npc_posts:
+		if not profs.has(post["prof"]):
+			profs.append(post["prof"])
+	if profs.is_empty():
+		return
+	parcel = str(profs.pick_random())
+	p.play_oneshot("PickUp")
+	_loot_msg = "ПОСЫЛКА ПРИНЯТА. Адресат — %s (ищи по бейджу над головой)." % parcel
+	_loot_msg_t = 7.0
+
+
+func _check_city_win() -> void:
+	if not peaceful or mode != "playing":
+		return
+	var goal: int = WolfCfg.CITY_ROLES[city_role]["goal"]
+	if role_progress >= goal:
+		_end_game("city_done")
+
+
+## Ближайший горожанин для разговора.
+func _city_npc(p: WolfChar) -> WolfChar:
+	var best: WolfChar = null
+	var best_d := WolfCfg.TALK_RANGE
+	for t: WolfChar in entities:
+		if t == p or t.is_dead or not t.has_meta("prof"):
+			continue
+		var dp := t.global_position - p.global_position
+		if absf(dp.y) > 2.5:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
+## Горожане живут: стоят на посту, изредка переступают и оглядываются.
+func _bot_citizen(e: WolfChar, delta: float) -> void:
+	e.sprinting = false
+	e.crouching = false
+	var post: Vector3 = e.get_meta("post", e.global_position)
+	var d := post.distance_to(e.global_position)
+	if d > 1.6:
+		_bot_goto(e, post, delta)
+		return
+	e.wander_timer -= delta
+	if e.wander_timer > 0.0:
+		# Дошёл до цели — стоит и оглядывается.
+		if e.has_meta("stroll") and (e.get_meta("stroll") as Vector3).distance_to(e.global_position) > 0.7:
+			_bot_goto(e, e.get_meta("stroll") as Vector3, delta)
+			return
+		e.move_input = Vector2.ZERO
+		return
+	e.wander_timer = randf_range(3.5, 8.0)
+	e.desired_yaw = randf_range(-PI, PI)
+	# Кто на улице — переминается и отходит на пару шагов; кто за стойкой —
+	# стоит на месте: бармен не гуляет посреди смены.
+	if str(e.get_meta("place", "street")) == "street":
+		var a := randf_range(-PI, PI)
+		e.set_meta("stroll", post + Vector3(cos(a), 0.0, sin(a)) * randf_range(0.0, 3.5))
+	else:
+		e.set_meta("stroll", post)
 
 
 # ---------------------------------------------------------------------------
@@ -3878,8 +4103,8 @@ func _tick_devices(delta: float) -> void:
 			h["dir"] = dir
 			_cloud(from, Color(0.2, 0.9, 1.0), 10, 2.0, 0.4, 0.0, 0.08)
 		node.global_position += dir * WolfCfg.HOLO_SPEED * delta
-		node.global_position.x = clampf(node.global_position.x, -WolfCfg.BOUND_X + 1.0, WolfCfg.BOUND_X - 1.0)
-		node.global_position.z = clampf(node.global_position.z, -WolfCfg.BOUND_Z + 1.0, WolfCfg.BOUND_Z - 1.0)
+		node.global_position.x = clampf(node.global_position.x, -bound.x + 1.0, bound.x - 1.0)
+		node.global_position.z = clampf(node.global_position.z, -bound.y + 1.0, bound.y - 1.0)
 		node.rotation.y = atan2(dir.x, dir.z)
 		# Глитч: силуэт мерцает и «рвётся».
 		var mat: StandardMaterial3D = h["mat"]
@@ -4297,6 +4522,26 @@ func _prompt_for(p: WolfChar) -> String:
 		var imp: Dictionary = WolfCfg.IMPLANTS[str(rs["implant"])]
 		var frac := clampf(float(_surgery["t"]) / float(imp["time"]), 0.0, 1.0)
 		return "ОПЕРАЦИЯ: %s — %d%% (не отпускай E, ты беспомощен)" % [imp["name"], int(frac * 100.0)]
+	# --- Мирный город ---
+	if peaceful:
+		if _loot_msg_t > 0.0:
+			return _loot_msg
+		var who2 := _city_npc(p)
+		if who2 != null:
+			var prof2 := str(who2.get_meta("prof", ""))
+			var place2 := _place_at(who2.global_position)
+			var where := "на улице" if place2 == "street" else "на рабочем месте"
+			if city_role == "courier" and parcel == prof2:
+				return "[E] ВРУЧИТЬ ПОСЫЛКУ — %s (%s), %s" % [who2.char_name, prof2, where]
+			return "[E] ПОГОВОРИТЬ — %s (%s), %s" % [who2.char_name, prof2, where]
+		var hi3 := _nearest_hub(p.global_position)
+		if hi3 >= 0 and str((hub_points[hi3] as Dictionary)["kind"]) == "dispatch":
+			return "[E] ДИСПЕТЧЕРСКАЯ — взять посылку" if city_role == "courier" else "Диспетчерская: тут выдают заказы курьерам"
+		var role: Dictionary = WolfCfg.CITY_ROLES[city_role]
+		if city_role == "courier" and parcel != "":
+			return "Несёшь посылку: адресат — %s" % parcel
+		return "%s: %d/%d %s" % [role["name"], role_progress, role["goal"], role["unit"]]
+
 	# Заведения хаба.
 	if _hub_act != "":
 		var titles := {"workshop": "ПЕРЕКОВКА", "bar": "НАЛИВАЮТ", "noodles": "ЕШЬ", "dance": "ТАНЦПОЛ"}
@@ -4433,7 +4678,12 @@ func _update_hud() -> void:
 			ui.timer_label.text = "МАКС-ТАК летит: %d сек" % int(ceil(call_timer))
 		5:
 			ui.timer_label.text = "МАКС-ТАК в здании: %d" % _alive("police")
-	ui.nodes_label.text = "Граждане: %d · Психи: %d" % [_alive("survivor"), _alive("cannibal")]
+	if peaceful:
+		var role2: Dictionary = WolfCfg.CITY_ROLES[city_role]
+		ui.timer_label.text = "%s — %d/%d %s" % [role2["name"], role_progress, role2["goal"], role2["unit"]]
+		ui.nodes_label.text = "Горожан: %d" % npc_posts.size()
+	else:
+		ui.nodes_label.text = "Граждане: %d · Психи: %d" % [_alive("survivor"), _alive("cannibal")]
 	var stance: Array = []
 	if p.char_name != "":
 		stance.append(p.char_name)
@@ -4568,7 +4818,14 @@ func _run_test(delta: float) -> void:
 	_test_t += delta
 	match _test_mode:
 		"menu":
-			if _test_t > 1.0 and not _test_shot_taken:
+			if _test_t > 0.4 and not _test_staged:
+				_test_staged = true
+				# WOLF_LOC=tower|hub|city — снять меню с нужной локацией.
+				var loc := OS.get_environment("WOLF_LOC")
+				if loc != "":
+					ui.location_pick = loc
+					ui.refresh_location()
+			elif _test_t > 1.0 and not _test_shot_taken:
 				_test_shot_taken = true
 				_finish_test("menu ok")
 		"look":
@@ -4629,6 +4886,8 @@ func _run_test(delta: float) -> void:
 			_test_ghoul(delta)
 		"hub":
 			_test_hub(delta)
+		"city":
+			_test_city(delta)
 		"civdev":
 			_test_civdev(delta)
 		"civbomb":
@@ -4939,6 +5198,179 @@ func _test_hub(_delta: float) -> void:
 	elif _test_t > 25.0:
 		print("TEST RESULT: hub %s FAIL (заведений=%d)" % [what, hub_points.size()])
 		get_tree().quit(1)
+
+
+var _city_next := 0.0
+var _city_lines: Array = []
+
+
+## МИРНЫЙ КВАРТАЛ (WOLF_CITY=fixer|broker|courier|place):
+## fixer/broker/courier — прогоняем роль до конца смены;
+## place — проверяем, что один и тот же человек на улице и «на работе»
+## говорит РАЗНОЕ (профессия × место).
+func _test_city(_delta: float) -> void:
+	var what := OS.get_environment("WOLF_CITY")
+	if what == "":
+		what = "fixer"
+	if _test_t > 0.5 and mode == "menu":
+		var idx: int = {"broker": 1, "courier": 2}.get(what, 0)
+		ui.location_pick = "city"
+		_start_match("survivor", idx, -1)
+		return
+	if not _test_staged:
+		if mode == "playing" and _test_t > 1.4:
+			_test_staged = true
+			_city_next = _test_t
+			_city_lines.clear()
+		return
+
+	if not _test_shot_taken:
+		if OS.get_environment("WOLF_SOAK") != "":
+			_test_city_soak()
+		elif what == "look":
+			_test_city_look()
+		elif what == "place":
+			_test_city_place()
+		elif mode == "ended":
+			_test_shot_taken = true   # смена закрыта — роль отработана
+		elif _test_t >= _city_next:
+			_city_next = _test_t + 0.2
+			_test_city_step()
+		if _test_shot_taken and _test_shot != "":
+			await _save_shot()
+		return
+
+	var ok := npc_posts.size() >= WolfCfg.CITY_NPC_COUNT and location == "city" and peaceful
+	var info := "горожан=%d" % npc_posts.size()
+	if OS.get_environment("WOLF_SOAK") != "":
+		ok = ok and not player.is_dead
+		print("TEST RESULT: city soak %s разговоров=%d %s" % [info, _talked.size(), "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+		return
+	match what:
+		"look":
+			info += " кадр снят"
+		"place":
+			ok = ok and _city_lines.size() == 2 and _city_lines[0] != _city_lines[1]
+			info += " реплик=%d разные=%s" % [_city_lines.size(),
+				str(_city_lines.size() == 2 and _city_lines[0] != _city_lines[1])]
+		_:
+			var goal: int = WolfCfg.CITY_ROLES[city_role]["goal"]
+			ok = ok and role_progress >= goal and mode == "ended"
+			info += " %s %d/%d" % [city_role, role_progress, goal]
+	print("TEST RESULT: city %s %s %s" % [what, info, "OK" if ok else "FAIL"])
+	get_tree().quit(0 if ok else 1)
+
+
+## Обзорный кадр квартала: WOLF_SPOT=street|bar|club|plaza|market.
+func _test_city_look() -> void:
+	if _test_t < 2.2:
+		return
+	var spot := OS.get_environment("WOLF_SPOT")
+	# Godot: при yaw = 0 камера смотрит в −Z.
+	var views := {
+		"street": [Vector3(0, 0.2, 22), 0.0, -0.05],
+		"plaza": [Vector3(0, 0.2, 40), 0.0, -0.02],
+		"bar": [Vector3(-30, 0.2, -24), 0.0, 0.02],
+		"club": [Vector3(-36, 0.2, 20), PI / 2.0, 0.02],
+		"market": [Vector3(36, 0.2, -20), -PI / 2.0, 0.02],
+	}
+	var v: Array = views.get(spot, views["street"])
+	player.global_position = v[0] as Vector3
+	player.rotation.y = v[1] as float
+	_pitch = v[2] as float
+	_test_shot_taken = true
+
+
+## Соак: 24 секунды живём в квартале — ходим, заглядываем к людям и болтаем.
+## Ищем отложенные вылеты (ссылки на удалённые узлы, звук, свет).
+func _test_city_soak() -> void:
+	if _test_t > 26.0:
+		_test_shot_taken = true
+		return
+	if mode != "playing":
+		return
+	role_progress = 0   # смена не должна закрыться: соаку нужны все 26 секунд
+	player.move_input = Vector2(sin(_test_t * 1.7), cos(_test_t * 1.1))
+	player.sprinting = fmod(_test_t, 4.0) < 1.5
+	if _test_t >= _city_next:
+		_city_next = _test_t + 0.6
+		# По кругу подходим к каждому горожанину: и к уличным, и к тем, кто
+		# за стойкой — так проверяем оба типа реплик.
+		var idx := int(_test_t / 0.6) % maxi(1, npc_posts.size())
+		var post: Dictionary = npc_posts[idx]
+		player.global_position = (post["pos"] as Vector3) + Vector3(1.2, 0.3, 0.0)
+		var who := _city_npc(player)
+		if who != null:
+			_city_talk(who, player)
+	if fmod(_test_t, 4.0) < 0.05:
+		print("SOAK alive t=%.0f роль=%s прогресс=%d разговоров=%d"
+			% [_test_t, city_role, role_progress, _talked.size()])
+
+
+## Один шаг роли: подтащить игрока к подходящему горожанину и нажать [E].
+func _test_city_step() -> void:
+	if city_role == "courier" and parcel == "":
+		# Сначала диспетчерская: телепорт к будке и заказ.
+		for h: Dictionary in hub_points:
+			if str(h["kind"]) == "dispatch":
+				player.global_position = (h["pos"] as Vector3) + Vector3(1.2, 0.2, 0.0)
+				break
+		_release_key(KEY_E)
+		_tap_key(KEY_E)
+		return
+	var target: WolfChar = null
+	for e: WolfChar in entities:
+		if e.is_player or not e.has_meta("prof"):
+			continue
+		var prof := str(e.get_meta("prof"))
+		var place := _place_at(e.global_position)
+		var entry: Array = (WolfCfg.TALK.get(prof, {}) as Dictionary).get(place, [])
+		if entry.is_empty():
+			continue
+		match city_role:
+			"fixer":
+				if str(entry[1]) == "deal" and not deals_with.has(prof):
+					target = e
+			"broker":
+				if str(entry[1]) == "story" and not stories.has(str(entry[2])):
+					target = e
+			"courier":
+				if prof == parcel:
+					target = e
+		if target != null:
+			break
+	if target == null:
+		_test_shot_taken = true   # некому больше платить — выйдем с FAIL по цели
+		return
+	player.global_position = target.global_position + Vector3(1.1, 0.0, 0.0)
+	_release_key(KEY_E)
+	_tap_key(KEY_E)
+
+
+## Профессия × место: гоняем ОДНОГО человека со «своего» места на улицу.
+func _test_city_place() -> void:
+	var npc: WolfChar = null
+	for e: WolfChar in entities:
+		if not e.is_player and str(e.get_meta("prof", "")) == "бармен" \
+				and _place_at(e.global_position) == "bar":
+			npc = e
+			break
+	if npc == null:
+		_test_shot_taken = true
+		return
+	if _city_lines.is_empty():
+		player.global_position = npc.global_position + Vector3(1.1, 0.0, 0.0)
+		_city_talk(npc, player)
+		_city_lines.append(_loot_msg)
+		return
+	if _city_lines.size() == 1 and _test_t > _city_next + 0.3:
+		# Тот же человек, но вышел на улицу — разговор должен смениться.
+		npc.global_position = Vector3(0.0, 0.2, 6.0)
+		player.global_position = npc.global_position + Vector3(1.1, 0.0, 0.0)
+		_city_talk(npc, player)
+		_city_lines.append(_loot_msg)
+		_test_shot_taken = true
 
 
 ## Новые начинки (WOLF_DEV=cryo|emp|singularity|flare|holo): вживить в

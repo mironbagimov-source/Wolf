@@ -33,8 +33,16 @@ var implant_panel: VBoxContainer   # список начинок с клавиш
 var implant_rows: Array = []
 var drunk_overlay: ColorRect       # хмель: тёплая муть по краям
 var location_pick := "tower"       # выбранная локация
+var _loc_btn: Button
+var _keys_label: Label            # подсказка по клавишам — своя для мирной локации
+var _tag_label: Label             # подзаголовок и завязка — тоже под локацию
+var _pitch_label: Label
+var _faction_row: HBoxContainer
 var blind_overlay: ColorRect  # залитый слизью экран
 var vampire_unlocked := false # КИБЕР-ВАМПИР открыт мутацией
+
+const KEYS_FIGHT := "Мышь — осмотр · WASD — движение · двойное WASD — дэш · Shift — бег · C — присед · SPACE в грав-шахте — вверх\nЛКМ — удар · ПКМ — блок (в последний момент = парирование) · Q — нож · F — добивание / трапеза гуля / фонарь\nE — двери, взрывчатка, раненые (держать) · 1-8 — начинка для раненых · G — активировать начинку · ESC — курсор"
+const KEYS_PEACE := "Мышь — осмотр · WASD — движение · Shift — бег · C — присед · ESC — курсор\nE — ЗАГОВОРИТЬ с горожанином (и взять посылку в диспетчерской)\nОружия и ударов в квартале нет: над головой у каждого — имя и профессия, а разговор зависит ещё и от места"
 
 signal faction_picked(faction: String)
 signal character_picked(faction: String, index: int)
@@ -141,35 +149,28 @@ func _build_menu() -> void:
 	menu.add_child(box)
 
 	_label(box, "WOLF", 64)
-	_label(box, "// МЕГАБАШНЯ · КЛУБ «ОБЛАКА»", 20, Color(1.0, 0.18, 0.58))
-	_label(box, "Во время рейва в «Облаках» психи сорвались. Башня заперта. Выбери сторону.", 20, Color(0.55, 0.62, 0.78))
+	_tag_label = _label(box, "", 20, Color(1.0, 0.18, 0.58))
+	_pitch_label = _label(box, "", 20, Color(0.55, 0.62, 0.78))
 
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 16)
 	box.add_child(row)
 
-	var cards := [
-		["survivor", "ГРАЖДАНСКИЙ", "хоррор · без оружия", "Найди безопасную комнату в номерах и дождись полиции."],
-		["cannibal", "КИБЕР-ПСИХ", "реверсивный хоррор", "Перебей всех гражданских, пока не приехала полиция."],
-		["killer", "НАЁМНИК", "рейд · стелс", "Отряд из двоих: заложи бомбу в «Облаках» и уйди через лобби. Психи — лишь помеха."],
-		["ghoul", "КИБЕР-ГУЛЬ", "рост · трапеза", "Жри выживших [F]: с каждым телом ты сильнее. Четыре трапезы — и ты КИБЕР-ВАМПИР."],
-	]
-	for c in cards:
-		var b := _card_button(row, c[1], c[2], c[3], WolfCfg.FACTION_COLOR[c[0]])
-		b.pressed.connect(_on_faction.bind(c[0]))
+	_faction_row = row
+	_build_faction_cards()
 
-	_label(box, "Мышь — осмотр · WASD — движение · двойное WASD — дэш · Shift — бег · C — присед · SPACE в грав-шахте — вверх\nЛКМ — удар · ПКМ — блок (в последний момент = парирование) · Q — нож · F — добивание / трапеза гуля / фонарь\nE — двери, взрывчатка, раненые (держать) · 1-8 — начинка для раненых · G — активировать начинку · ESC — курсор", 14, Color(0.45, 0.52, 0.66))
+	_keys_label = _label(box, "", 14, Color(0.45, 0.52, 0.66))
 
-	var loc := Button.new()
-	loc.text = "ЛОКАЦИЯ: АРАСАКА-ТАУЭР (16 этажей, лифт-шахта, полиция едет долго)"
-	loc.add_theme_font_size_override("font_size", 16)
-	loc.add_theme_color_override("font_color", Color(1.0, 0.75, 0.2))
-	loc.pressed.connect(func() -> void:
-		location_pick = "hub" if location_pick == "tower" else "tower"
-		loc.text = ("ЛОКАЦИЯ: ХАБ «СУХОЙ ДОК» (рынок: мастерская, бар, клуб, местные)"
-			if location_pick == "hub" else "ЛОКАЦИЯ: АРАСАКА-ТАУЭР (16 этажей, лифт-шахта, полиция едет долго)"))
-	box.add_child(loc)
+	_loc_btn = Button.new()
+	_loc_btn.add_theme_font_size_override("font_size", 16)
+	_loc_btn.add_theme_color_override("font_color", Color(1.0, 0.75, 0.2))
+	_loc_btn.pressed.connect(func() -> void:
+		var order := ["tower", "hub", "city"]
+		location_pick = order[(order.find(location_pick) + 1) % order.size()]
+		refresh_location())
+	box.add_child(_loc_btn)
+	refresh_location()
 
 	var gfx := Button.new()
 	gfx.text = "ГРАФИКА: БЫСТРАЯ (максимум FPS)"
@@ -179,6 +180,60 @@ func _build_menu() -> void:
 		gfx.text = "ГРАФИКА: КРАСИВАЯ (SDFGI, туман — тяжело)" if _gfx_high else "ГРАФИКА: БЫСТРАЯ (максимум FPS)"
 		graphics_toggled.emit(_gfx_high))
 	box.add_child(gfx)
+
+
+## Карточки сторон под текущую локацию: в мирном городе — профессии-роли.
+func _build_faction_cards() -> void:
+	for c in _faction_row.get_children():
+		c.queue_free()
+	if location_pick == "city":
+		for id: String in WolfCfg.CITY_ROLES:
+			var r: Dictionary = WolfCfg.CITY_ROLES[id]
+			var b := _card_button(_faction_row, r["name"], r["tag"], r["desc"], r["color"])
+			# Мирные роли идут сразу в бой... то есть сразу на улицу.
+			b.pressed.connect(_on_city_role.bind(id))
+		return
+	var cards := [
+		["survivor", "ГРАЖДАНСКИЙ", "хоррор · без оружия", "Найди безопасную комнату в номерах и дождись полиции."],
+		["cannibal", "КИБЕР-ПСИХ", "реверсивный хоррор", "Перебей всех гражданских, пока не приехала полиция."],
+		["killer", "НАЁМНИК", "рейд · стелс", "Отряд из двоих: заложи бомбу и уйди. Психи — лишь помеха."],
+		["ghoul", "КИБЕР-ГУЛЬ", "рост · трапеза", "Жри выживших [F]: четыре трапезы — и ты КИБЕР-ВАМПИР."],
+	]
+	for c in cards:
+		var b2 := _card_button(_faction_row, c[1], c[2], c[3], WolfCfg.FACTION_COLOR[c[0]])
+		b2.pressed.connect(_on_faction.bind(c[0]))
+
+
+## Публичная: перестроить меню под выбранную локацию.
+func refresh_location() -> void:
+	match location_pick:
+		"tower":
+			_loc_btn.text = "ЛОКАЦИЯ: АРАСАКА-ТАУЭР — 16 этажей, грав-шахта, хоррор и бой"
+		"hub":
+			_loc_btn.text = "ЛОКАЦИЯ: ХАБ «СУХОЙ ДОК» — крытый рынок, заведения, бой"
+		"city":
+			_loc_btn.text = "ЛОКАЦИЯ: КВАРТАЛ «НИЖНИЙ ВОСТОК» — открытый город, БЕЗ БОЯ, люди и профессии"
+	if _keys_label != null:
+		# В мирном квартале половина клавиш не работает — не врём про них.
+		_keys_label.text = KEYS_PEACE if location_pick == "city" else KEYS_FIGHT
+	if _tag_label != null:
+		match location_pick:
+			"city":
+				_tag_label.text = "// КВАРТАЛ «НИЖНИЙ ВОСТОК» · ОБЫЧНАЯ НОЧЬ"
+				_pitch_label.text = "Никто ни за кем не охотится. Смена начинается — выбери, чем ты живёшь."
+			"hub":
+				_tag_label.text = "// ХАБ «СУХОЙ ДОК» · НОЧНОЙ РЫНОК"
+				_pitch_label.text = "Рынок под одной кровлей: заведения, местные и те, кто пришёл за чужой жизнью."
+			_:
+				_tag_label.text = "// МЕГАБАШНЯ · КЛУБ «ОБЛАКА»"
+				_pitch_label.text = "Во время рейва в «Облаках» психи сорвались. Башня заперта. Выбери сторону."
+	_build_faction_cards()
+
+
+func _on_city_role(role_id: String) -> void:
+	# Роль = индекс архетипа: fixer 0, broker 1, courier 2.
+	var order := ["fixer", "broker", "courier"]
+	character_picked.emit("survivor", order.find(role_id))
 
 
 func _build_charselect() -> void:
