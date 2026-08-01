@@ -1,42 +1,42 @@
 [gd_scene load_steps=7 format=3]
 
-[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_wji74"]
-[ext_resource type="PackedScene" path="res://assets/characters/soldier.glb" id="2_awyb6"]
-[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_police_a.res" id="3_vmu52"]
+[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_j2vh8"]
+[ext_resource type="PackedScene" path="res://assets/characters/soldier.glb" id="2_da2dq"]
+[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_police_a.res" id="3_q60a8"]
 
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_lmn4a"]
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_u3s6y"]
 radius = 0.4
 height = 1.8
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_o5o5c"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_owbbl"]
 albedo_color = Color(1, 1, 0, 1)
 emission_enabled = true
 emission = Color(1, 1, 0, 1)
 emission_energy_multiplier = 4.0
 
-[sub_resource type="BoxMesh" id="BoxMesh_lejbu"]
+[sub_resource type="BoxMesh" id="BoxMesh_tgrm0"]
 size = Vector3(0.16, 0.16, 0.16)
 
 [node name="Police" type="CharacterBody3D"]
-script = ExtResource("1_wji74")
+script = ExtResource("1_j2vh8")
 faction = "police"
 is_leader = false
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_lmn4a")
+shape = SubResource("CapsuleShape3D_u3s6y")
 
 [node name="Visual" type="Node3D" parent="."]
 
-[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_awyb6")]
+[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_da2dq")]
 
 [node name="AnimationPlayer" type="AnimationPlayer" parent="Visual"]
 libraries = {
-"": ExtResource("3_vmu52")
+"": ExtResource("3_q60a8")
 }
 
 [node name="Telegraph" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3, 0)
 visible = false
-material_override = SubResource("StandardMaterial3D_o5o5c")
-mesh = SubResource("BoxMesh_lejbu")
+material_override = SubResource("StandardMaterial3D_owbbl")
+mesh = SubResource("BoxMesh_tgrm0")

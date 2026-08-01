@@ -225,8 +225,8 @@ static func _blocks(g: Node3D) -> void:
 				var h := 8.0 + randf_range(0.0, 14.0)
 				WolfLevel._solid(g, Vector3(cx, h / 2.0, cz), Vector3(sx, h, sz), wall, "Block")
 				# Окна по фасадам: отдельные квартиры, часть уже погашена.
-				var win := _mat_win(qi)
 				qi += 1
+				var boxes: Array = []
 				for f in int(h / 3.5):
 					var y := 2.2 + f * 3.5
 					if y > h - 1.0:
@@ -235,18 +235,39 @@ static func _blocks(g: Node3D) -> void:
 						if (qi + f * 2 + k * 3) % 6 == 0:
 							continue
 						var t := (float(k) - 1.5) * (sx * 0.8 / 4.0)
-						WolfLevel._panel(g, Vector3(cx + t, y, cz - sz / 2.0 - 0.06),
-								Vector3(sx * 0.15, 1.5, 0.08), win, "Win")
-						WolfLevel._panel(g, Vector3(cx + t, y, cz + sz / 2.0 + 0.06),
-								Vector3(sx * 0.15, 1.5, 0.08), win, "Win")
-						WolfLevel._panel(g, Vector3(cx - sx / 2.0 - 0.06, y, cz + t),
-								Vector3(0.08, 1.5, sz * 0.15), win, "Win")
-						WolfLevel._panel(g, Vector3(cx + sx / 2.0 + 0.06, y, cz + t),
-								Vector3(0.08, 1.5, sz * 0.15), win, "Win")
+						boxes.append([Vector3(cx + t, y, cz - sz / 2.0 - 0.06), Vector3(sx * 0.15, 1.5, 0.08)])
+						boxes.append([Vector3(cx + t, y, cz + sz / 2.0 + 0.06), Vector3(sx * 0.15, 1.5, 0.08)])
+						boxes.append([Vector3(cx - sx / 2.0 - 0.06, y, cz + t), Vector3(0.08, 1.5, sz * 0.15)])
+						boxes.append([Vector3(cx + sx / 2.0 + 0.06, y, cz + t), Vector3(0.08, 1.5, sz * 0.15)])
+				_windows(g, boxes, _mat_win(qi), "BlockWins")
 				# Вертикальная вывеска на углу.
 				var cols := [NEON_CYAN, NEON_MAGENTA, NEON_YELLOW, NEON_VIOLET, NEON_RED]
 				WolfLevel._emissive(g, Vector3(cx + sx / 2.0 * signf(cx), 6.0, cz - sz / 2.0 - 0.2),
 						Vector3(0.5, 5.0, 0.2), cols[int(absf(cx + cz)) % cols.size()], 2.0, "BlockSign")
+
+
+## Все окна одного дома — ОДИН узел MultiMesh вместо сотни коробок: и кадр
+## дешевле, и сцена не распухает.
+static func _windows(g: Node3D, boxes: Array, mat: Material, p_name: String) -> void:
+	if boxes.is_empty():
+		return
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3.ONE
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = boxes.size()
+	for i in boxes.size():
+		var b: Array = boxes[i]
+		var size: Vector3 = b[1]
+		mm.set_instance_transform(i, Transform3D(
+			Basis(Vector3(size.x, 0, 0), Vector3(0, size.y, 0), Vector3(0, 0, size.z)),
+			b[0] as Vector3))
+	var mi := MultiMeshInstance3D.new()
+	mi.name = p_name
+	mi.multimesh = mm
+	mi.material_override = mat
+	g.add_child(mi)
 
 
 ## Окно жилого дома: у каждого дома свой оттенок — тёплая лампа или холодный
@@ -285,8 +306,8 @@ static func _skyline(g: Node3D) -> void:
 		# Ленты окон только на той стороне, что смотрит внутрь квартала.
 		var inx := -signf(c.x) if absf(c.x) > absf(c.y) else 0.0
 		var inz := -signf(c.y) if inx == 0.0 else 0.0
-		var win := _mat_win(i)
 		var span: float = (sz if inx != 0.0 else sx) * 0.82
+		var boxes: Array = []
 		for f in int(h / 4.0):
 			var y := 3.0 + f * 4.0
 			if y > h - 2.0:
@@ -298,9 +319,9 @@ static func _skyline(g: Node3D) -> void:
 				var t := (float(k) - 1.5) * (span / 4.0)
 				var off := Vector3(inx * (sx / 2.0 + 0.06) + (0.0 if inx != 0.0 else t), y,
 						inz * (sz / 2.0 + 0.06) + (t if inx != 0.0 else 0.0))
-				var size := Vector3(0.1 if inx != 0.0 else span * 0.2, 1.8,
-						span * 0.2 if inx != 0.0 else 0.1)
-				WolfLevel._panel(g, Vector3(c.x, 0, c.y) + off, size, win, "TowerWin")
+				boxes.append([Vector3(c.x, 0, c.y) + off,
+					Vector3(0.1 if inx != 0.0 else span * 0.2, 1.8, span * 0.2 if inx != 0.0 else 0.1)])
+		_windows(g, boxes, _mat_win(i), "TowerWins")
 		# Вертикальная вывеска — узкая полоса, а не пятно во всю стену.
 		WolfLevel._emissive(g, Vector3(c.x + inx * (sx / 2.0 + 0.2), h * 0.55, c.y + inz * (sz / 2.0 + 0.2)),
 				Vector3(0.5 if inx != 0.0 else 0.7, h * 0.4, 0.7 if inx != 0.0 else 0.5),
@@ -350,9 +371,10 @@ static func _street_stuff(g: Node3D) -> void:
 	for t: Array in [[-13.0, 16.0], [13.0, -16.0], [-13.0, -16.0], [13.0, 16.0]]:
 		WolfLevel._solid(g, Vector3(t[0] as float, 0.5, t[1] as float), Vector3(0.7, 1.0, 0.7),
 				WolfLevel._mat_metal(), "Bin")
-	for ad: Array in [[Vector3(-13.5, 3.4, 0), 90.0, NEON_MAGENTA, "СИНТЕТИКА · 24 ЧАСА"],
-			[Vector3(13.5, 3.4, 8.0), -90.0, NEON_CYAN, "ЖЕЛЕЗО В КРЕДИТ"],
-			[Vector3(0, 3.4, -13.5), 0.0, NEON_YELLOW, "ТЁПЛАЯ ЛАПША"]]:
+	# Щиты развёрнуты лицом к проезжей части (у Label3D и рамки перёд — по −Z).
+	for ad: Array in [[Vector3(-13.5, 3.4, 0), -90.0, NEON_MAGENTA, "СИНТЕТИКА · 24 ЧАСА"],
+			[Vector3(13.5, 3.4, 8.0), 90.0, NEON_CYAN, "ЖЕЛЕЗО В КРЕДИТ"],
+			[Vector3(0, 3.4, -13.5), 180.0, NEON_YELLOW, "ТЁПЛАЯ ЛАПША"]]:
 		_billboard(g, ad[0] as Vector3, ad[1] as float, ad[2] as Color, ad[3] as String)
 
 
@@ -466,11 +488,11 @@ static func _billboard(g: Node3D, pos: Vector3, yaw: float, color: Color, text: 
 	var lbl := Label3D.new()
 	lbl.text = text
 	lbl.font_size = 110
-	lbl.pixel_size = 0.0075
+	lbl.pixel_size = 0.006
 	lbl.modulate = color
 	lbl.position = Vector3(0, 0, -0.14)
 	lbl.rotation_degrees.y = 180.0
-	lbl.width = 620.0
+	lbl.width = 700.0
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	root.add_child(lbl)
 
