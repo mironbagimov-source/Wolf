@@ -157,8 +157,6 @@ func _ready() -> void:
 	randomize()
 	district = $District
 	_collect_layout()
-	_flicker_lights = get_tree().get_nodes_in_group("Flicker")
-
 	menu_cam = $MenuCamera
 	menu_cam.position = Vector3(3, 5, -25)
 	menu_cam.look_at(Vector3(0, 6, 2), Vector3.UP)
@@ -219,6 +217,8 @@ func _on_character_picked(faction: String, char_index: int) -> void:
 
 
 func _collect_layout() -> void:
+	# Список мерцающих ламп принадлежит ТЕКУЩЕМУ району — пересобираем.
+	_flicker_lights = get_tree().get_nodes_in_group("Flicker")
 	safe_zones.clear()
 	doors.clear()
 	var zones := district.get_node_or_null("SafeZones")
@@ -331,6 +331,10 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 	bomb_progress = 0.0
 	bomb_planted = false
 	bomb_carried = false
+	for bp in _blood_pools:
+		if is_instance_valid(bp):
+			(bp as Node).queue_free()
+	_blood_pools.clear()
 	bait = null
 	_bait_beacon = null
 	blueprints = 0
@@ -3489,8 +3493,10 @@ func _discharge_emp(t: WolfChar, source: WolfChar) -> void:
 		_damage(e, float(imp["dmg"]), source)
 	# Свет на этаже вырубает: мигнул и погас.
 	for n in _flicker_lights:
+		if not is_instance_valid(n):
+			continue
 		var fl := n as OmniLight3D
-		if fl == null or not is_instance_valid(fl):
+		if fl == null:
 			continue
 		if absf(fl.global_position.y - t.global_position.y) > WolfCfg.FLOOR_H:
 			continue
@@ -4534,9 +4540,16 @@ func _tick_flicker(delta: float) -> void:
 	if _flicker_t > 0.0:
 		return
 	_flicker_t = randf_range(0.06, 0.24)
-	for n in _flicker_lights:
-		var l := n as OmniLight3D
-		if l == null or not is_instance_valid(l):
+	for i in range(_flicker_lights.size() - 1, -1, -1):
+		# ВАЖНО: сперва проверяем, жив ли объект, и только потом приводим тип —
+		# после смены локации старые лампы уничтожены, а приведение уже
+		# уничтоженного узла роняет игру.
+		if not is_instance_valid(_flicker_lights[i]):
+			_flicker_lights.remove_at(i)
+			continue
+		var l := _flicker_lights[i] as OmniLight3D
+		if l == null:
+			_flicker_lights.remove_at(i)
 			continue
 		l.light_energy = 0.0 if randf() < 0.16 else randf_range(0.45, 1.7)
 
@@ -4903,6 +4916,11 @@ func _test_hub(_delta: float) -> void:
 				_test_shot_taken = true
 		if _test_shot_taken and _test_shot != "":
 			await _save_shot()
+	elif _test_shot_taken and OS.get_environment("WOLF_SOAK") != "" and _test_t < 22.0:
+		# Соак: после заведения продолжаем играть — ловим отложенные вылеты.
+		player.move_input = Vector2(sin(_test_t * 1.7), cos(_test_t * 1.3))
+		if fmod(_test_t, 3.0) < 0.05:
+			print("SOAK alive t=%.0f hp=%.0f buddies=%d" % [_test_t, player.hp, drink_buddies])
 	elif _test_shot_taken:
 		var ok := hub_points.size() >= 4 and location == "hub"
 		var info := "заведений=%d" % hub_points.size()
