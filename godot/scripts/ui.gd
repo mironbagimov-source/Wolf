@@ -149,6 +149,8 @@ func _build_menu() -> void:
 	menu.add_child(box)
 
 	_label(box, "WOLF", 64)
+	# Версия прямо в меню: чтобы сразу было видно, старая сборка или новая.
+	_label(box, WolfCfg.BUILD_VERSION, 15, Color(0.38, 0.44, 0.56))
 	_tag_label = _label(box, "", 20, Color(1.0, 0.18, 0.58))
 	_pitch_label = _label(box, "", 20, Color(0.55, 0.62, 0.78))
 

@@ -3,6 +3,9 @@ class_name WolfCfg
 ## civilians hide and wait for police, psychos hunt civilians, mercs wipe the
 ## psychos, plant the bomb in the club and exfil through the lobby.
 
+## Версия сборки — печатается в меню, чтобы отличить архивы на глаз.
+const BUILD_VERSION := "v23 · КВАРТАЛ «НИЖНИЙ ВОСТОК»"
+
 const EYE_STAND := 1.62
 const EYE_CROUCH := 1.02
 const ENTITY_RADIUS := 0.4
