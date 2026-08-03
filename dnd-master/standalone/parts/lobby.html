@@ -3,9 +3,10 @@
         <div class="lobby-head">
           <h1>Мастер подземелий</h1>
           <p class="tagline">
-            D&amp;D 5-й редакции в чате. Мастера ведёт Claude, правила считает движок,
-            кубики бросает сама страница — и каждый бросок видно всем за столом.
-            Ничего не устанавливается: всё, что нужно для игры, лежит внутри этого файла.
+            D&amp;D 5-й редакции в чате. Мастера ведёт нейросеть — своя на этом компьютере
+            или Claude по ключу. Правила считает движок, кубики бросает сама страница,
+            и каждый бросок видно всем за столом. Всё, что нужно для игры, лежит внутри
+            этого файла: ни установки, ни сервера.
           </p>
         </div>
 
@@ -25,16 +26,12 @@
           </div>
 
           <div class="card">
-            <h2 data-icon="key">Ключ к мастеру</h2>
+            <h2 data-icon="key">Кто ведёт партию</h2>
             <p class="hint">
-              Мастера ведёт Claude, и обращается к нему сама эта страница. Нужен ключ Anthropic
-              API — он хранится только в этом браузере и уходит только на api.anthropic.com.
-              Взять ключ: <span class="link-text">console.anthropic.com → API keys</span>.
+              Кубики, правила, бой и карты считает сама страница. Модель нужна только затем,
+              чтобы придумывать историю, — и её можно поднять у себя, бесплатно и офлайн.
             </p>
-            <label>Ключ<input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." /></label>
-            <label>Модель<select id="api-model"></select></label>
-            <label>Сколько мастер думает<select id="api-effort"></select></label>
-            <span id="key-state" class="hint"></span>
+            <div id="dm-home"></div>
             <div id="saved-tables" class="recent"></div>
           </div>
         </div>

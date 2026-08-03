@@ -2006,6 +2006,39 @@ button:disabled {
 .hint.good {
   color: var(--emerald);
 }
+.hint.bad {
+  color: #fca88a;
+}
+
+/* ------------------------------------------------------- настройка мастера */
+
+#dm-config .hint {
+  margin-top: -10px;
+}
+/* Поле с кнопкой сбоку: выпадающий список тянется, кнопка держит ширину */
+.with-button {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.with-button select {
+  flex: 1;
+  min-width: 0;
+}
+.icon-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  padding: 0;
+  border-color: var(--line);
+  color: var(--text-faint);
+}
+.icon-btn:hover {
+  color: var(--brass);
+  border-color: var(--brass-dim);
+}
 
 /* Предупреждение внизу лобби — справочное, а не тревожное */
 .warning.subtle {
@@ -2188,9 +2221,10 @@ button:disabled {
         <div class="lobby-head">
           <h1>Мастер подземелий</h1>
           <p class="tagline">
-            D&amp;D 5-й редакции в чате. Мастера ведёт Claude, правила считает движок,
-            кубики бросает сама страница — и каждый бросок видно всем за столом.
-            Ничего не устанавливается: всё, что нужно для игры, лежит внутри этого файла.
+            D&amp;D 5-й редакции в чате. Мастера ведёт нейросеть — своя на этом компьютере
+            или Claude по ключу. Правила считает движок, кубики бросает сама страница,
+            и каждый бросок видно всем за столом. Всё, что нужно для игры, лежит внутри
+            этого файла: ни установки, ни сервера.
           </p>
         </div>
 
@@ -2210,16 +2244,12 @@ button:disabled {
           </div>
 
           <div class="card">
-            <h2 data-icon="key">Ключ к мастеру</h2>
+            <h2 data-icon="key">Кто ведёт партию</h2>
             <p class="hint">
-              Мастера ведёт Claude, и обращается к нему сама эта страница. Нужен ключ Anthropic
-              API — он хранится только в этом браузере и уходит только на api.anthropic.com.
-              Взять ключ: <span class="link-text">console.anthropic.com → API keys</span>.
+              Кубики, правила, бой и карты считает сама страница. Модель нужна только затем,
+              чтобы придумывать историю, — и её можно поднять у себя, бесплатно и офлайн.
             </p>
-            <label>Ключ<input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." /></label>
-            <label>Модель<select id="api-model"></select></label>
-            <label>Сколько мастер думает<select id="api-effort"></select></label>
-            <span id="key-state" class="hint"></span>
+            <div id="dm-home"></div>
             <div id="saved-tables" class="recent"></div>
           </div>
         </div>
@@ -2388,11 +2418,12 @@ button:disabled {
 
     <div id="modal" class="modal hidden">
       <div class="modal-card">
-        <h2 data-icon="key">Настройки стола</h2>
-        <label>Ключ Anthropic API<input id="dlg-key" type="password" autocomplete="off" placeholder="sk-ant-..." /></label>
-        <span class="hint">Хранится только в этом браузере и уходит только на api.anthropic.com.</span>
-        <label>Модель<select id="dlg-model"></select></label>
-        <label>Сколько мастер думает<select id="dlg-effort"></select></label>
+        <h2 data-icon="gear">Настройки стола</h2>
+
+        <h3 class="block-title">Мастер</h3>
+        <div id="dm-slot"></div>
+
+        <h3 class="block-title">Кампания</h3>
         <label>Настроение<select id="dlg-tone"></select></label>
         <label>Сложность<select id="dlg-difficulty"></select></label>
 
@@ -2561,6 +2592,7 @@ const ICONS = {
   key: '<circle cx="8" cy="12" r="4.5"/><path d="M12.5 12H21"/><path d="M17 12v3.5M20 12v2.5"/>',
   gear: '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M4.5 7.5l2.3 1.3M17.2 15.2l2.3 1.3M4.5 16.5l2.3-1.3M17.2 8.8l2.3-1.3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  refresh: '<path d="M20 11a8 8 0 0 0-13.7-5.2L3 9"/><path d="M4 13a8 8 0 0 0 13.7 5.2L21 15"/><path d="M3 4v5h5M21 20v-5h-5"/>',
 };
 
 /** Возвращает готовый DOM-узел с иконкой. */
@@ -7881,46 +7913,55 @@ const TOOL_NAMES = new Set(TOOL_DEFS.map((t) => t.name));
 return { TOOL_DEFS, handlers, TOOL_NAMES };
 })();
 
-// ─── standalone/agent.js ───────────────────────────────────────────────
-const __m_standalone_agent_js = (() => {
-// Мастер для однофайловой сборки: тот же промпт и те же инструменты, что на
-// сервере, но запрос уходит из браузера напрямую в Messages API.
+// ─── standalone/providers/claude.js ───────────────────────────────────────────────
+const __m_standalone_providers_claude_js = (() => {
+// Claude через Messages API, запрос уходит прямо из браузера.
 //
 // Это возможно благодаря заголовку anthropic-dangerous-direct-browser-access:
 // без него браузер не пустит запрос из-за CORS. Ключ при этом никуда, кроме
 // api.anthropic.com, не уходит и хранится только в localStorage этого браузера.
 
-const { buildSystemPrompt, CHRONICLE_PROMPT } = __m_server_dm_prompt_js;
-const { TOOL_DEFS, handlers } = __m_server_dm_tools_js;
-const state = __m_server_engine_state_js;
-
-const MAX_TOOL_ROUNDS = 24;
-const HISTORY_CHAR_BUDGET = 90000;
-const KEEP_RECENT_MESSAGES = 16;
-
-const settings = {
-  apiKey: '',
-  model: 'claude-opus-5',
-  effort: 'medium',
-  maxTokens: 16000,
-  // Меняется только в тестах и для тех, кто ходит через свой прокси.
-  apiBase: 'https://api.anthropic.com',
-};
-
 // Серверные подстраховки: если ключу недоступна бета, выключаем её и повторяем.
 let useFallbacks = true;
 
-function configure(patch) {
-  Object.assign(settings, patch);
+const isReady = (settings) => Boolean(settings.apiKey);
+
+async function chat(settings, { system, snapshot, tools, messages, maxTokens, effort, onDelta }) {
+  const body = {
+    model: settings.model,
+    max_tokens: maxTokens || settings.maxTokens,
+    output_config: { effort: effort || settings.effort },
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    messages: withSnapshot(messages, snapshot),
+  };
+  if (tools?.length) body.tools = tools;
+  return request(settings, body, onDelta);
 }
 
-function hasApiKey() {
-  return Boolean(settings.apiKey);
+/**
+ * Снимок состояния уходит последним сообщением: мастер всегда видит текущие
+ * хиты, а закэшированная часть запроса остаётся байт в байт прежней.
+ */
+function withSnapshot(messages, snapshot) {
+  const out = messages.map((m, i) => (i === messages.length - 1 ? withCacheControl(m) : m));
+  if (snapshot) out.push({ role: 'system', content: `# Состояние стола\n\n${snapshot}` });
+  return out;
 }
 
-// --------------------------------------------------------------- запрос
+function withCacheControl(message) {
+  const content = Array.isArray(message.content)
+    ? message.content
+    : [{ type: 'text', text: String(message.content) }];
+  if (content.length === 0) return message;
+  return {
+    ...message,
+    content: content.map((block, i) =>
+      i === content.length - 1 ? { ...block, cache_control: { type: 'ephemeral' } } : block,
+    ),
+  };
+}
 
-async function request(body, { onDelta, signal } = {}) {
+async function request(settings, body, onDelta) {
   const headers = {
     'content-type': 'application/json',
     'x-api-key': settings.apiKey,
@@ -7937,28 +7978,30 @@ async function request(body, { onDelta, signal } = {}) {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
-    signal,
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    let message = text;
-    try {
-      message = JSON.parse(text).error?.message || text;
-    } catch {
-      /* оставляем как есть */
-    }
+    const message = await errorText(response);
     // Ключ без доступа к бете — не повод ронять ход.
     if (useFallbacks && /fallback|beta/i.test(message)) {
       useFallbacks = false;
-      return request(body, { onDelta, signal });
+      return request(settings, body, onDelta);
     }
-    if (response.status === 401) throw new Error('Ключ не принят. Проверь ANTHROPIC_API_KEY в настройках.');
+    if (response.status === 401) throw new Error('Ключ не принят. Проверь его в настройках стола.');
     if (response.status === 429) throw new Error('Слишком много запросов подряд — подожди немного.');
     throw new Error(`API ответил ${response.status}: ${message}`);
   }
 
   return readStream(response, onDelta);
+}
+
+async function errorText(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text).error?.message || text;
+  } catch {
+    return text;
+  }
 }
 
 /** Собирает сообщение из потока SSE так же, как это делает SDK на сервере. */
@@ -8022,17 +8065,487 @@ async function readStream(response, onDelta) {
   return { content, stop_reason: stopReason };
 }
 
+/** У Anthropic нет открытого списка моделей — показываем те, что умеем вести. */
+async function listModels() {
+  return [
+    { id: 'claude-opus-5', name: 'Opus 5 — лучший мастер' },
+    { id: 'claude-sonnet-5', name: 'Sonnet 5 — быстрее и дешевле' },
+    { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5 — самый быстрый' },
+  ];
+}
+
+return { isReady, chat, listModels };
+})();
+
+// ─── standalone/providers/convert.js ───────────────────────────────────────────────
+const __m_standalone_providers_convert_js = (() => {
+// Перевод между форматом Anthropic (в нём хранится история стола) и форматом
+// чата OpenAI, на котором говорят и Ollama, и LM Studio, и llama.cpp.
+//
+// Разница невелика, но принципиальна в двух местах: у Anthropic сообщение —
+// список блоков, а результат инструмента едет отдельным блоком внутри реплики
+// игрока; в OpenAI сообщение плоское, а результат инструмента — отдельная
+// реплика с ролью tool.
+
+function toolsToFunctions(tools = []) {
+  return tools.map((tool) => ({
+    type: 'function',
+    function: { name: tool.name, description: tool.description, parameters: tool.input_schema },
+  }));
+}
+
+/**
+ * Локальные модели ведут разговор по шаблону, и не всякий шаблон переживает
+ * системное сообщение в середине. Поэтому снимок стола приклеивается к концу
+ * системного промпта — кэшировать всё равно нечего.
+ */
+function localSystem(system, snapshot) {
+  return snapshot ? `${system}\n\n# Состояние стола\n\n${snapshot}` : system;
+}
+
+const textOf = (blocks) =>
+  blocks
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+
+/**
+ * @param {boolean} withIds OpenAI связывает результат с вызовом через
+ *   tool_call_id; у Ollama идентификаторов нет, там связь — порядок сообщений.
+ */
+function messagesToChat(messages, { withIds = true } = {}) {
+  const out = [];
+  const nameById = new Map();
+
+  for (const message of messages) {
+    const blocks = Array.isArray(message.content)
+      ? message.content
+      : [{ type: 'text', text: String(message.content) }];
+
+    if (message.role === 'system') {
+      out.push({ role: 'system', content: textOf(blocks) || String(message.content) });
+      continue;
+    }
+
+    if (message.role === 'assistant') {
+      const calls = blocks.filter((b) => b.type === 'tool_use');
+      for (const call of calls) nameById.set(call.id, call.name);
+      const entry = { role: 'assistant', content: textOf(blocks) };
+      if (calls.length) {
+        entry.tool_calls = calls.map((call) => ({
+          ...(withIds ? { id: call.id, type: 'function' } : {}),
+          function: {
+            name: call.name,
+            arguments: withIds ? JSON.stringify(call.input || {}) : call.input || {},
+          },
+        }));
+      }
+      out.push(entry);
+      continue;
+    }
+
+    // Реплика игроков либо пачка результатов инструментов — в OpenAI это
+    // разные роли, поэтому одно сообщение может развернуться в несколько.
+    const results = blocks.filter((b) => b.type === 'tool_result');
+    if (results.length) {
+      for (const result of results) {
+        out.push({
+          role: 'tool',
+          ...(withIds
+            ? { tool_call_id: result.tool_use_id }
+            : { tool_name: nameById.get(result.tool_use_id) || 'tool' }),
+          content: String(result.content ?? ''),
+        });
+      }
+      continue;
+    }
+    out.push({ role: 'user', content: textOf(blocks) });
+  }
+  return out;
+}
+
+/** Ответ модели обратно в блоки Anthropic — движок дальше знает только их. */
+function blocksFromChat({ text, toolCalls }, makeId) {
+  const content = [];
+  if (text) content.push({ type: 'text', text });
+  for (const [index, call] of (toolCalls || []).entries()) {
+    content.push({
+      type: 'tool_use',
+      id: call.id || makeId(index),
+      name: call.function?.name || call.name,
+      input: parseArguments(call.function?.arguments ?? call.arguments),
+    });
+  }
+  return content;
+}
+
+/** Ollama отдаёт аргументы объектом, OpenAI — строкой JSON. */
+function parseArguments(raw) {
+  if (raw === undefined || raw === null || raw === '') return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Маленькие модели иногда роняют кавычку — лучше пустой ввод, чем сорванный ход.
+    return {};
+  }
+}
+
+/**
+ * Локальный сервер не отвечает — почти всегда это одно из двух: он не запущен
+ * либо не пускает страницу, открытую с диска. Ошибка должна сразу говорить, что
+ * делать, иначе игрок останется один на один с «Failed to fetch».
+ */
+function connectionError(base, cause) {
+  return new Error(
+    `Не достучался до локальной модели по адресу ${base}. ` +
+      'Проверь, что сервер запущен и что он пускает страницы, открытые с диска: ' +
+      'для Ollama — OLLAMA_ORIGINS="*" ollama serve, для LM Studio — включить CORS в настройках сервера. ' +
+      `(${cause})`,
+  );
+}
+
+return { toolsToFunctions, localSystem, messagesToChat, blocksFromChat, connectionError };
+})();
+
+// ─── standalone/providers/ollama.js ───────────────────────────────────────────────
+const __m_standalone_providers_ollama_js = (() => {
+// Модель на своём компьютере через Ollama (родное API /api/chat).
+//
+// Родное API выбрано вместо OpenAI-совместимого ради одной строчки: num_ctx.
+// Описание инструментов и системный промпт — это около 4600 токенов ещё до
+// первой реплики, а Ollama по умолчанию даёт модели куда более узкое окно и
+// молча срезает всё, что не влезло. Мастер при этом не падает — он начинает
+// нести чушь, и понять почему невозможно.
+
+const { toolsToFunctions, localSystem, messagesToChat, blocksFromChat, connectionError } = __m_standalone_providers_convert_js;
+
+const isReady = (settings) => Boolean(settings.localBase && settings.localModel);
+
+const base = (settings) => settings.localBase.replace(/\/+$/, '');
+
+async function chat(settings, { system, snapshot, tools, messages, onDelta }) {
+  const body = {
+    model: settings.localModel,
+    stream: true,
+    options: { num_ctx: settings.numCtx },
+    messages: [
+      { role: 'system', content: localSystem(system, snapshot) },
+      ...messagesToChat(messages, { withIds: false }),
+    ],
+  };
+  if (tools?.length) body.tools = toolsToFunctions(tools);
+
+  let response;
+  try {
+    response = await fetch(`${base(settings)}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw connectionError(base(settings), e.message);
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    if (response.status === 404) {
+      throw new Error(`Ollama не знает модель «${settings.localModel}». Скачай её: ollama pull ${settings.localModel}`);
+    }
+    throw new Error(`Ollama ответила ${response.status}: ${text.slice(0, 300)}`);
+  }
+
+  return readStream(response, onDelta);
+}
+
+/** Поток Ollama — не SSE, а построчный JSON: одна строка на кусок ответа. */
+async function readStream(response, onDelta) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const toolCalls = [];
+  let text = '';
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (event.error) throw new Error(`Ollama: ${event.error}`);
+
+      const chunk = event.message?.content;
+      if (chunk) {
+        text += chunk;
+        onDelta?.(chunk);
+      }
+      // Вызовы инструментов Ollama отдаёт целиком, а не по кусочкам.
+      for (const call of event.message?.tool_calls || []) toolCalls.push(call);
+    }
+  }
+
+  return {
+    content: blocksFromChat({ text: text.trim(), toolCalls }, (i) => `ollama_${Date.now()}_${i}`),
+    stop_reason: toolCalls.length ? 'tool_use' : 'end_turn',
+  };
+}
+
+async function listModels(settings) {
+  let response;
+  try {
+    response = await fetch(`${base(settings)}/api/tags`);
+  } catch (e) {
+    throw connectionError(base(settings), e.message);
+  }
+  if (!response.ok) throw new Error(`Ollama ответила ${response.status} на список моделей`);
+  const data = await response.json();
+  return (data.models || []).map((m) => ({ id: m.name, name: m.name }));
+}
+
+return { isReady, chat, listModels };
+})();
+
+// ─── standalone/providers/openai.js ───────────────────────────────────────────────
+const __m_standalone_providers_openai_js = (() => {
+// Любой сервер с OpenAI-совместимым API: LM Studio, llama.cpp server, Jan,
+// LocalAI, vLLM. Ключ не нужен — локальные серверы его не спрашивают, а если
+// спрашивают, подойдёт тот же, что вписан для Claude.
+
+const { toolsToFunctions, localSystem, messagesToChat, blocksFromChat, connectionError } = __m_standalone_providers_convert_js;
+
+const isReady = (settings) => Boolean(settings.localBase && settings.localModel);
+
+/** Адрес пишут и с /v1, и без — принимаем оба. */
+const base = (settings) => {
+  const clean = settings.localBase.replace(/\/+$/, '');
+  return /\/v\d+$/.test(clean) ? clean : `${clean}/v1`;
+};
+
+const headers = (settings) => ({
+  'content-type': 'application/json',
+  ...(settings.apiKey ? { authorization: `Bearer ${settings.apiKey}` } : {}),
+});
+
+async function chat(settings, { system, snapshot, tools, messages, maxTokens, onDelta }) {
+  const body = {
+    model: settings.localModel,
+    stream: true,
+    max_tokens: maxTokens || settings.maxTokens,
+    messages: [
+      { role: 'system', content: localSystem(system, snapshot) },
+      ...messagesToChat(messages, { withIds: true }),
+    ],
+  };
+  if (tools?.length) body.tools = toolsToFunctions(tools);
+
+  let response;
+  try {
+    response = await fetch(`${base(settings)}/chat/completions`, {
+      method: 'POST',
+      headers: headers(settings),
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw connectionError(base(settings), e.message);
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Сервер модели ответил ${response.status}: ${text.slice(0, 300)}`);
+  }
+
+  return readStream(response, onDelta);
+}
+
+async function readStream(response, onDelta) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const calls = []; // собираются по индексу: аргументы приходят по кусочкам
+  let text = '';
+  let finish = null;
+  let buffer = '';
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop() ?? '';
+
+    for (const chunk of chunks) {
+      const line = chunk.split('\n').find((l) => l.startsWith('data:'));
+      if (!line) continue;
+      const payload = line.slice(5).trim();
+      if (payload === '[DONE]') continue;
+
+      let event;
+      try {
+        event = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      if (event.error) throw new Error(`Сервер модели: ${event.error.message || event.error}`);
+
+      const choice = event.choices?.[0];
+      if (!choice) continue;
+      finish = choice.finish_reason || finish;
+
+      const delta = choice.delta || choice.message || {};
+      if (delta.content) {
+        text += delta.content;
+        onDelta?.(delta.content);
+      }
+      for (const call of delta.tool_calls || []) {
+        const index = call.index ?? calls.length;
+        const slot = (calls[index] ||= { id: call.id, function: { name: '', arguments: '' } });
+        if (call.id) slot.id = call.id;
+        if (call.function?.name) slot.function.name = call.function.name;
+        if (call.function?.arguments) slot.function.arguments += call.function.arguments;
+      }
+    }
+  }
+
+  const toolCalls = calls.filter(Boolean);
+  return {
+    content: blocksFromChat({ text: text.trim(), toolCalls }, (i) => `call_${Date.now()}_${i}`),
+    stop_reason: toolCalls.length || finish === 'tool_calls' ? 'tool_use' : 'end_turn',
+  };
+}
+
+async function listModels(settings) {
+  let response;
+  try {
+    response = await fetch(`${base(settings)}/models`, { headers: headers(settings) });
+  } catch (e) {
+    throw connectionError(base(settings), e.message);
+  }
+  if (!response.ok) throw new Error(`Сервер модели ответил ${response.status} на список моделей`);
+  const data = await response.json();
+  return (data.data || []).map((m) => ({ id: m.id, name: m.id }));
+}
+
+return { isReady, chat, listModels };
+})();
+
+// ─── standalone/providers/index.js ───────────────────────────────────────────────
+const __m_standalone_providers_index_js = (() => {
+// Кто именно ведёт партию.
+//
+// Мастер — единственная часть игры, которую нельзя посчитать кодом: кубики,
+// правила, карты и листы движок считает сам, а вот придумывать историю должна
+// модель. Откуда её брать — выбор игроков:
+//
+//   claude — Claude по ключу Anthropic. Лучший мастер, но за токены надо платить.
+//   ollama — модель на своём компьютере через Ollama. Бесплатно и офлайн.
+//   openai — любой сервер с OpenAI-совместимым API: LM Studio, llama.cpp, Jan.
+//
+// Внутри игры история хранится в формате Anthropic — он самый выразительный из
+// трёх. Адаптеры переводят её туда и обратно, поэтому провайдера можно менять
+// посреди кампании: летопись и память мастера переживут переезд.
+
+const claude = __m_standalone_providers_claude_js;
+const ollama = __m_standalone_providers_ollama_js;
+const openai = __m_standalone_providers_openai_js;
+
+const PROVIDERS = { claude, ollama, openai };
+
+const settings = {
+  provider: 'claude',
+
+  // Claude
+  apiKey: '',
+  model: 'claude-opus-5',
+  effort: 'medium',
+  maxTokens: 16000,
+  apiBase: 'https://api.anthropic.com',
+
+  // Локальная модель
+  localBase: 'http://localhost:11434',
+  localModel: '',
+  // Контекст: системный промпт с описанием инструментов — это примерно 4600
+  // токенов ещё до первой реплики, поэтому обычных для Ollama 4096 не хватит.
+  numCtx: 16384,
+};
+
+function configure(patch) {
+  Object.assign(settings, patch);
+}
+
+const provider = () => PROVIDERS[settings.provider] || claude;
+
+/** Готов ли мастер вести: у Claude это ключ, у локальной модели — адрес и имя. */
+function isReady() {
+  return provider().isReady(settings);
+}
+
+function readyHint() {
+  if (settings.provider === 'claude') return 'Впиши ключ Anthropic API в настройках стола.';
+  return 'Укажи в настройках стола адрес локальной модели и выбери саму модель.';
+}
+
+/**
+ * Один запрос к мастеру.
+ *
+ * `snapshot` передаётся отдельно от истории: Claude принимает его последним
+ * сообщением, чтобы закэшированная часть запроса не менялась, а локальные
+ * модели — в конце системного промпта, потому что не всякий шаблон чата
+ * переживает системное сообщение в середине разговора.
+ */
+function chat(request) {
+  return provider().chat(settings, request);
+}
+
+/** Список моделей, которые сервер готов запустить прямо сейчас. */
+function listModels() {
+  return provider().listModels(settings);
+}
+
+return { settings, configure, isReady, readyHint, chat, listModels };
+})();
+
+// ─── standalone/agent.js ───────────────────────────────────────────────
+const __m_standalone_agent_js = (() => {
+// Ход мастера в однофайловой сборке: тот же промпт и те же инструменты, что на
+// сервере, но запрос уходит прямо из браузера — к Claude по ключу или к модели,
+// поднятой на своём компьютере. Кто именно отвечает, решает standalone/providers.
+
+const { buildSystemPrompt, CHRONICLE_PROMPT } = __m_server_dm_prompt_js;
+const { TOOL_DEFS, handlers } = __m_server_dm_tools_js;
+const state = __m_server_engine_state_js;
+const providers = __m_standalone_providers_index_js;
+
+const MAX_TOOL_ROUNDS = 24;
+const HISTORY_CHAR_BUDGET = 90000;
+const KEEP_RECENT_MESSAGES = 16;
+
+const settings = providers.settings;
+const configure = providers.configure;
+const isReady = providers.isReady;
+const listModels = providers.listModels;
+
 // ------------------------------------------------------------------ ход
 
 async function runTurn(st, ctx) {
   if (st.dm.busy) return { skipped: true };
-  if (!hasApiKey()) {
+  if (!providers.isReady()) {
     const entry = state.addMessage(st, {
       type: 'system',
-      text: 'Не задан ключ API — мастер молчит. Открой настройки и впиши ключ.',
+      text: `Мастер не настроен — он молчит. ${providers.readyHint()}`,
     });
     ctx.emit(entry);
-    return { error: 'нет ключа' };
+    return { error: 'мастер не настроен' };
   }
 
   st.dm.busy = true;
@@ -8043,19 +8556,13 @@ async function runTurn(st, ctx) {
     await maybeCompact(st);
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
-      const response = await request(
-        {
-          model: settings.model,
-          max_tokens: settings.maxTokens,
-          output_config: { effort: settings.effort },
-          system: [
-            { type: 'text', text: buildSystemPrompt(st), cache_control: { type: 'ephemeral' } },
-          ],
-          tools: TOOL_DEFS,
-          messages: buildMessages(st),
-        },
-        { onDelta: ctx.onDelta },
-      );
+      const response = await providers.chat({
+        system: buildSystemPrompt(st),
+        snapshot: state.stateSnapshot(st),
+        tools: TOOL_DEFS,
+        messages: st.dm.messages,
+        onDelta: ctx.onDelta,
+      });
 
       if (response.stop_reason === 'refusal') {
         const entry = state.addMessage(st, {
@@ -8075,8 +8582,10 @@ async function runTurn(st, ctx) {
         .trim();
       if (text) narration.push(text);
 
+      // На stop_reason не полагаемся: локальные серверы ставят его как попало,
+      // а вот наличие вызовов — факт, который либо есть, либо нет.
       const toolUses = response.content.filter((b) => b.type === 'tool_use');
-      if (response.stop_reason !== 'tool_use' || toolUses.length === 0) break;
+      if (toolUses.length === 0) break;
 
       const results = [];
       for (const call of toolUses) {
@@ -8116,30 +8625,6 @@ async function runTurn(st, ctx) {
   const full = narration.join('\n\n').trim();
   if (full) ctx.emit(state.addMessage(st, { type: 'dm', authorName: 'Мастер', text: full }));
   return { text: full };
-}
-
-/**
- * Снимок состояния уходит последним сообщением на каждом запросе: мастер
- * всегда видит текущие хиты, а закэшированная часть остаётся неизменной.
- */
-function buildMessages(st) {
-  const history = st.dm.messages;
-  const messages = history.map((m, i) => (i === history.length - 1 ? withCacheControl(m) : m));
-  messages.push({ role: 'system', content: `# Состояние стола\n\n${state.stateSnapshot(st)}` });
-  return messages;
-}
-
-function withCacheControl(message) {
-  const content = Array.isArray(message.content)
-    ? message.content
-    : [{ type: 'text', text: String(message.content) }];
-  if (content.length === 0) return message;
-  return {
-    ...message,
-    content: content.map((block, i) =>
-      i === content.length - 1 ? { ...block, cache_control: { type: 'ephemeral' } } : block,
-    ),
-  };
 }
 
 function pushPlayerMessages(st, messages) {
@@ -8184,15 +8669,21 @@ async function maybeCompact(st) {
     .slice(-60000);
 
   try {
-    const response = await request({
-      model: settings.model,
-      max_tokens: 2000,
-      output_config: { effort: 'low' },
+    const response = await providers.chat({
       system: CHRONICLE_PROMPT,
+      snapshot: null,
+      tools: [],
+      maxTokens: 2000,
+      effort: 'low',
       messages: [
         {
           role: 'user',
-          content: `Текущая хроника:\n${st.dm.chronicle || '(пусто)'}\n\nНовая часть расшифровки:\n${transcript}`,
+          content: [
+            {
+              type: 'text',
+              text: `Текущая хроника:\n${st.dm.chronicle || '(пусто)'}\n\nНовая часть расшифровки:\n${transcript}`,
+            },
+          ],
         },
       ],
     });
@@ -8234,7 +8725,7 @@ function safeCutPoint(messages, preferred) {
   return 0;
 }
 
-return { settings, configure, hasApiKey, runTurn, pushPlayerMessages, pushDirective };
+return { settings, configure, isReady, listModels, runTurn, pushPlayerMessages, pushDirective };
 })();
 
 // ─── standalone/table.js ───────────────────────────────────────────────
@@ -8689,6 +9180,293 @@ net.setHandler(dispatch);
 return { on, current, activeId, activeCharacter, pushState, createTable, openTable, setActive, addSeat, dispatch, scheduleDmTurn, runDmTurn, nudge, saveNow, listTables, exportTable, importTable, deleteTable };
 })();
 
+// ─── standalone/dm-settings.js ───────────────────────────────────────────────
+const __m_standalone_dm_settings_js = (() => {
+// Настройка мастера: кто ведёт партию и как до него достучаться.
+//
+// Блок один на всё приложение и физически переезжает между лобби и окном
+// настроек стола. Так у полей одни и те же идентификаторы и один набор
+// обработчиков — а игрок видит настройку там, где она ему понадобилась:
+// при первом запуске в лобби, посреди игры — в настройках.
+
+const { el, qs, clear } = __m_public_js_dom_js;
+const { icon } = __m_public_js_icons_js;
+const agent = __m_standalone_agent_js;
+
+const PROVIDERS = [
+  {
+    id: 'ollama',
+    name: 'Своя модель через Ollama — бесплатно',
+    base: 'http://localhost:11434',
+    hint:
+      'Поставь Ollama (ollama.com), скачай модель с поддержкой инструментов — например ' +
+      '«ollama pull qwen3:8b» — и запусти сервер так, чтобы он пускал страницы с диска: ' +
+      'OLLAMA_ORIGINS="*" ollama serve',
+  },
+  {
+    id: 'openai',
+    name: 'Своя модель через LM Studio и подобные',
+    base: 'http://localhost:1234/v1',
+    hint:
+      'Подойдёт любой сервер с OpenAI-совместимым API: LM Studio, llama.cpp server, Jan, ' +
+      'LocalAI. Включи в нём CORS, иначе страница с диска до него не достучится.',
+  },
+  {
+    id: 'claude',
+    name: 'Claude по ключу Anthropic — лучший мастер',
+    hint:
+      'Ключ берётся на console.anthropic.com → API keys. Он хранится только в этом браузере ' +
+      'и уходит только на api.anthropic.com. Токены платные.',
+  },
+];
+
+const EFFORTS = [
+  { id: 'low', name: 'коротко — ходы быстрые' },
+  { id: 'medium', name: 'обычно' },
+  { id: 'high', name: 'вдумчиво — мастер думает дольше' },
+];
+
+const STORE = {
+  provider: 'dnd.solo.provider',
+  key: 'dnd.solo.key',
+  model: 'dnd.solo.model',
+  effort: 'dnd.solo.effort',
+  localBase: 'dnd.solo.localBase',
+  localModel: 'dnd.solo.localModel',
+  numCtx: 'dnd.solo.numCtx',
+};
+
+const remember = (name, value) => {
+  try {
+    localStorage.setItem(name, String(value));
+  } catch {
+    /* приватный режим — переживём */
+  }
+};
+const recall = (name, fallback = '') => {
+  try {
+    return localStorage.getItem(name) ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+let onChange = () => {};
+let modelsLoaded = null; // для какого адреса уже тянули список
+
+/** Поднимает сохранённые настройки до того, как что-то нарисуется. */
+function restoreSettings() {
+  agent.configure({
+    provider: recall(STORE.provider, 'ollama'),
+    apiKey: recall(STORE.key),
+    model: recall(STORE.model, 'claude-opus-5'),
+    effort: recall(STORE.effort, 'medium'),
+    localBase: recall(STORE.localBase, 'http://localhost:11434'),
+    localModel: recall(STORE.localModel),
+    numCtx: Number(recall(STORE.numCtx, 16384)) || 16384,
+  });
+}
+
+function save() {
+  remember(STORE.provider, agent.settings.provider);
+  remember(STORE.key, agent.settings.apiKey);
+  remember(STORE.model, agent.settings.model);
+  remember(STORE.effort, agent.settings.effort);
+  remember(STORE.localBase, agent.settings.localBase);
+  remember(STORE.localModel, agent.settings.localModel);
+  remember(STORE.numCtx, agent.settings.numCtx);
+  onChange();
+}
+
+// --------------------------------------------------------------- разметка
+
+function initDmSettings({ onChange: handler }) {
+  onChange = handler || (() => {});
+  render();
+}
+
+/** Переносит блок настроек в окно стола и обратно в лобби. */
+function moveDmSettings(intoSelector) {
+  const block = qs('#dm-config');
+  if (block) qs(intoSelector).append(block);
+}
+
+const local = () => agent.settings.provider !== 'claude';
+const currentProvider = () => PROVIDERS.find((p) => p.id === agent.settings.provider) || PROVIDERS[0];
+
+function render() {
+  const host = qs('#dm-config') || el('div', { id: 'dm-config' });
+  if (!host.parentNode) qs('#dm-home').append(host);
+  clear(host);
+
+  host.append(
+    field('Мастер', select('dm-provider', PROVIDERS, agent.settings.provider, (value) => {
+      const preset = PROVIDERS.find((p) => p.id === value);
+      agent.configure({ provider: value, ...(preset?.base ? { localBase: preset.base } : {}) });
+      modelsLoaded = null;
+      save();
+      render();
+      if (local()) loadModels();
+    })),
+    el('span', { class: 'hint' }, currentProvider().hint),
+  );
+
+  if (local()) {
+    host.append(
+      field('Адрес сервера', input('local-base', agent.settings.localBase, 'text', (value) => {
+        agent.configure({ localBase: value.trim() });
+        modelsLoaded = null;
+        save();
+        loadModels();
+      })),
+      el('label', {}, [
+        'Модель',
+        el('div', { class: 'with-button' }, [
+          select('local-model', modelOptions(), agent.settings.localModel, (value) => {
+            agent.configure({ localModel: value });
+            save();
+          }),
+          el(
+            'button',
+            { class: 'ghost icon-btn', id: 'local-refresh', title: 'Обновить список моделей', onclick: () => loadModels(true) },
+            [icon('refresh', { size: 15 })],
+          ),
+        ]),
+      ]),
+      field(
+        'Размер контекста',
+        input('local-ctx', String(agent.settings.numCtx), 'number', (value) => {
+          agent.configure({ numCtx: Math.max(4096, Number(value) || 16384) });
+          save();
+        }),
+      ),
+      el(
+        'span',
+        { class: 'hint' },
+        'Правила и инструменты занимают около 4600 токенов ещё до первой реплики, ' +
+          'так что меньше 8192 ставить бессмысленно. Больше — точнее память мастера, но и памяти компьютера надо больше.',
+      ),
+    );
+    if (!modelsLoaded) loadModels();
+  } else {
+    host.append(
+      field('Ключ', input('api-key', agent.settings.apiKey, 'password', (value) => {
+        agent.configure({ apiKey: value.trim() });
+        save();
+      })),
+      field('Модель', select('api-model', claudeModels(), agent.settings.model, (value) => {
+        agent.configure({ model: value });
+        save();
+      })),
+      field('Сколько мастер думает', select('api-effort', EFFORTS, agent.settings.effort, (value) => {
+        agent.configure({ effort: value });
+        save();
+      })),
+    );
+  }
+
+  host.append(el('span', { class: 'hint', id: 'dm-state' }, ''));
+  refreshState();
+}
+
+const field = (label, control) => el('label', {}, [label, control]);
+
+function input(id, value, type, handler) {
+  return el('input', {
+    id,
+    type,
+    value,
+    autocomplete: 'off',
+    ...(type === 'password' ? { placeholder: 'sk-ant-...' } : {}),
+    onchange: (event) => handler(event.target.value),
+  });
+}
+
+function select(id, items, selected, handler) {
+  const node = el('select', { id, onchange: (event) => handler(event.target.value) });
+  for (const item of items) {
+    node.append(el('option', { value: item.id, selected: item.id === selected }, item.name));
+  }
+  if (!items.some((i) => i.id === selected) && items.length) node.value = items[0].id;
+  return node;
+}
+
+const claudeModels = () => [
+  { id: 'claude-opus-5', name: 'Opus 5 — лучший мастер' },
+  { id: 'claude-sonnet-5', name: 'Sonnet 5 — быстрее и дешевле' },
+  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5 — самый быстрый' },
+];
+
+let discovered = [];
+
+function modelOptions() {
+  if (discovered.length) return discovered;
+  const current = agent.settings.localModel;
+  return current ? [{ id: current, name: current }] : [{ id: '', name: '— сначала найдём модели —' }];
+}
+
+/** Спрашивает у локального сервера, что он умеет запускать. */
+async function loadModels(force = false) {
+  const base = agent.settings.localBase;
+  if (!base || (modelsLoaded === base && !force)) return;
+  modelsLoaded = base;
+
+  setState('ищу модели…', null);
+  try {
+    const models = await agent.listModels();
+    discovered = models;
+    if (!models.length) {
+      return setState('Сервер отвечает, но моделей в нём нет. Скачай хотя бы одну — например: ollama pull qwen3:8b', false);
+    }
+    // Раньше выбранная модель могла исчезнуть — тогда берём первую попавшуюся.
+    if (!models.some((m) => m.id === agent.settings.localModel)) {
+      agent.configure({ localModel: models[0].id });
+      remember(STORE.localModel, agent.settings.localModel);
+    }
+    const node = qs('#local-model');
+    if (node) {
+      clear(node);
+      for (const model of models) {
+        node.append(el('option', { value: model.id, selected: model.id === agent.settings.localModel }, model.name));
+      }
+    }
+    onChange();
+    refreshState();
+  } catch (e) {
+    discovered = [];
+    modelsLoaded = null;
+    setState(e.message, false);
+  }
+}
+
+function setState(text, good) {
+  const node = qs('#dm-state');
+  if (!node) return;
+  node.textContent = text;
+  node.classList.toggle('good', good === true);
+  node.classList.toggle('bad', good === false);
+}
+
+function refreshState() {
+  if (!agent.isReady()) {
+    return setState(
+      local()
+        ? 'Мастер пока не настроен: нужен работающий сервер и выбранная модель. Играть можно и так — правила с кубиками работают без него.'
+        : 'Мастер пока не настроен: без ключа он молчит. Правила и кубики работают в любом случае.',
+      false,
+    );
+  }
+  setState(
+    local()
+      ? `Мастера ведёт «${agent.settings.localModel}» на твоём компьютере. Ничего наружу не уходит.`
+      : 'Ключ сохранён в этом браузере — мастер готов вести.',
+    true,
+  );
+}
+
+return { remember, restoreSettings, initDmSettings, moveDmSettings, refreshState };
+})();
+
 // ─── standalone/app.js ───────────────────────────────────────────────
 const __m_standalone_app_js = (() => {
 // Точка входа однофайловой сборки.
@@ -8706,35 +9484,7 @@ const { initCreator, setPool } = __m_public_js_creator_js;
 const { buildOptions } = __m_standalone_options_js;
 const table = __m_standalone_table_js;
 const agent = __m_standalone_agent_js;
-
-const MODELS = [
-  { id: 'claude-opus-5', name: 'Opus 5 — лучший мастер' },
-  { id: 'claude-sonnet-5', name: 'Sonnet 5 — быстрее и дешевле' },
-  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5 — самый быстрый' },
-];
-
-const EFFORTS = [
-  { id: 'low', name: 'коротко — ходы быстрые' },
-  { id: 'medium', name: 'обычно' },
-  { id: 'high', name: 'вдумчиво — мастер думает дольше' },
-];
-
-const STORE = { key: 'dnd.solo.key', model: 'dnd.solo.model', effort: 'dnd.solo.effort' };
-
-const remember = (name, value) => {
-  try {
-    localStorage.setItem(name, value);
-  } catch {
-    /* приватный режим — переживём */
-  }
-};
-const recall = (name, fallback = '') => {
-  try {
-    return localStorage.getItem(name) || fallback;
-  } catch {
-    return fallback;
-  }
-};
+const { initDmSettings, moveDmSettings, restoreSettings, refreshState } = __m_standalone_dm_settings_js;
 
 let options = null;
 let chatMode = 'say';
@@ -8744,17 +9494,14 @@ let chatMode = 'say';
 function boot() {
   options = buildOptions();
 
-  agent.configure({
-    apiKey: recall(STORE.key),
-    model: recall(STORE.model, 'claude-opus-5'),
-    effort: recall(STORE.effort, 'medium'),
-  });
-  // ?api=... — для тех, кто ходит к API через свой прокси (и для прогонов).
+  restoreSettings();
+  // ?api=... — для тех, кто ходит к Claude через свой прокси (и для прогонов).
   const apiBase = new URL(location.href).searchParams.get('api');
   if (apiBase) agent.configure({ apiBase: apiBase.replace(/\/$/, '') });
 
   hydrateIcons(document);
   buildLobby();
+  initDmSettings({ onChange: refreshLinkStatus });
   buildCreator();
   buildModal();
   wireGame();
@@ -8769,11 +9516,6 @@ function hydrateIcons(root) {
     node.prepend(icon(node.dataset.icon, { size }));
   }
 }
-
-const fillSelect = (node, items, selected) => {
-  clear(node);
-  for (const item of items) node.append(el('option', { value: item.id, selected: item.id === selected }, item.name));
-};
 
 // ================================================================= лобби
 
@@ -8793,28 +9535,7 @@ function buildLobby() {
   difficulty.value = 'обычная';
   describe();
 
-  fillSelect(qs('#api-model'), MODELS, agent.settings.model);
-  fillSelect(qs('#api-effort'), EFFORTS, agent.settings.effort);
-  qs('#api-key').value = agent.settings.apiKey;
-
-  const saveKey = () => {
-    agent.configure({
-      apiKey: qs('#api-key').value.trim(),
-      model: qs('#api-model').value,
-      effort: qs('#api-effort').value,
-    });
-    remember(STORE.key, agent.settings.apiKey);
-    remember(STORE.model, agent.settings.model);
-    remember(STORE.effort, agent.settings.effort);
-    refreshKeyState();
-  };
-  qs('#api-key').addEventListener('change', saveKey);
-  qs('#api-model').addEventListener('change', saveKey);
-  qs('#api-effort').addEventListener('change', saveKey);
-  refreshKeyState();
-
   qs('#create-btn').addEventListener('click', () => {
-    saveKey();
     table.createTable({
       name: qs('#table-name').value.trim() || 'Новая кампания',
       settings: {
@@ -8831,13 +9552,11 @@ function buildLobby() {
   renderSavedTables();
 }
 
-function refreshKeyState() {
-  const node = qs('#key-state');
-  const ok = agent.hasApiKey();
-  node.textContent = ok ? 'Ключ сохранён в этом браузере — мастер готов вести.' : 'Без ключа мастер молчать будет, а правила и кубики работают.';
-  node.classList.toggle('good', ok);
+/** Огонёк в шапке: готов ли мастер отвечать. */
+function refreshLinkStatus() {
+  const ok = agent.isReady();
   const status = qs('#link-status');
-  status.textContent = ok ? 'мастер на связи' : 'ключ не задан';
+  status.textContent = ok ? 'мастер на связи' : 'мастер не настроен';
   status.classList.toggle('offline', !ok);
 }
 
@@ -8920,7 +9639,7 @@ function enterGame() {
   table.pushState();
 
   // Партия собралась, а мастер ещё не сказал ни слова — пусть открывает сцену.
-  if (st.dm.messages.length === 0 && agent.hasApiKey()) {
+  if (st.dm.messages.length === 0 && agent.isReady()) {
     table.nudge('Партия собралась. Открой сцену: где они, что видят, чем пахнет воздух — и дай зацепку, за которую можно потянуть.');
   }
 }
@@ -9037,8 +9756,6 @@ function wireTable() {
 // ============================================================ настройки
 
 function buildModal() {
-  fillSelect(qs('#dlg-model'), MODELS, agent.settings.model);
-  fillSelect(qs('#dlg-effort'), EFFORTS, agent.settings.effort);
   for (const { key, desc } of options.tones) qs('#dlg-tone').append(el('option', { value: key, title: desc }, key));
   for (const { key, desc } of options.difficulties) {
     qs('#dlg-difficulty').append(el('option', { value: key, title: desc }, key));
@@ -9081,9 +9798,9 @@ function buildModal() {
 
 function openModal() {
   const st = table.current();
-  qs('#dlg-key').value = agent.settings.apiKey;
-  qs('#dlg-model').value = agent.settings.model;
-  qs('#dlg-effort').value = agent.settings.effort;
+  // Блок настройки мастера один на приложение и переезжает сюда из лобби.
+  moveDmSettings('#dm-slot');
+  refreshState();
   if (st) {
     qs('#dlg-tone').value = st.settings.tone;
     qs('#dlg-difficulty').value = st.settings.difficulty;
@@ -9092,16 +9809,8 @@ function openModal() {
 }
 
 function closeModal() {
-  agent.configure({
-    apiKey: qs('#dlg-key').value.trim(),
-    model: qs('#dlg-model').value,
-    effort: qs('#dlg-effort').value,
-  });
-  remember(STORE.key, agent.settings.apiKey);
-  remember(STORE.model, agent.settings.model);
-  remember(STORE.effort, agent.settings.effort);
-  refreshKeyState();
-
+  moveDmSettings('#dm-home');
+  refreshLinkStatus();
   if (table.current()) {
     table.dispatch({ t: 'settings', patch: { tone: qs('#dlg-tone').value, difficulty: qs('#dlg-difficulty').value } });
   }

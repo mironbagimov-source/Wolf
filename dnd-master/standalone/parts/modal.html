@@ -1,10 +1,11 @@
 <div id="modal" class="modal hidden">
       <div class="modal-card">
-        <h2 data-icon="key">Настройки стола</h2>
-        <label>Ключ Anthropic API<input id="dlg-key" type="password" autocomplete="off" placeholder="sk-ant-..." /></label>
-        <span class="hint">Хранится только в этом браузере и уходит только на api.anthropic.com.</span>
-        <label>Модель<select id="dlg-model"></select></label>
-        <label>Сколько мастер думает<select id="dlg-effort"></select></label>
+        <h2 data-icon="gear">Настройки стола</h2>
+
+        <h3 class="block-title">Мастер</h3>
+        <div id="dm-slot"></div>
+
+        <h3 class="block-title">Кампания</h3>
         <label>Настроение<select id="dlg-tone"></select></label>
         <label>Сложность<select id="dlg-difficulty"></select></label>
 

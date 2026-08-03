@@ -13,35 +13,7 @@ import { initCreator, setPool } from '../public/js/creator.js';
 import { buildOptions } from './options.js';
 import * as table from './table.js';
 import * as agent from './agent.js';
-
-const MODELS = [
-  { id: 'claude-opus-5', name: 'Opus 5 — лучший мастер' },
-  { id: 'claude-sonnet-5', name: 'Sonnet 5 — быстрее и дешевле' },
-  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5 — самый быстрый' },
-];
-
-const EFFORTS = [
-  { id: 'low', name: 'коротко — ходы быстрые' },
-  { id: 'medium', name: 'обычно' },
-  { id: 'high', name: 'вдумчиво — мастер думает дольше' },
-];
-
-const STORE = { key: 'dnd.solo.key', model: 'dnd.solo.model', effort: 'dnd.solo.effort' };
-
-const remember = (name, value) => {
-  try {
-    localStorage.setItem(name, value);
-  } catch {
-    /* приватный режим — переживём */
-  }
-};
-const recall = (name, fallback = '') => {
-  try {
-    return localStorage.getItem(name) || fallback;
-  } catch {
-    return fallback;
-  }
-};
+import { initDmSettings, moveDmSettings, restoreSettings, refreshState } from './dm-settings.js';
 
 let options = null;
 let chatMode = 'say';
@@ -51,17 +23,14 @@ let chatMode = 'say';
 function boot() {
   options = buildOptions();
 
-  agent.configure({
-    apiKey: recall(STORE.key),
-    model: recall(STORE.model, 'claude-opus-5'),
-    effort: recall(STORE.effort, 'medium'),
-  });
-  // ?api=... — для тех, кто ходит к API через свой прокси (и для прогонов).
+  restoreSettings();
+  // ?api=... — для тех, кто ходит к Claude через свой прокси (и для прогонов).
   const apiBase = new URL(location.href).searchParams.get('api');
   if (apiBase) agent.configure({ apiBase: apiBase.replace(/\/$/, '') });
 
   hydrateIcons(document);
   buildLobby();
+  initDmSettings({ onChange: refreshLinkStatus });
   buildCreator();
   buildModal();
   wireGame();
@@ -76,11 +45,6 @@ function hydrateIcons(root) {
     node.prepend(icon(node.dataset.icon, { size }));
   }
 }
-
-const fillSelect = (node, items, selected) => {
-  clear(node);
-  for (const item of items) node.append(el('option', { value: item.id, selected: item.id === selected }, item.name));
-};
 
 // ================================================================= лобби
 
@@ -100,28 +64,7 @@ function buildLobby() {
   difficulty.value = 'обычная';
   describe();
 
-  fillSelect(qs('#api-model'), MODELS, agent.settings.model);
-  fillSelect(qs('#api-effort'), EFFORTS, agent.settings.effort);
-  qs('#api-key').value = agent.settings.apiKey;
-
-  const saveKey = () => {
-    agent.configure({
-      apiKey: qs('#api-key').value.trim(),
-      model: qs('#api-model').value,
-      effort: qs('#api-effort').value,
-    });
-    remember(STORE.key, agent.settings.apiKey);
-    remember(STORE.model, agent.settings.model);
-    remember(STORE.effort, agent.settings.effort);
-    refreshKeyState();
-  };
-  qs('#api-key').addEventListener('change', saveKey);
-  qs('#api-model').addEventListener('change', saveKey);
-  qs('#api-effort').addEventListener('change', saveKey);
-  refreshKeyState();
-
   qs('#create-btn').addEventListener('click', () => {
-    saveKey();
     table.createTable({
       name: qs('#table-name').value.trim() || 'Новая кампания',
       settings: {
@@ -138,13 +81,11 @@ function buildLobby() {
   renderSavedTables();
 }
 
-function refreshKeyState() {
-  const node = qs('#key-state');
-  const ok = agent.hasApiKey();
-  node.textContent = ok ? 'Ключ сохранён в этом браузере — мастер готов вести.' : 'Без ключа мастер молчать будет, а правила и кубики работают.';
-  node.classList.toggle('good', ok);
+/** Огонёк в шапке: готов ли мастер отвечать. */
+function refreshLinkStatus() {
+  const ok = agent.isReady();
   const status = qs('#link-status');
-  status.textContent = ok ? 'мастер на связи' : 'ключ не задан';
+  status.textContent = ok ? 'мастер на связи' : 'мастер не настроен';
   status.classList.toggle('offline', !ok);
 }
 
@@ -227,7 +168,7 @@ function enterGame() {
   table.pushState();
 
   // Партия собралась, а мастер ещё не сказал ни слова — пусть открывает сцену.
-  if (st.dm.messages.length === 0 && agent.hasApiKey()) {
+  if (st.dm.messages.length === 0 && agent.isReady()) {
     table.nudge('Партия собралась. Открой сцену: где они, что видят, чем пахнет воздух — и дай зацепку, за которую можно потянуть.');
   }
 }
@@ -344,8 +285,6 @@ function wireTable() {
 // ============================================================ настройки
 
 function buildModal() {
-  fillSelect(qs('#dlg-model'), MODELS, agent.settings.model);
-  fillSelect(qs('#dlg-effort'), EFFORTS, agent.settings.effort);
   for (const { key, desc } of options.tones) qs('#dlg-tone').append(el('option', { value: key, title: desc }, key));
   for (const { key, desc } of options.difficulties) {
     qs('#dlg-difficulty').append(el('option', { value: key, title: desc }, key));
@@ -388,9 +327,9 @@ function buildModal() {
 
 function openModal() {
   const st = table.current();
-  qs('#dlg-key').value = agent.settings.apiKey;
-  qs('#dlg-model').value = agent.settings.model;
-  qs('#dlg-effort').value = agent.settings.effort;
+  // Блок настройки мастера один на приложение и переезжает сюда из лобби.
+  moveDmSettings('#dm-slot');
+  refreshState();
   if (st) {
     qs('#dlg-tone').value = st.settings.tone;
     qs('#dlg-difficulty').value = st.settings.difficulty;
@@ -399,16 +338,8 @@ function openModal() {
 }
 
 function closeModal() {
-  agent.configure({
-    apiKey: qs('#dlg-key').value.trim(),
-    model: qs('#dlg-model').value,
-    effort: qs('#dlg-effort').value,
-  });
-  remember(STORE.key, agent.settings.apiKey);
-  remember(STORE.model, agent.settings.model);
-  remember(STORE.effort, agent.settings.effort);
-  refreshKeyState();
-
+  moveDmSettings('#dm-home');
+  refreshLinkStatus();
   if (table.current()) {
     table.dispatch({ t: 'settings', patch: { tone: qs('#dlg-tone').value, difficulty: qs('#dlg-difficulty').value } });
   }

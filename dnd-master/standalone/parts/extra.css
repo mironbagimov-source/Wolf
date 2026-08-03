@@ -16,6 +16,39 @@
 .hint.good {
   color: var(--emerald);
 }
+.hint.bad {
+  color: #fca88a;
+}
+
+/* ------------------------------------------------------- настройка мастера */
+
+#dm-config .hint {
+  margin-top: -10px;
+}
+/* Поле с кнопкой сбоку: выпадающий список тянется, кнопка держит ширину */
+.with-button {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.with-button select {
+  flex: 1;
+  min-width: 0;
+}
+.icon-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  padding: 0;
+  border-color: var(--line);
+  color: var(--text-faint);
+}
+.icon-btn:hover {
+  color: var(--brass);
+  border-color: var(--brass-dim);
+}
 
 /* Предупреждение внизу лобби — справочное, а не тревожное */
 .warning.subtle {
