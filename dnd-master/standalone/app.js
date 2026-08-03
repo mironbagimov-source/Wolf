@@ -81,11 +81,17 @@ function buildLobby() {
   renderSavedTables();
 }
 
-/** Огонёк в шапке: готов ли мастер отвечать. */
+/** Огонёк в шапке: готов ли мастер отвечать и кто это вообще. */
 function refreshLinkStatus() {
   const ok = agent.isReady();
   const status = qs('#link-status');
-  status.textContent = ok ? 'мастер на связи' : 'мастер не настроен';
+  status.textContent = !ok
+    ? 'мастер не настроен'
+    : agent.settings.provider === 'offline'
+      ? 'встроенный мастер'
+      : agent.settings.provider === 'claude'
+        ? 'мастер на связи'
+        : 'своя модель';
   status.classList.toggle('offline', !ok);
 }
 

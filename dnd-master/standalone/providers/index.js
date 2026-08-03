@@ -1,12 +1,13 @@
 // Кто именно ведёт партию.
 //
-// Мастер — единственная часть игры, которую нельзя посчитать кодом: кубики,
-// правила, карты и листы движок считает сам, а вот придумывать историю должна
-// модель. Откуда её брать — выбор игроков:
+// Кубики, правила, карты и листы движок считает сам. Придумывать историю — дело
+// ведущего, и вот его можно выбрать:
 //
-//   claude — Claude по ключу Anthropic. Лучший мастер, но за токены надо платить.
-//   ollama — модель на своём компьютере через Ollama. Бесплатно и офлайн.
-//   openai — любой сервер с OpenAI-совместимым API: LM Studio, llama.cpp, Jan.
+//   offline — встроенный мастер. Не нейросеть, а правила: поход по комнатам,
+//             разбор написанного по смыслу. Работает сразу и без настроек.
+//   ollama  — модель на своём компьютере через Ollama. Бесплатно и офлайн.
+//   openai  — любой сервер с OpenAI-совместимым API: LM Studio, llama.cpp, Jan.
+//   claude  — Claude по ключу Anthropic. Лучший мастер, но за токены надо платить.
 //
 // Внутри игры история хранится в формате Anthropic — он самый выразительный из
 // трёх. Адаптеры переводят её туда и обратно, поэтому провайдера можно менять
@@ -16,10 +17,21 @@ import * as claude from './claude.js';
 import * as ollama from './ollama.js';
 import * as openai from './openai.js';
 
-const PROVIDERS = { claude, ollama, openai };
+// Встроенный мастер живёт не здесь — он не разговаривает по сети, а работает
+// с состоянием стола напрямую (см. standalone/offline/dm.js). Провайдером он
+// числится только затем, чтобы выбираться из того же списка.
+const offline = {
+  isReady: () => true,
+  listModels: async () => [],
+  chat: () => {
+    throw new Error('Встроенный мастер не ходит по сети');
+  },
+};
+
+const PROVIDERS = { offline, claude, ollama, openai };
 
 export const settings = {
-  provider: 'claude',
+  provider: 'offline',
 
   // Claude
   apiKey: '',
@@ -48,9 +60,12 @@ export function isReady() {
 }
 
 export function readyHint() {
+  if (settings.provider === 'offline') return '';
   if (settings.provider === 'claude') return 'Впиши ключ Anthropic API в настройках стола.';
   return 'Укажи в настройках стола адрес локальной модели и выбери саму модель.';
 }
+
+export const isOffline = () => settings.provider === 'offline';
 
 /**
  * Один запрос к мастеру.

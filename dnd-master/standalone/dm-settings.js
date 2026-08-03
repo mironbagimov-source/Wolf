@@ -11,6 +11,14 @@ import * as agent from './agent.js';
 
 const PROVIDERS = [
   {
+    id: 'offline',
+    name: 'Встроенный мастер — работает сразу',
+    hint:
+      'Ведёт партию сам файл: генерирует поход, водит бой, считает кубики. Нейросети в нём нет, ' +
+      'поэтому он не выдумает поворот сюжета — зато не требует ни ключа, ни установки, ни сети. ' +
+      'Понимает, что вы делаете, по смыслу написанного: «иду дальше», «осматриваю», «бью его», «привал».',
+  },
+  {
     id: 'ollama',
     name: 'Своя модель через Ollama — бесплатно',
     base: 'http://localhost:11434',
@@ -73,7 +81,7 @@ let modelsLoaded = null; // для какого адреса уже тянули
 /** Поднимает сохранённые настройки до того, как что-то нарисуется. */
 export function restoreSettings() {
   agent.configure({
-    provider: recall(STORE.provider, 'ollama'),
+    provider: recall(STORE.provider, 'offline'),
     apiKey: recall(STORE.key),
     model: recall(STORE.model, 'claude-opus-5'),
     effort: recall(STORE.effort, 'medium'),
@@ -107,7 +115,8 @@ export function moveDmSettings(intoSelector) {
   if (block) qs(intoSelector).append(block);
 }
 
-const local = () => agent.settings.provider !== 'claude';
+const local = () => agent.settings.provider === 'ollama' || agent.settings.provider === 'openai';
+const offline = () => agent.settings.provider === 'offline';
 const currentProvider = () => PROVIDERS.find((p) => p.id === agent.settings.provider) || PROVIDERS[0];
 
 function render() {
@@ -126,6 +135,11 @@ function render() {
     })),
     el('span', { class: 'hint' }, currentProvider().hint),
   );
+
+  if (offline()) {
+    host.append(el('span', { class: 'hint good', id: 'dm-state' }, 'Мастер готов вести прямо сейчас — ничего настраивать не нужно.'));
+    return;
+  }
 
   if (local()) {
     host.append(
@@ -264,6 +278,9 @@ function setState(text, good) {
 }
 
 export function refreshState() {
+  if (offline()) {
+    return setState('Мастер готов вести прямо сейчас — ничего настраивать не нужно.', true);
+  }
   if (!agent.isReady()) {
     return setState(
       local()

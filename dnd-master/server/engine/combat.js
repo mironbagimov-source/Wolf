@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import * as dice from './dice.js';
 import * as srd from './srd.js';
 import * as character from './character.js';
-import { abilityMod, formatMod, DAMAGE_RU, CONDITION_RU, gridDistance } from './rules.js';
+import { abilityMod, formatMod, DAMAGE_RU, CONDITION_RU, gridDistance, actionNameRu } from './rules.js';
 
 /**
  * Rolls up a live copy of a monster. `count` instances get numbered names so
@@ -313,7 +313,8 @@ export function monsterAttack(monsterIndex, actionName) {
     (stat.actions || []).find((a) => a.attackBonus !== undefined);
   if (!action) return null;
   return {
-    name: action.name,
+    // Стат-блоки SRD англоязычные: «Slam» посреди русского лога режет глаз.
+    name: actionNameRu(action.name),
     attackBonus: action.attackBonus,
     damageEntries: action.damage || [],
     desc: action.desc,

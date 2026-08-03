@@ -74,6 +74,77 @@ export const CONDITION_RU = {
   exhaustion: 'Истощение',
 };
 
+/**
+ * Названия действий из стат-блоков SRD — они в базе только по-английски.
+ * Переведено то, что реально встречается: этими сорока строчками закрывается
+ * подавляющее большинство атак, а остальное показывается как есть.
+ */
+export const ACTION_RU = {
+  multiattack: 'Мультиатака',
+  bite: 'Укус',
+  bites: 'Укусы',
+  claw: 'Коготь',
+  claws: 'Когти',
+  talons: 'Когти',
+  tail: 'Хвост',
+  slam: 'Удар',
+  fist: 'Кулак',
+  hooves: 'Копыта',
+  beak: 'Клюв',
+  gore: 'Рога',
+  ram: 'Таран',
+  sting: 'Жало',
+  tentacle: 'Щупальце',
+  tentacles: 'Щупальца',
+  pseudopod: 'Ложноножка',
+  constrict: 'Сдавливание',
+  rock: 'Камень',
+  swallow: 'Проглатывание',
+  'frightful presence': 'Устрашающее присутствие',
+  'change shape': 'Смена облика',
+  'healing touch': 'Исцеляющее прикосновение',
+  invisibility: 'Невидимость',
+  teleport: 'Телепортация',
+  'breath weapons': 'Дыхательное оружие',
+  'fire breath': 'Огненное дыхание',
+  'cold breath': 'Ледяное дыхание',
+  'lightning breath': 'Дыхание молнии',
+  'poison breath': 'Ядовитое дыхание',
+  'acid breath': 'Кислотное дыхание',
+  longsword: 'Длинный меч',
+  shortsword: 'Короткий меч',
+  greatsword: 'Двуручный меч',
+  scimitar: 'Скимитар',
+  greataxe: 'Секира',
+  dagger: 'Кинжал',
+  spear: 'Копьё',
+  javelin: 'Метательное копьё',
+  club: 'Дубинка',
+  mace: 'Булава',
+  morningstar: 'Моргенштерн',
+  longbow: 'Длинный лук',
+  shortbow: 'Короткий лук',
+  'hand crossbow': 'Ручной арбалет',
+  'heavy crossbow': 'Тяжёлый арбалет',
+  'light crossbow': 'Лёгкий арбалет',
+  sling: 'Праща',
+  quarterstaff: 'Боевой посох',
+  halberd: 'Алебарда',
+  glaive: 'Глефа',
+  pike: 'Пика',
+  trident: 'Трезубец',
+  whip: 'Кнут',
+  handaxe: 'Ручной топор',
+  battleaxe: 'Боевой топор',
+  warhammer: 'Боевой молот',
+  maul: 'Молот',
+  rapier: 'Рапира',
+  lance: 'Кавалерийская пика',
+};
+
+/** Русское название действия, если оно у нас есть. */
+export const actionNameRu = (name) => ACTION_RU[String(name || '').trim().toLowerCase()] || name;
+
 export const DAMAGE_RU = {
   acid: 'кислотный',
   bludgeoning: 'дробящий',

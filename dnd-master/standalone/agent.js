@@ -6,6 +6,7 @@ import { buildSystemPrompt, CHRONICLE_PROMPT } from '../server/dm/prompt.js';
 import { TOOL_DEFS, handlers } from '../server/dm/tools.js';
 import * as state from '../server/engine/state.js';
 import * as providers from './providers/index.js';
+import * as offline from './offline/dm.js';
 
 const MAX_TOOL_ROUNDS = 24;
 const HISTORY_CHAR_BUDGET = 90000;
@@ -19,6 +20,10 @@ export const listModels = providers.listModels;
 // ------------------------------------------------------------------ ход
 
 export async function runTurn(st, ctx) {
+  // Встроенный мастер ходит мимо всей этой машинерии: ему не нужны ни промпт,
+  // ни инструменты как описания — он вызывает те же обработчики напрямую.
+  if (providers.isOffline()) return offline.runTurn(st, ctx);
+
   if (st.dm.busy) return { skipped: true };
   if (!providers.isReady()) {
     const entry = state.addMessage(st, {
