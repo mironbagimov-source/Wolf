@@ -39,8 +39,17 @@ IMAGE="${IMAGE:-vps-node:latest}"
 SSH_PORT="22$(printf '%02d' "$NODE_NUM")"
 
 HOST_ALIAS="yc-node${NODE_NUM}"
-KEY_PATH="$HOME/.ssh/yc-nodes/yc_node${NODE_NUM}"
 SRV_DIR="/srv/node${NODE_NUM}"
+
+# Путь к ключу настраивается: контейнер обычно выдают уже готовым вместе с ним.
+KEY_PATH="${SSH_KEY:-$HOME/.ssh/yc-nodes/yc_node${NODE_NUM}}"
+KEY_PATH="${KEY_PATH/#\~/$HOME}"
+
+# HOST_ACCESS=no — доступ только внутрь контейнера (обычный случай, когда
+# контейнер выдали готовым). Тогда шаги 01/02 пропускаются, а gateway
+# поднимается изнутри, без entrypoint на хосте.
+HOST_ACCESS="${HOST_ACCESS:-no}"
+have_host() { [[ "$HOST_ACCESS" == "yes" ]]; }
 
 DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-chat}"
 DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}"
@@ -49,6 +58,18 @@ DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}"
 HOSTSSH=("ssh" "-o" "StrictHostKeyChecking=accept-new" "${SERVER_SSH_USER}@${SERVER_IP}")
 NODESSH=("ssh" "-o" "StrictHostKeyChecking=accept-new" "-i" "$KEY_PATH"
          "-p" "$SSH_PORT" "admin@${SERVER_IP}")
+
+require_key() {
+  [[ -f "$KEY_PATH" ]] || {
+    echo "!! Нет ключа $KEY_PATH — положи файл yc_node${NODE_NUM} по этому пути" >&2
+    echo "   или укажи свой путь в SSH_KEY внутри config.env." >&2
+    exit 1
+  }
+  local perm; perm="$(stat -c '%a' "$KEY_PATH" 2>/dev/null || stat -f '%Lp' "$KEY_PATH")"
+  if [[ "$perm" != "600" && "$perm" != "400" ]]; then
+    chmod 600 "$KEY_PATH" 2>/dev/null || true
+  fi
+}
 
 step() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 log()  { printf '   %s\n' "$*"; }

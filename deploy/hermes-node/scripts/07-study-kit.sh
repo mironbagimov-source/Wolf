@@ -2,6 +2,7 @@
 # Шаг 7 (опционально). Стартовый набор «ассистент для учёбы». Со своей машины.
 # Файлы-шаблоны лежат в assets/ — отредактируй их под себя ПЕРЕД запуском.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+require_key
 
 for f in SOUL.md MEMORY.md USER.md; do
   [[ -f "$ROOT/assets/$f" ]] || die "нет $ROOT/assets/$f"

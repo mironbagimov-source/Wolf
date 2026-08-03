@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Шаг 3. Пакеты и установка hermes-agent внутрь контейнера. Со своей машины.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+require_key
 
 INSTALL_URL="https://hermes-agent.nousresearch.com/install.sh"
 

@@ -2,6 +2,10 @@
 # Шаг 2. Ключ, доступ в контейнер, запись в ~/.ssh/config. Со своей машины.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+have_host || die "HOST_ACCESS=no — этот шаг кладёт ключ в контейнер через docker exec
+   и требует root на сервере. Если ключ тебе уже выдали, он не нужен:
+   пропиши путь к ключу в SSH_KEY и начинай с 03-install-hermes.sh."
+
 step "Ключ ${KEY_PATH}"
 mkdir -p "$(dirname "$KEY_PATH")"
 chmod 700 "$(dirname "$KEY_PATH")"

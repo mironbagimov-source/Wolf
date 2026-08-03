@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Шаг 4. Ключ, права, конфиг модели, плагин провайдера. Со своей машины.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+require_key
 
 [[ -n "${DEEPSEEK_API_KEY:-}" ]] || die "DEEPSEEK_API_KEY пуст в config.env"
 

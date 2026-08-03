@@ -2,6 +2,9 @@
 # Шаг 1. Docker на хосте, entrypoint, контейнер. Запускать со своей машины.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+have_host || die "HOST_ACCESS=no — этот шаг требует root на самом сервере.
+   Если контейнер тебе выдали готовым, он не нужен: начинай с 03-install-hermes.sh."
+
 step "Docker на хосте"
 "${HOSTSSH[@]}" bash -s <<'REMOTE'
 set -euo pipefail

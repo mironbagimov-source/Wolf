@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Шаг 6. Финальная проверка живым запросом. Со своей машины.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+require_key
 
 step "Живой запрос: hermes -z \"Reply with exactly: OK\""
 set +e

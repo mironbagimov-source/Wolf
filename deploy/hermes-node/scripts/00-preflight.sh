@@ -4,8 +4,12 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 step "Параметры"
-log "сервер     : ${SERVER_SSH_USER}@${SERVER_IP}"
-log "контейнер  : ${CONTAINER} (нода ${NODE_NUM}, SSH ${SSH_PORT})"
+log "контейнер  : admin@${SERVER_IP}:${SSH_PORT} (${CONTAINER}, нода ${NODE_NUM})"
+if have_host; then
+  log "хост       : ${SERVER_SSH_USER}@${SERVER_IP} (HOST_ACCESS=yes)"
+else
+  log "хост       : не используется (HOST_ACCESS=no)"
+fi
 log "модель     : ${DEEPSEEK_MODEL}"
 log "base_url   : ${DEEPSEEK_BASE_URL}"
 
@@ -48,27 +52,49 @@ if [[ "$http_code" == "200" ]]; then
   fi
 fi
 
-step "Доступ на хост по SSH"
-if "${HOSTSSH[@]}" -o ConnectTimeout=15 -o BatchMode=yes true 2>/dev/null; then
-  ok "${SERVER_SSH_USER}@${SERVER_IP} пускает по ключу"
+step "Ключ от контейнера"
+require_key
+log "ключ: ${KEY_PATH} (права $(stat -c '%a' "$KEY_PATH"))"
+ssh-keygen -y -f "$KEY_PATH" >/dev/null 2>&1 || die "ключ нечитаем или повреждён"
+ok "ключ валиден"
+
+step "Вход в контейнер: admin@${SERVER_IP}:${SSH_PORT}"
+who="$("${NODESSH[@]}" -o ConnectTimeout=20 -o BatchMode=yes whoami 2>&1)" \
+  || die "не пускает в контейнер. Вывод: ${who}
+   Проверь, что порт ${SSH_PORT} открыт и ключ соответствует контейнеру."
+[[ "$who" == "admin" ]] || die "ожидался 'admin', получено '${who}'"
+ok "вход работает, пользователь admin"
+
+step "sudo внутри контейнера"
+if "${NODESSH[@]}" -o BatchMode=yes 'sudo -n true' 2>/dev/null; then
+  ok "sudo без пароля доступен"
 else
-  warn "по ключу не пустило. Либо разложи ключ (ssh-copy-id ${SERVER_SSH_USER}@${SERVER_IP}),"
-  warn "либо скрипты будут спрашивать пароль на каждом ssh-вызове."
-  read -r -p "   Продолжить с вводом пароля? [y/N] " a
-  [[ "$a" == [yY] ]] || die "остановлено"
+  warn "sudo без пароля недоступен — шаги установки пакетов могут не пройти"
 fi
 
-step "Docker на хосте"
-if "${HOSTSSH[@]}" 'command -v docker >/dev/null && docker info >/dev/null 2>&1'; then
-  ok "docker установлен и демон отвечает"
-else
-  warn "docker отсутствует или демон не запущен — 01-host-setup.sh это починит"
-fi
+if have_host; then
+  step "Доступ на хост (HOST_ACCESS=yes)"
+  if "${HOSTSSH[@]}" -o ConnectTimeout=15 -o BatchMode=yes true 2>/dev/null; then
+    ok "${SERVER_SSH_USER}@${SERVER_IP} пускает по ключу"
+  else
+    warn "по ключу не пустило — скрипты будут спрашивать пароль на каждом вызове."
+    read -r -p "   Продолжить? [y/N] " a
+    [[ "$a" == [yY] ]] || die "остановлено"
+  fi
 
-if "${HOSTSSH[@]}" "docker image inspect '${IMAGE}' >/dev/null 2>&1"; then
-  ok "образ ${IMAGE} на сервере есть"
-else
-  warn "образа ${IMAGE} нет — 01-host-setup.sh соберёт запасной из Dockerfile.fallback"
-fi
+  if "${HOSTSSH[@]}" 'command -v docker >/dev/null && docker info >/dev/null 2>&1'; then
+    ok "docker на хосте отвечает"
+  else
+    warn "docker отсутствует или демон не запущен — 01-host-setup.sh это починит"
+  fi
 
-printf '\n\033[32mПреflight пройден. Дальше: scripts/01-host-setup.sh\033[0m\n'
+  if "${HOSTSSH[@]}" "docker image inspect '${IMAGE}' >/dev/null 2>&1"; then
+    ok "образ ${IMAGE} на сервере есть"
+  else
+    warn "образа ${IMAGE} нет — 01-host-setup.sh соберёт запасной"
+  fi
+  printf '\n\033[32mПреflight пройден. Дальше: scripts/01-host-setup.sh\033[0m\n'
+else
+  log "HOST_ACCESS=no — шаги 01 и 02 не нужны, контейнер уже выдан готовым."
+  printf '\n\033[32mПреflight пройден. Дальше: scripts/03-install-hermes.sh\033[0m\n'
+fi
