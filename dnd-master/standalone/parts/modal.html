@@ -1,0 +1,19 @@
+<div id="modal" class="modal hidden">
+      <div class="modal-card">
+        <h2 data-icon="key">Настройки стола</h2>
+        <label>Ключ Anthropic API<input id="dlg-key" type="password" autocomplete="off" placeholder="sk-ant-..." /></label>
+        <span class="hint">Хранится только в этом браузере и уходит только на api.anthropic.com.</span>
+        <label>Модель<select id="dlg-model"></select></label>
+        <label>Сколько мастер думает<select id="dlg-effort"></select></label>
+        <label>Настроение<select id="dlg-tone"></select></label>
+        <label>Сложность<select id="dlg-difficulty"></select></label>
+
+        <div class="modal-row">
+          <button id="dlg-export" class="ghost" data-icon="scroll">Сохранить в файл</button>
+          <button id="dlg-import" class="ghost" data-icon="bag">Загрузить из файла</button>
+        </div>
+        <input id="dlg-file" type="file" accept="application/json,.json" class="hidden" />
+
+        <button id="dlg-close" class="primary">Готово</button>
+      </div>
+    </div>

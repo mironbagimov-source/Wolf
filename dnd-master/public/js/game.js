@@ -225,7 +225,9 @@ export function renderState(next, playerId) {
   qs('#campaign-name').textContent = next.name || 'Кампания';
   qs('#scene-location').textContent = next.scene.location || '—';
   qs('#scene-time').textContent = [next.scene.time, next.scene.weather].filter(Boolean).join(', ');
-  qs('#game-table-code').textContent = next.code;
+  // В однофайловой сборке кода стола нет: подключаться по нему некуда.
+  const code = qs('#game-table-code');
+  if (code) code.textContent = next.code;
 
   renderInitiative(next);
   renderParty(next, playerId);
@@ -319,7 +321,13 @@ function renderParty(next, playerId) {
               el(
                 'span',
                 { class: character.playerId === playerId ? 'pc-you' : 'pc-player' },
-                character.playerId === playerId ? 'ты' : character.playerName || '',
+                // Имя игрока повторять незачем, если оно и есть имя героя —
+                // так бывает в однофайловой сборке, где играют за одним экраном.
+                character.playerId === playerId
+                  ? 'ты'
+                  : character.playerName === character.name
+                    ? ''
+                    : character.playerName || '',
               ),
             ]),
             character.conditions?.length

@@ -1,0 +1,48 @@
+<section id="screen-lobby" class="screen active">
+      <div class="lobby">
+        <div class="lobby-head">
+          <h1>Мастер подземелий</h1>
+          <p class="tagline">
+            D&amp;D 5-й редакции в чате. Мастера ведёт Claude, правила считает движок,
+            кубики бросает сама страница — и каждый бросок видно всем за столом.
+            Ничего не устанавливается: всё, что нужно для игры, лежит внутри этого файла.
+          </p>
+        </div>
+
+        <div class="lobby-grid">
+          <div class="card">
+            <h2 data-icon="crown">Новая кампания</h2>
+            <label>Название<input id="table-name" maxlength="60" placeholder="Например: Тени над Гринхоллоу" /></label>
+            <label>Настроение<select id="table-tone"></select></label>
+            <span id="tone-desc" class="hint"></span>
+            <label>Сложность<select id="table-difficulty"></select></label>
+            <span id="difficulty-desc" class="hint"></span>
+            <label>
+              Завязка (необязательно)
+              <textarea id="table-premise" rows="3" placeholder="С чего начинается история? Оставь пустым — мастер придумает сам."></textarea>
+            </label>
+            <button id="create-btn" class="primary">Открыть кампанию</button>
+          </div>
+
+          <div class="card">
+            <h2 data-icon="key">Ключ к мастеру</h2>
+            <p class="hint">
+              Мастера ведёт Claude, и обращается к нему сама эта страница. Нужен ключ Anthropic
+              API — он хранится только в этом браузере и уходит только на api.anthropic.com.
+              Взять ключ: <span class="link-text">console.anthropic.com → API keys</span>.
+            </p>
+            <label>Ключ<input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." /></label>
+            <label>Модель<select id="api-model"></select></label>
+            <label>Сколько мастер думает<select id="api-effort"></select></label>
+            <span id="key-state" class="hint"></span>
+            <div id="saved-tables" class="recent"></div>
+          </div>
+        </div>
+
+        <p class="warning subtle">
+          Правила и справочник — SRD 5.1 (CC BY 4.0, Wizards of the Coast). Карты страница
+          рисует сама. Кампания сохраняется в этом браузере; чтобы перенести её на другой
+          компьютер, выгрузите её файлом из настроек стола.
+        </p>
+      </div>
+    </section>

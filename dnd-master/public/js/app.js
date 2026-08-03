@@ -3,8 +3,9 @@
 import { el, qs, qsa, clear, toast, showScreen } from './dom.js';
 import * as net from './net.js';
 import * as game from './game.js';
-import { icon, classIcon } from './icons.js';
+import { icon } from './icons.js';
 import { initMap } from './battlemap.js';
+import { initCreator, setPool } from './creator.js';
 
 let options = null;
 let playerId = net.identity.playerId;
@@ -131,211 +132,12 @@ async function loadRecentTables() {
 
 // ==================================================== создание персонажа
 
-const creator = { pool: [], assignment: {}, chosenSkills: new Set() };
-
-const CLASS_PRIORITY = {
-  barbarian: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
-  bard: ['cha', 'dex', 'con', 'wis', 'int', 'str'],
-  cleric: ['wis', 'con', 'str', 'cha', 'dex', 'int'],
-  druid: ['wis', 'con', 'dex', 'int', 'cha', 'str'],
-  fighter: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
-  monk: ['dex', 'wis', 'con', 'str', 'cha', 'int'],
-  paladin: ['str', 'cha', 'con', 'wis', 'dex', 'int'],
-  ranger: ['dex', 'wis', 'con', 'str', 'int', 'cha'],
-  rogue: ['dex', 'int', 'con', 'wis', 'cha', 'str'],
-  sorcerer: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
-  warlock: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
-  wizard: ['int', 'con', 'dex', 'wis', 'cha', 'str'],
-};
-
-const ABILITY_LABELS = { str: 'Сила', dex: 'Ловкость', con: 'Телосложение', int: 'Интеллект', wis: 'Мудрость', cha: 'Харизма' };
-const formatMod = (value) => (value < 0 ? `−${Math.abs(value)}` : `+${value}`);
-
 function buildCreator() {
-  qsa('.tab').forEach((tab) =>
-    tab.addEventListener('click', () => {
-      qsa('.tab').forEach((t) => t.classList.toggle('active', t === tab));
-      qsa('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === `tab-${tab.dataset.tab}`));
-    }),
-  );
-
-  const list = clear(qs('#pregen-list'));
-  for (const pregen of options.pregens) {
-    const sigil = el('div', { class: 'pregen-sigil', style: { color: pregen.portraitColor } });
-    sigil.append(classIcon(pregen.class, { size: 20 }));
-    list.append(
-      el(
-        'button',
-        {
-          class: 'pregen',
-          style: { '--accent': pregen.portraitColor },
-          onclick: () => net.send({ t: 'pick-pregen', pregenId: pregen.id }),
-        },
-        [
-          el('div', { class: 'pregen-head' }, [
-            sigil,
-            el('div', {}, [
-              el('h3', {}, pregen.name),
-              el('div', { class: 'role' }, `${pregen.preview.raceName} · ${pregen.preview.className}`),
-            ]),
-          ]),
-          el('p', {}, pregen.blurb),
-          el('div', { class: 'hook' }, pregen.hook),
-        ],
-      ),
-    );
-  }
-
-  const race = qs('#c-race');
-  for (const r of options.races) race.append(el('option', { value: r.index }, `${r.name} (${r.bonuses.join(', ')})`));
-  const klass = qs('#c-class');
-  for (const c of options.classes) klass.append(el('option', { value: c.index }, `${c.name} · к${c.hitDie}`));
-  const background = qs('#c-background');
-  for (const b of options.backgrounds) background.append(el('option', { value: b.index }, `${b.name} — ${b.skills.join(', ')}`));
-
-  race.addEventListener('change', refreshSubraces);
-  klass.addEventListener('change', () => {
-    refreshSkills();
-    setPool(creator.pool);
-  });
-  background.addEventListener('change', refreshSkills);
-
-  qs('#use-array').addEventListener('click', () => {
-    qs('#use-array').classList.add('active');
-    qs('#use-roll').classList.remove('active');
-    setPool([...options.standardArray]);
-  });
-  qs('#use-roll').addEventListener('click', () => {
-    qs('#use-roll').classList.add('active');
-    qs('#use-array').classList.remove('active');
-    net.send({ t: 'roll-abilities' });
-  });
-
-  qs('#create-character-btn').addEventListener('click', submitCharacter);
-
-  refreshSubraces();
-  refreshSkills();
-  setPool([...options.standardArray]);
-}
-
-function refreshSubraces() {
-  const race = options.races.find((r) => r.index === qs('#c-race').value);
-  const select = clear(qs('#c-subrace'));
-  select.append(el('option', { value: '' }, '— без разновидности —'));
-  for (const sub of race?.subraces || []) select.append(el('option', { value: sub.index }, sub.name));
-  select.disabled = !(race?.subraces || []).length;
-}
-
-const currentClass = () => options.classes.find((c) => c.index === qs('#c-class').value) || options.classes[0];
-
-function refreshSkills() {
-  const cls = currentClass();
-  const allowed = new Set(cls.skillChoices.from);
-  const limit = cls.skillChoices.choose;
-
-  for (const skill of [...creator.chosenSkills]) {
-    if (!allowed.has(skill)) creator.chosenSkills.delete(skill);
-  }
-
-  const list = clear(qs('#skill-list'));
-  for (const skill of options.skills) {
-    const selectable = allowed.has(skill.index);
-    list.append(
-      el('label', { class: `skill-item${selectable ? '' : ' disabled'}` }, [
-        el('input', {
-          type: 'checkbox',
-          checked: creator.chosenSkills.has(skill.index),
-          disabled: !selectable,
-          onchange: (event) => {
-            if (event.target.checked) {
-              if (creator.chosenSkills.size >= limit) {
-                event.target.checked = false;
-                return toast(`${currentClass().name}: можно выбрать ${limit}`);
-              }
-              creator.chosenSkills.add(skill.index);
-            } else {
-              creator.chosenSkills.delete(skill.index);
-            }
-            updateSkillCounter();
-          },
-        }),
-        el('span', {}, skill.name),
-        el('span', { class: 'skill-ability' }, skill.ability.slice(0, 3)),
-      ]),
-    );
-  }
-  updateSkillCounter();
-}
-
-function updateSkillCounter() {
-  const cls = currentClass();
-  const bgSkills = options.backgrounds.find((b) => b.index === qs('#c-background').value)?.skills || [];
-  qs('#skill-counter').textContent =
-    `${creator.chosenSkills.size}/${cls.skillChoices.choose}` +
-    (bgSkills.length ? ` · от предыстории: ${bgSkills.join(', ')}` : '');
-}
-
-function setPool(scores) {
-  creator.pool = scores.length ? scores : [...options.standardArray];
-  const sorted = [...creator.pool].sort((a, b) => b - a);
-  const priority = CLASS_PRIORITY[qs('#c-class').value] || Object.keys(ABILITY_LABELS);
-  creator.assignment = {};
-  priority.forEach((ability, i) => {
-    creator.assignment[ability] = sorted[i];
-  });
-  refreshAbilityRows();
-}
-
-function refreshAbilityRows() {
-  const node = clear(qs('#ability-rows'));
-  for (const [ability, label] of Object.entries(ABILITY_LABELS)) {
-    const score = creator.assignment[ability] ?? 10;
-    const select = el('select', {
-      onchange: (event) => {
-        const wanted = Number(event.target.value);
-        // Значения из набора уникальны: если оно занято — меняемся местами.
-        const holder = Object.keys(creator.assignment).find((k) => creator.assignment[k] === wanted && k !== ability);
-        if (holder) creator.assignment[holder] = creator.assignment[ability];
-        creator.assignment[ability] = wanted;
-        refreshAbilityRows();
-      },
-    });
-    for (const value of creator.pool) select.append(el('option', { value: String(value) }, String(value)));
-    select.value = String(score);
-
-    node.append(
-      el('div', { class: 'ability-row' }, [
-        el('div', { class: 'name' }, label),
-        el('div', { class: 'score' }, String(score)),
-        el('div', { class: 'mod' }, formatMod(Math.floor((score - 10) / 2))),
-        select,
-      ]),
-    );
-  }
-}
-
-function submitCharacter() {
-  const name = qs('#c-name').value.trim();
-  if (!name) return toast('У героя должно быть имя');
-  const cls = currentClass();
-  if (creator.chosenSkills.size !== cls.skillChoices.choose) {
-    return toast(`Выбери ровно ${cls.skillChoices.choose} навыка для класса «${cls.name}»`);
-  }
-  net.send({
-    t: 'create-character',
-    spec: {
-      name,
-      race: qs('#c-race').value,
-      subrace: qs('#c-subrace').value || null,
-      class: qs('#c-class').value,
-      background: qs('#c-background').value,
-      alignment: qs('#c-alignment').value,
-      skills: [...creator.chosenSkills],
-      abilities: creator.assignment,
-      portraitColor: qs('#c-color').value,
-      blurb: qs('#c-blurb').value.trim(),
-      hook: qs('#c-hook').value.trim(),
-    },
+  initCreator({
+    options,
+    onPick: (pregenId) => net.send({ t: 'pick-pregen', pregenId }),
+    onCreate: (spec) => net.send({ t: 'create-character', spec }),
+    onRollAbilities: () => net.send({ t: 'roll-abilities' }),
   });
 }
 

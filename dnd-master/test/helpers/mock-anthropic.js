@@ -13,7 +13,20 @@ export async function startMockApi(script) {
   const requests = [];
   let index = 0;
 
+  // Однофайловую сборку прогоняем с диска, то есть с origin «null»: без этих
+  // заголовков браузер не отпустит запрос дальше проверки CORS.
+  const cors = {
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': '*',
+    'access-control-allow-methods': 'POST, OPTIONS',
+  };
+
   const server = http.createServer((req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, cors);
+      return res.end();
+    }
+
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
@@ -26,12 +39,13 @@ export async function startMockApi(script) {
       index += 1;
 
       if (!parsed.stream) {
-        res.writeHead(200, { 'content-type': 'application/json' });
+        res.writeHead(200, { ...cors, 'content-type': 'application/json' });
         res.end(JSON.stringify(nonStreamed(step)));
         return;
       }
 
       res.writeHead(200, {
+        ...cors,
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
         connection: 'keep-alive',

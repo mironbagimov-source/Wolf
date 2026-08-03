@@ -8,6 +8,7 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "build:srd": "node tools/build-srd.mjs",
+    "build:standalone": "node tools/build-standalone.mjs",
     "test": "node --test test/*.test.js"
   },
   "engines": {

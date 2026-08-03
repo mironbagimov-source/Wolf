@@ -10,9 +10,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ABILITY_RU, SKILL_RU, DAMAGE_RU, abilityMod, formatMod } from './rules.js';
 
-const dataDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'srd');
+// Тот же модуль работает и на сервере, и в однофайловой сборке для браузера:
+// там данные уже вшиты в страницу и лежат в globalThis.__SRD__.
+const inNode = typeof process !== 'undefined' && Boolean(process.versions?.node);
+const dataDir = inNode ? path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'srd') : null;
 
 function load(name) {
+  const inlined = globalThis.__SRD__;
+  if (inlined) {
+    if (!inlined[name]) throw new Error(`В сборку не попал раздел SRD: ${name}`);
+    return inlined[name];
+  }
   const file = path.join(dataDir, `${name}.json`);
   if (!fs.existsSync(file)) {
     throw new Error(

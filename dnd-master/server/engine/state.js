@@ -11,7 +11,9 @@ import * as combat from './combat.js';
 import * as mapModule from './map.js';
 import { CONDITION_RU } from './rules.js';
 
-const dataRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'tables');
+// В браузерной сборке файловой системы нет: сохранение живёт только на сервере.
+const inNode = typeof process !== 'undefined' && Boolean(process.versions?.node);
+const dataRoot = inNode ? path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'data', 'tables') : null;
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no look-alikes
 
@@ -192,8 +194,10 @@ export function stateSnapshot(state) {
           .map(([lvl, max]) => `${lvl}кр ${max - (ch.spells.slotsUsed[lvl] || 0)}/${max}`)
           .join(' ') || '—'}`
       : '';
+    // За одним экраном имя игрока совпадает с именем героя — повторять незачем.
+    const who = ch.playerName && ch.playerName !== ch.name ? `, игрок ${ch.playerName}` : '';
     lines.push(
-      `- ${ch.name} [${ch.id.slice(0, 8)}] — ${race} ${cls} ${ch.level} ур., игрок ${ch.playerName || '?'}. ` +
+      `- ${ch.name} [${ch.id.slice(0, 8)}] — ${race} ${cls} ${ch.level} ур.${who}. ` +
         `КД ${ch.ac}, ${status}, пасс. Внимательность ${ch.passivePerception}${slots}${conditions}`,
     );
   }
