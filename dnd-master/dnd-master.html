@@ -7921,30 +7921,66 @@ const __m_standalone_providers_claude_js = (() => {
 // без него браузер не пустит запрос из-за CORS. Ключ при этом никуда, кроме
 // api.anthropic.com, не уходит и хранится только в localStorage этого браузера.
 
-// Серверные подстраховки: если ключу недоступна бета, выключаем её и повторяем.
-let useFallbacks = true;
+// Не всякая модель принимает всё, что умеет Opus 5: у Haiku нет ни системных
+// сообщений посреди разговора, ни output_config, а у ключа может не быть беты.
+// Поэтому запрос собирается по флажкам: споткнувшись, гасим одну возможность и
+// повторяем, а не роняем ход целиком. Флажки живут до перезагрузки страницы,
+// так что цена ошибки — один лишний запрос за сессию.
+const supports = { fallbacks: true, systemMessages: true, effort: true };
+
+const DEGRADATIONS = [
+  { flag: 'fallbacks', pattern: /fallback|beta/i },
+  { flag: 'systemMessages', pattern: /role 'system'|role "system"|system.*not supported/i },
+  { flag: 'effort', pattern: /output_config|effort/i },
+];
 
 const isReady = (settings) => Boolean(settings.apiKey);
 
-async function chat(settings, { system, snapshot, tools, messages, maxTokens, effort, onDelta }) {
+async function chat(settings, spec) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await request(settings, buildBody(settings, spec), spec.onDelta);
+    } catch (error) {
+      const degraded = DEGRADATIONS.find((d) => supports[d.flag] && d.pattern.test(error.message));
+      if (!degraded || attempt >= DEGRADATIONS.length) throw error;
+      supports[degraded.flag] = false;
+    }
+  }
+}
+
+function buildBody(settings, { system, snapshot, tools, messages, maxTokens, effort }) {
   const body = {
     model: settings.model,
     max_tokens: maxTokens || settings.maxTokens,
-    output_config: { effort: effort || settings.effort },
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     messages: withSnapshot(messages, snapshot),
   };
   if (tools?.length) body.tools = tools;
-  return request(settings, body, onDelta);
+  if (supports.effort) body.output_config = { effort: effort || settings.effort };
+  return body;
 }
 
 /**
  * Снимок состояния уходит последним сообщением: мастер всегда видит текущие
- * хиты, а закэшированная часть запроса остаётся байт в байт прежней.
+ * хиты, а закэшированная часть запроса остаётся байт в байт прежней. Модели
+ * без системной роли посреди разговора получают его довеском к реплике игроков.
  */
 function withSnapshot(messages, snapshot) {
   const out = messages.map((m, i) => (i === messages.length - 1 ? withCacheControl(m) : m));
-  if (snapshot) out.push({ role: 'system', content: `# Состояние стола\n\n${snapshot}` });
+  if (!snapshot) return out;
+
+  if (supports.systemMessages) {
+    out.push({ role: 'system', content: `# Состояние стола\n\n${snapshot}` });
+    return out;
+  }
+  const last = out[out.length - 1];
+  const block = { type: 'text', text: `<состояние>\n${snapshot}\n</состояние>` };
+  if (last?.role === 'user') {
+    const content = Array.isArray(last.content) ? [...last.content] : [{ type: 'text', text: last.content }];
+    out[out.length - 1] = { ...last, content: [...content, block] };
+  } else {
+    out.push({ role: 'user', content: [block] });
+  }
   return out;
 }
 
@@ -7969,7 +8005,7 @@ async function request(settings, body, onDelta) {
     'anthropic-dangerous-direct-browser-access': 'true',
   };
   const payload = { ...body, stream: true };
-  if (useFallbacks) {
+  if (supports.fallbacks) {
     headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
     payload.fallbacks = 'default';
   }
@@ -7982,11 +8018,6 @@ async function request(settings, body, onDelta) {
 
   if (!response.ok) {
     const message = await errorText(response);
-    // Ключ без доступа к бете — не повод ронять ход.
-    if (useFallbacks && /fallback|beta/i.test(message)) {
-      useFallbacks = false;
-      return request(settings, body, onDelta);
-    }
     if (response.status === 401) throw new Error('Ключ не принят. Проверь его в настройках стола.');
     if (response.status === 429) throw new Error('Слишком много запросов подряд — подожди немного.');
     throw new Error(`API ответил ${response.status}: ${message}`);
@@ -8192,21 +8223,78 @@ function parseArguments(raw) {
   }
 }
 
+
+return { toolsToFunctions, localSystem, messagesToChat, blocksFromChat };
+})();
+
+// ─── standalone/providers/local-transport.js ───────────────────────────────────────────────
+const __m_standalone_providers_local_transport_js = (() => {
+// Дорога до локального сервера модели — и разбор того, почему по ней не проехать.
+//
+// Браузер прячет причину сетевой ошибки: и «сервер не запущен», и «сервер
+// запретил обращаться со страницы, открытой с диска» приходят одинаковым
+// TypeError без подробностей. А чинятся они по-разному, поэтому диагноз тут
+// ставится отдельно — иначе игрок остаётся один на один с «Failed to fetch».
+
 /**
- * Локальный сервер не отвечает — почти всегда это одно из двух: он не запущен
- * либо не пускает страницу, открытую с диска. Ошибка должна сразу говорить, что
- * делать, иначе игрок останется один на один с «Failed to fetch».
+ * На многих системах localhost сначала резолвится в ::1, а Ollama и LM Studio
+ * слушают 127.0.0.1 — получается отказ на ровном месте. Пробуем оба адреса.
  */
-function connectionError(base, cause) {
+const alternate = (base) => base.replace('//localhost', '//127.0.0.1');
+
+/** @returns {{response: Response, base: string}} base — адрес, который сработал. */
+async function localFetch(base, path, init) {
+  try {
+    return { response: await fetch(base + path, init), base };
+  } catch (cause) {
+    const other = alternate(base);
+    if (other !== base) {
+      try {
+        return { response: await fetch(other + path, init), base: other };
+      } catch {
+        // И по второму адресу тишина — значит, дело не в имени хоста.
+      }
+    }
+    throw await diagnose(base, cause);
+  }
+}
+
+/**
+ * Жив ли сервер вообще. Запрос в режиме no-cors уходит без проверки заголовков
+ * и доходит до сервера, даже если тот запрещает читать ответ, — поэтому он
+ * отличает «не запущен» от «запущен, но не пускает».
+ */
+async function probe(base) {
+  for (const candidate of [base, alternate(base)]) {
+    try {
+      await fetch(candidate, { mode: 'no-cors', cache: 'no-store' });
+      return { alive: true, base: candidate };
+    } catch {
+      // Пробуем следующий адрес.
+    }
+  }
+  return { alive: false, base };
+}
+
+async function diagnose(base, cause) {
+  const { alive, base: reachable } = await probe(base);
+  if (alive) {
+    return new Error(
+      `Сервер по адресу ${reachable} отвечает, но не пускает страницу, открытую с диска: ` +
+        'у файла с диска нет привычного адреса, и по умолчанию такие запросы отклоняются. ' +
+        'Ollama надо перезапустить командой OLLAMA_ORIGINS="*" ollama serve, ' +
+        'в LM Studio — включить CORS в настройках сервера.',
+    );
+  }
   return new Error(
-    `Не достучался до локальной модели по адресу ${base}. ` +
-      'Проверь, что сервер запущен и что он пускает страницы, открытые с диска: ' +
-      'для Ollama — OLLAMA_ORIGINS="*" ollama serve, для LM Studio — включить CORS в настройках сервера. ' +
-      `(${cause})`,
+    `По адресу ${base} никто не отвечает. Модели внутри этого файла нет — он умеет только позвать ту, ` +
+      'что уже запущена на компьютере. Поставь Ollama с ollama.com, скачай модель командой ' +
+      '"ollama pull qwen3:8b" и запусти сервер: OLLAMA_ORIGINS="*" ollama serve. ' +
+      `Если сервер уже работает, проверь адрес и порт. (${cause.message})`,
   );
 }
 
-return { toolsToFunctions, localSystem, messagesToChat, blocksFromChat, connectionError };
+return { localFetch, probe };
 })();
 
 // ─── standalone/providers/ollama.js ───────────────────────────────────────────────
@@ -8219,7 +8307,8 @@ const __m_standalone_providers_ollama_js = (() => {
 // молча срезает всё, что не влезло. Мастер при этом не падает — он начинает
 // нести чушь, и понять почему невозможно.
 
-const { toolsToFunctions, localSystem, messagesToChat, blocksFromChat, connectionError } = __m_standalone_providers_convert_js;
+const { toolsToFunctions, localSystem, messagesToChat, blocksFromChat } = __m_standalone_providers_convert_js;
+const { localFetch } = __m_standalone_providers_local_transport_js;
 
 const isReady = (settings) => Boolean(settings.localBase && settings.localModel);
 
@@ -8237,16 +8326,12 @@ async function chat(settings, { system, snapshot, tools, messages, onDelta }) {
   };
   if (tools?.length) body.tools = toolsToFunctions(tools);
 
-  let response;
-  try {
-    response = await fetch(`${base(settings)}/api/chat`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    throw connectionError(base(settings), e.message);
-  }
+  const { response, base: worked } = await localFetch(base(settings), '/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  settings.localBase = worked;
 
   if (!response.ok) {
     const text = await response.text();
@@ -8302,12 +8387,8 @@ async function readStream(response, onDelta) {
 }
 
 async function listModels(settings) {
-  let response;
-  try {
-    response = await fetch(`${base(settings)}/api/tags`);
-  } catch (e) {
-    throw connectionError(base(settings), e.message);
-  }
+  const { response, base: worked } = await localFetch(base(settings), '/api/tags', { cache: 'no-store' });
+  settings.localBase = worked;
   if (!response.ok) throw new Error(`Ollama ответила ${response.status} на список моделей`);
   const data = await response.json();
   return (data.models || []).map((m) => ({ id: m.name, name: m.name }));
@@ -8322,7 +8403,8 @@ const __m_standalone_providers_openai_js = (() => {
 // LocalAI, vLLM. Ключ не нужен — локальные серверы его не спрашивают, а если
 // спрашивают, подойдёт тот же, что вписан для Claude.
 
-const { toolsToFunctions, localSystem, messagesToChat, blocksFromChat, connectionError } = __m_standalone_providers_convert_js;
+const { toolsToFunctions, localSystem, messagesToChat, blocksFromChat } = __m_standalone_providers_convert_js;
+const { localFetch } = __m_standalone_providers_local_transport_js;
 
 const isReady = (settings) => Boolean(settings.localBase && settings.localModel);
 
@@ -8349,16 +8431,11 @@ async function chat(settings, { system, snapshot, tools, messages, maxTokens, on
   };
   if (tools?.length) body.tools = toolsToFunctions(tools);
 
-  let response;
-  try {
-    response = await fetch(`${base(settings)}/chat/completions`, {
-      method: 'POST',
-      headers: headers(settings),
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    throw connectionError(base(settings), e.message);
-  }
+  const { response } = await localFetch(base(settings), '/chat/completions', {
+    method: 'POST',
+    headers: headers(settings),
+    body: JSON.stringify(body),
+  });
 
   if (!response.ok) {
     const text = await response.text();
@@ -8425,12 +8502,7 @@ async function readStream(response, onDelta) {
 }
 
 async function listModels(settings) {
-  let response;
-  try {
-    response = await fetch(`${base(settings)}/models`, { headers: headers(settings) });
-  } catch (e) {
-    throw connectionError(base(settings), e.message);
-  }
+  const { response } = await localFetch(base(settings), '/models', { headers: headers(settings), cache: 'no-store' });
   if (!response.ok) throw new Error(`Сервер модели ответил ${response.status} на список моделей`);
   const data = await response.json();
   return (data.data || []).map((m) => ({ id: m.id, name: m.id }));

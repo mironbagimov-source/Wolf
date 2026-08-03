@@ -38,6 +38,13 @@ export async function startMockApi(script) {
       const step = script[Math.min(index, script.length - 1)];
       index += 1;
 
+      // Шаг может быть отказом — так проверяется, что клиент гасит
+      // неподдерживаемую возможность и повторяет запрос, а не роняет ход.
+      if (step.status) {
+        res.writeHead(step.status, { ...cors, 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: step.error } }));
+      }
+
       if (!parsed.stream) {
         res.writeHead(200, { ...cors, 'content-type': 'application/json' });
         res.end(JSON.stringify(nonStreamed(step)));

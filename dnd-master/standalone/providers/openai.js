@@ -2,7 +2,8 @@
 // LocalAI, vLLM. Ключ не нужен — локальные серверы его не спрашивают, а если
 // спрашивают, подойдёт тот же, что вписан для Claude.
 
-import { toolsToFunctions, localSystem, messagesToChat, blocksFromChat, connectionError } from './convert.js';
+import { toolsToFunctions, localSystem, messagesToChat, blocksFromChat } from './convert.js';
+import { localFetch } from './local-transport.js';
 
 export const isReady = (settings) => Boolean(settings.localBase && settings.localModel);
 
@@ -29,16 +30,11 @@ export async function chat(settings, { system, snapshot, tools, messages, maxTok
   };
   if (tools?.length) body.tools = toolsToFunctions(tools);
 
-  let response;
-  try {
-    response = await fetch(`${base(settings)}/chat/completions`, {
-      method: 'POST',
-      headers: headers(settings),
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    throw connectionError(base(settings), e.message);
-  }
+  const { response } = await localFetch(base(settings), '/chat/completions', {
+    method: 'POST',
+    headers: headers(settings),
+    body: JSON.stringify(body),
+  });
 
   if (!response.ok) {
     const text = await response.text();
@@ -105,12 +101,7 @@ async function readStream(response, onDelta) {
 }
 
 export async function listModels(settings) {
-  let response;
-  try {
-    response = await fetch(`${base(settings)}/models`, { headers: headers(settings) });
-  } catch (e) {
-    throw connectionError(base(settings), e.message);
-  }
+  const { response } = await localFetch(base(settings), '/models', { headers: headers(settings), cache: 'no-store' });
   if (!response.ok) throw new Error(`Сервер модели ответил ${response.status} на список моделей`);
   const data = await response.json();
   return (data.data || []).map((m) => ({ id: m.id, name: m.id }));

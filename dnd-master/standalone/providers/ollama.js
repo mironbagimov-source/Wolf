@@ -6,7 +6,8 @@
 // молча срезает всё, что не влезло. Мастер при этом не падает — он начинает
 // нести чушь, и понять почему невозможно.
 
-import { toolsToFunctions, localSystem, messagesToChat, blocksFromChat, connectionError } from './convert.js';
+import { toolsToFunctions, localSystem, messagesToChat, blocksFromChat } from './convert.js';
+import { localFetch } from './local-transport.js';
 
 export const isReady = (settings) => Boolean(settings.localBase && settings.localModel);
 
@@ -24,16 +25,12 @@ export async function chat(settings, { system, snapshot, tools, messages, onDelt
   };
   if (tools?.length) body.tools = toolsToFunctions(tools);
 
-  let response;
-  try {
-    response = await fetch(`${base(settings)}/api/chat`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    throw connectionError(base(settings), e.message);
-  }
+  const { response, base: worked } = await localFetch(base(settings), '/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  settings.localBase = worked;
 
   if (!response.ok) {
     const text = await response.text();
@@ -89,12 +86,8 @@ async function readStream(response, onDelta) {
 }
 
 export async function listModels(settings) {
-  let response;
-  try {
-    response = await fetch(`${base(settings)}/api/tags`);
-  } catch (e) {
-    throw connectionError(base(settings), e.message);
-  }
+  const { response, base: worked } = await localFetch(base(settings), '/api/tags', { cache: 'no-store' });
+  settings.localBase = worked;
   if (!response.ok) throw new Error(`Ollama ответила ${response.status} на список моделей`);
   const data = await response.json();
   return (data.models || []).map((m) => ({ id: m.name, name: m.name }));
