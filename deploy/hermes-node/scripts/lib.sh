@@ -54,6 +54,10 @@ have_host() { [[ "$HOST_ACCESS" == "yes" ]]; }
 DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-chat}"
 DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}"
 
+# Порт веб-интерфейса: слушается на 127.0.0.1 внутри контейнера,
+# наружу пробрасывается ssh-туннелем этим же номером.
+WEB_PORT="${WEB_PORT:-8080}"
+
 # Хост — по паролю/ключу пользователя; контейнер — только по выданному ключу.
 HOSTSSH=("ssh" "-o" "StrictHostKeyChecking=accept-new" "${SERVER_SSH_USER}@${SERVER_IP}")
 NODESSH=("ssh" "-o" "StrictHostKeyChecking=accept-new" "-i" "$KEY_PATH"
