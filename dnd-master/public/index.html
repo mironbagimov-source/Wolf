@@ -3,34 +3,38 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0a09" />
     <title>Мастер подземелий — D&D в чате</title>
     <link rel="stylesheet" href="/styles.css" />
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%B2%3C/text%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23d9b451' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M12 2 21 7.5v9L12 22 3 16.5v-9z'/%3E%3Cpath d='m12 2 5 8-5 12-5-12z'/%3E%3C/svg%3E"
     />
   </head>
   <body>
-    <!-- Экран 1: лобби -->
+    <!-- ═══════════════════════════ Экран 1: лобби ═══════════════════════════ -->
     <section id="screen-lobby" class="screen active">
       <div class="lobby">
-        <h1>Мастер подземелий</h1>
-        <p class="tagline">
-          D&amp;D 5-й редакции в чате. Мастера ведёт нейросеть, правила считает движок,
-          кубики бросает сервер — и каждый бросок видно всем.
-        </p>
+        <div class="lobby-head">
+          <h1>Мастер подземелий</h1>
+          <p class="tagline">
+            D&amp;D 5-й редакции в чате. Мастера ведёт нейросеть, правила считает движок,
+            кубики бросает сервер — и каждый бросок видно всем за столом.
+          </p>
+        </div>
 
         <div class="lobby-grid">
           <div class="card">
-            <h2>Присоединиться к столу</h2>
+            <h2 data-icon="link">Присоединиться к столу</h2>
             <label>Твоё имя<input id="join-name" maxlength="40" placeholder="Как тебя зовут" /></label>
             <label>Код стола<input id="join-code" maxlength="5" placeholder="ABCDE" class="code-input" /></label>
-            <button id="join-btn" class="primary">Войти</button>
+            <button id="join-btn" class="primary">Войти за стол</button>
             <div id="recent-tables" class="recent"></div>
           </div>
 
           <div class="card">
-            <h2>Создать стол</h2>
+            <h2 data-icon="crown">Создать стол</h2>
             <label>Твоё имя<input id="host-name" maxlength="40" placeholder="Как тебя зовут" /></label>
             <label>Название кампании<input id="table-name" maxlength="60" placeholder="Например: Тени над Гринхоллоу" /></label>
             <label>Настроение<select id="table-tone"></select></label>
@@ -41,7 +45,7 @@
               Завязка (необязательно)
               <textarea id="table-premise" rows="3" placeholder="С чего начинается история? Оставь пустым — мастер придумает сам."></textarea>
             </label>
-            <button id="create-btn" class="primary">Создать</button>
+            <button id="create-btn" class="primary">Открыть кампанию</button>
           </div>
         </div>
 
@@ -52,12 +56,12 @@
       </div>
     </section>
 
-    <!-- Экран 2: персонаж -->
+    <!-- ══════════════════════ Экран 2: создание героя ═══════════════════════ -->
     <section id="screen-character" class="screen">
       <div class="creator">
         <header>
           <h1>Кто ты в этой истории?</h1>
-          <div class="table-code">Код стола: <strong id="char-table-code"></strong></div>
+          <div class="table-code">Стол<strong id="char-table-code"></strong></div>
         </header>
 
         <div class="tabs">
@@ -89,23 +93,20 @@
                 <option>хаотично-злой</option>
               </select>
             </label>
-            <label>Цвет фишки<input type="color" id="c-color" value="#38bdf8" /></label>
+            <label>Цвет фишки<input type="color" id="c-color" value="#d9b451" /></label>
           </div>
 
-          <div class="abilities-block">
-            <h3>Характеристики</h3>
-            <div class="ability-mode">
-              <button id="use-array" class="chip active">Стандартный набор</button>
-              <button id="use-roll" class="chip">Бросить 4d6</button>
-            </div>
-            <div id="ability-rows" class="ability-rows"></div>
+          <h3 class="block-title">Характеристики</h3>
+          <div class="ability-mode">
+            <button id="use-array" class="chip active">Стандартный набор</button>
+            <button id="use-roll" class="chip">Бросить 4d6</button>
           </div>
+          <div id="ability-rows" class="ability-rows"></div>
 
-          <div class="skills-block">
-            <h3>Навыки <span id="skill-counter" class="hint"></span></h3>
-            <div id="skill-list" class="skill-list"></div>
-          </div>
+          <h3 class="block-title">Навыки <span id="skill-counter" class="count"></span></h3>
+          <div id="skill-list" class="skill-list"></div>
 
+          <h3 class="block-title">Кто он такой</h3>
           <label>Пара слов о персонаже<textarea id="c-blurb" rows="2" placeholder="Кем он был до того, как всё началось?"></textarea></label>
           <label>Зацепка для мастера<textarea id="c-hook" rows="2" placeholder="Что тянет его в приключение? Мастер это использует."></textarea></label>
 
@@ -114,63 +115,88 @@
       </div>
     </section>
 
-    <!-- Экран 3: игра -->
+    <!-- ═══════════════════════════ Экран 3: игра ════════════════════════════ -->
     <section id="screen-game" class="screen">
       <div class="game">
-        <aside class="panel panel-left">
-          <div class="panel-header">
-            <span id="scene-location">—</span>
-            <span id="scene-time" class="hint"></span>
+        <div class="topbar">
+          <div class="topbar-title" id="campaign-name">Кампания</div>
+          <div class="topbar-scene">
+            <span class="icon" data-icon="map"></span>
+            <b id="scene-location">—</b>
+            <span class="sep">·</span>
+            <span class="time" id="scene-time"></span>
           </div>
-          <div id="initiative" class="initiative hidden"></div>
-          <div id="party" class="party"></div>
-          <div id="quests" class="quests"></div>
-          <div class="panel-footer">
-            <span class="hint">Код стола: <strong id="game-table-code"></strong></span>
+          <div class="topbar-right">
+            <button class="share-code" id="share-code" title="Скопировать код стола">
+              <span>код</span><strong id="game-table-code"></strong>
+            </button>
+            <span class="link-status" id="link-status">на связи</span>
           </div>
-        </aside>
+        </div>
 
-        <main class="panel panel-chat">
-          <div id="log" class="log"></div>
-          <div id="dm-typing" class="dm-typing hidden"><span></span><span></span><span></span> мастер думает</div>
-          <div class="composer">
-            <div class="modes">
-              <button class="mode active" data-mode="say" title="Персонаж говорит вслух">Речь</button>
-              <button class="mode" data-mode="action" title="Персонаж что-то делает">Действие</button>
-              <button class="mode" data-mode="ooc" title="Разговор за столом — мастер не отвечает">Вне игры</button>
+        <div class="game-body">
+          <aside class="panel panel-left mobile-active" data-mobile="party">
+            <div id="initiative" class="panel-block initiative hidden"></div>
+            <div id="party" class="panel-block"></div>
+            <div id="foes" class="panel-block hidden"></div>
+            <div id="quests" class="panel-block hidden"></div>
+          </aside>
+
+          <main class="panel panel-chat mobile-active" data-mobile="chat">
+            <div id="log" class="log"><div class="log-inner" id="log-inner"></div></div>
+            <div id="dm-typing" class="dm-typing hidden">
+              <span class="dots"><i></i><i></i><i></i></span> мастер обдумывает ход
             </div>
-            <textarea id="input" rows="2" placeholder="Что ты делаешь? Enter — отправить, Shift+Enter — новая строка"></textarea>
-            <div class="composer-actions">
-              <div class="dice-bar">
-                <button class="die" data-die="1d20">d20</button>
-                <button class="die" data-die="1d12">d12</button>
-                <button class="die" data-die="1d10">d10</button>
-                <button class="die" data-die="1d8">d8</button>
-                <button class="die" data-die="1d6">d6</button>
-                <button class="die" data-die="1d4">d4</button>
-                <button class="die" data-die="2d20kh1" title="С преимуществом">преим.</button>
-                <button class="die" data-die="2d20kl1" title="С помехой">помеха</button>
+            <div class="composer">
+              <div class="composer-inner">
+                <div class="modes">
+                  <button class="mode active" data-mode="say" data-icon="speech" title="Персонаж говорит вслух">Речь</button>
+                  <button class="mode" data-mode="action" data-icon="action" title="Персонаж что-то делает">Действие</button>
+                  <button class="mode" data-mode="ooc" data-icon="ooc" title="Разговор за столом — мастер не отвечает">Вне игры</button>
+                </div>
+                <div class="input-wrap">
+                  <textarea id="input" rows="1" placeholder="Что ты делаешь?" title="Enter — отправить, Shift+Enter — новая строка"></textarea>
+                  <button id="send-btn" class="primary" data-icon="send">Отправить</button>
+                </div>
+                <div class="composer-actions">
+                  <div class="dice-bar">
+                    <button class="die-btn" data-die="1d20">d20</button>
+                    <button class="die-btn" data-die="1d12">d12</button>
+                    <button class="die-btn" data-die="1d10">d10</button>
+                    <button class="die-btn" data-die="1d8">d8</button>
+                    <button class="die-btn" data-die="1d6">d6</button>
+                    <button class="die-btn" data-die="1d4">d4</button>
+                    <button class="die-btn wide" data-die="2d20kh1" title="Бросок с преимуществом">преим.</button>
+                    <button class="die-btn wide" data-die="2d20kl1" title="Бросок с помехой">помеха</button>
+                  </div>
+                  <button id="nudge-btn" class="ghost" data-icon="hourglass" title="Попросить мастера продолжить">
+                    Мастер, дальше
+                  </button>
+                </div>
               </div>
-              <button id="nudge-btn" class="ghost" title="Попросить мастера продолжить">Мастер, дальше</button>
-              <button id="send-btn" class="primary">Отправить</button>
             </div>
-          </div>
-        </main>
+          </main>
 
-        <aside class="panel panel-right">
-          <div class="panel-tabs">
-            <button class="ptab active" data-ptab="map">Карта</button>
-            <button class="ptab" data-ptab="sheet">Лист</button>
-          </div>
-          <div id="ptab-map" class="ptab-panel active">
-            <div id="map-title" class="map-title">Карты пока нет</div>
-            <canvas id="map-canvas"></canvas>
-            <div id="map-hint" class="hint map-hint"></div>
-          </div>
-          <div id="ptab-sheet" class="ptab-panel">
-            <div id="sheet"></div>
-          </div>
-        </aside>
+          <aside class="panel panel-right" data-mobile="map">
+            <div class="panel-tabs">
+              <button class="ptab active" data-ptab="map">Карта</button>
+              <button class="ptab" data-ptab="sheet">Лист персонажа</button>
+            </div>
+            <div id="ptab-map" class="ptab-panel active">
+              <div id="map-container"></div>
+              <div id="map-hint" class="hint map-hint"></div>
+            </div>
+            <div id="ptab-sheet" class="ptab-panel">
+              <div id="sheet"></div>
+            </div>
+          </aside>
+        </div>
+
+        <nav class="mobile-nav">
+          <button data-target="party" data-icon="users">Партия</button>
+          <button data-target="chat" class="active" data-icon="speech">Игра</button>
+          <button data-target="map" data-icon="map">Карта</button>
+        </nav>
       </div>
     </section>
 

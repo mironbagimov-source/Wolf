@@ -3,19 +3,20 @@
 import { el, qs, qsa, clear, toast, showScreen } from './dom.js';
 import * as net from './net.js';
 import * as game from './game.js';
+import { icon, classIcon } from './icons.js';
 import { initMap } from './battlemap.js';
 
 let options = null;
 let playerId = net.identity.playerId;
 let currentTableId = null;
 let chatMode = 'say';
-let hasCharacter = false;
 
-// ------------------------------------------------------------------ загрузка
+// ============================================================== загрузка
 
 async function boot() {
   options = await net.api('/api/options');
 
+  hydrateIcons(document);
   buildLobby();
   buildCreator();
   wireGame();
@@ -28,13 +29,21 @@ async function boot() {
     qs('#join-name').value = saved;
     qs('#host-name').value = saved;
   }
-  // Возврат за стол, за которым уже сидели.
-  const url = new URL(location.href);
-  const code = url.searchParams.get('code');
+  const code = new URL(location.href).searchParams.get('code');
   if (code) qs('#join-code').value = code.toUpperCase();
 }
 
-// -------------------------------------------------------------------- лобби
+/** Подставляет SVG в любые элементы с data-icon — разметка остаётся чистой. */
+function hydrateIcons(root) {
+  for (const node of root.querySelectorAll('[data-icon]')) {
+    if (node.dataset.iconDone) continue;
+    node.dataset.iconDone = '1';
+    const size = node.classList.contains('mode') || node.tagName === 'H2' ? 14 : 15;
+    node.prepend(icon(node.dataset.icon, { size }));
+  }
+}
+
+// ================================================================= лобби
 
 function buildLobby() {
   if (!options.dmConfigured) qs('#dm-warning').classList.remove('hidden');
@@ -75,19 +84,19 @@ function buildLobby() {
     }
   });
 
-  qs('#join-btn').addEventListener('click', () => {
-    const name = qs('#join-name').value.trim();
-    const code = qs('#join-code').value.trim().toUpperCase();
-    if (!name) return toast('Впиши своё имя');
-    if (!code) return toast('Нужен код стола');
-    net.joinTable({ code, playerName: name });
-  });
-
-  qs('#join-code').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') qs('#join-btn').click();
-  });
+  qs('#join-btn').addEventListener('click', join);
+  qs('#join-code').addEventListener('keydown', (e) => e.key === 'Enter' && join());
+  qs('#join-name').addEventListener('keydown', (e) => e.key === 'Enter' && join());
 
   loadRecentTables();
+}
+
+function join() {
+  const name = qs('#join-name').value.trim();
+  const code = qs('#join-code').value.trim().toUpperCase();
+  if (!name) return toast('Впиши своё имя');
+  if (!code) return toast('Нужен код стола');
+  net.joinTable({ code, playerName: name });
 }
 
 async function loadRecentTables() {
@@ -95,8 +104,8 @@ async function loadRecentTables() {
     const tables = await net.api('/api/tables');
     const node = clear(qs('#recent-tables'));
     if (!tables.length) return;
-    node.append(el('div', { class: 'hint', style: { margin: '10px 0 6px' } }, 'Столы на этом сервере:'));
-    for (const table of tables.slice(0, 6)) {
+    node.append(el('div', { class: 'recent-label' }, 'Столы на этом сервере'));
+    for (const table of tables.slice(0, 5)) {
       node.append(
         el(
           'button',
@@ -107,22 +116,40 @@ async function loadRecentTables() {
               net.joinTable({ tableId: table.id, playerName: name });
             },
           },
-          `${table.name} · ${table.code} · ${table.party.length ? table.party.join(', ') : 'пока пусто'}`,
+          [
+            icon('users', { size: 14 }),
+            el('span', {}, table.party.length ? `${table.name} — ${table.party.join(', ')}` : table.name),
+            el('span', { class: 'recent-code' }, table.code),
+          ],
         ),
       );
     }
   } catch {
-    // Не критично: список последних столов — удобство, а не необходимость.
+    // Список последних столов — удобство, а не необходимость.
   }
 }
 
-// -------------------------------------------------- создание персонажа
+// ==================================================== создание персонажа
 
-const creator = {
-  pool: [],
-  assignment: {},
-  chosenSkills: new Set(),
+const creator = { pool: [], assignment: {}, chosenSkills: new Set() };
+
+const CLASS_PRIORITY = {
+  barbarian: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
+  bard: ['cha', 'dex', 'con', 'wis', 'int', 'str'],
+  cleric: ['wis', 'con', 'str', 'cha', 'dex', 'int'],
+  druid: ['wis', 'con', 'dex', 'int', 'cha', 'str'],
+  fighter: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
+  monk: ['dex', 'wis', 'con', 'str', 'cha', 'int'],
+  paladin: ['str', 'cha', 'con', 'wis', 'dex', 'int'],
+  ranger: ['dex', 'wis', 'con', 'str', 'int', 'cha'],
+  rogue: ['dex', 'int', 'con', 'wis', 'cha', 'str'],
+  sorcerer: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
+  warlock: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
+  wizard: ['int', 'con', 'dex', 'wis', 'cha', 'str'],
 };
+
+const ABILITY_LABELS = { str: 'Сила', dex: 'Ловкость', con: 'Телосложение', int: 'Интеллект', wis: 'Мудрость', cha: 'Харизма' };
+const formatMod = (value) => (value < 0 ? `−${Math.abs(value)}` : `+${value}`);
 
 function buildCreator() {
   qsa('.tab').forEach((tab) =>
@@ -134,27 +161,42 @@ function buildCreator() {
 
   const list = clear(qs('#pregen-list'));
   for (const pregen of options.pregens) {
+    const sigil = el('div', { class: 'pregen-sigil', style: { color: pregen.portraitColor } });
+    sigil.append(classIcon(pregen.class, { size: 20 }));
     list.append(
-      el('button', { class: 'pregen', onclick: () => net.send({ t: 'pick-pregen', pregenId: pregen.id }) }, [
-        el('h3', {}, pregen.name),
-        el('div', { class: 'role' }, `${pregen.preview.raceName} · ${pregen.preview.className}`),
-        el('p', {}, pregen.blurb),
-        el('div', { class: 'hook' }, pregen.hook),
-      ]),
+      el(
+        'button',
+        {
+          class: 'pregen',
+          style: { '--accent': pregen.portraitColor },
+          onclick: () => net.send({ t: 'pick-pregen', pregenId: pregen.id }),
+        },
+        [
+          el('div', { class: 'pregen-head' }, [
+            sigil,
+            el('div', {}, [
+              el('h3', {}, pregen.name),
+              el('div', { class: 'role' }, `${pregen.preview.raceName} · ${pregen.preview.className}`),
+            ]),
+          ]),
+          el('p', {}, pregen.blurb),
+          el('div', { class: 'hook' }, pregen.hook),
+        ],
+      ),
     );
   }
 
   const race = qs('#c-race');
   for (const r of options.races) race.append(el('option', { value: r.index }, `${r.name} (${r.bonuses.join(', ')})`));
   const klass = qs('#c-class');
-  for (const c of options.classes) klass.append(el('option', { value: c.index }, `${c.name} (к${c.hitDie})`));
+  for (const c of options.classes) klass.append(el('option', { value: c.index }, `${c.name} · к${c.hitDie}`));
   const background = qs('#c-background');
   for (const b of options.backgrounds) background.append(el('option', { value: b.index }, `${b.name} — ${b.skills.join(', ')}`));
 
   race.addEventListener('change', refreshSubraces);
   klass.addEventListener('change', () => {
     refreshSkills();
-    refreshAbilityRows();
+    setPool(creator.pool);
   });
   background.addEventListener('change', refreshSkills);
 
@@ -184,15 +226,12 @@ function refreshSubraces() {
   select.disabled = !(race?.subraces || []).length;
 }
 
-function currentClass() {
-  return options.classes.find((c) => c.index === qs('#c-class').value) || options.classes[0];
-}
+const currentClass = () => options.classes.find((c) => c.index === qs('#c-class').value) || options.classes[0];
 
 function refreshSkills() {
   const cls = currentClass();
   const allowed = new Set(cls.skillChoices.from);
   const limit = cls.skillChoices.choose;
-  const bgSkills = options.backgrounds.find((b) => b.index === qs('#c-background').value)?.skills || [];
 
   for (const skill of [...creator.chosenSkills]) {
     if (!allowed.has(skill)) creator.chosenSkills.delete(skill);
@@ -201,31 +240,30 @@ function refreshSkills() {
   const list = clear(qs('#skill-list'));
   for (const skill of options.skills) {
     const selectable = allowed.has(skill.index);
-    const checked = creator.chosenSkills.has(skill.index);
-    const item = el('label', { class: `skill-item${selectable ? '' : ' disabled'}` }, [
-      el('input', {
-        type: 'checkbox',
-        checked,
-        disabled: !selectable,
-        onchange: (event) => {
-          if (event.target.checked) {
-            if (creator.chosenSkills.size >= limit) {
-              event.target.checked = false;
-              return toast(`${currentClass().name}: можно выбрать ${limit}`);
+    list.append(
+      el('label', { class: `skill-item${selectable ? '' : ' disabled'}` }, [
+        el('input', {
+          type: 'checkbox',
+          checked: creator.chosenSkills.has(skill.index),
+          disabled: !selectable,
+          onchange: (event) => {
+            if (event.target.checked) {
+              if (creator.chosenSkills.size >= limit) {
+                event.target.checked = false;
+                return toast(`${currentClass().name}: можно выбрать ${limit}`);
+              }
+              creator.chosenSkills.add(skill.index);
+            } else {
+              creator.chosenSkills.delete(skill.index);
             }
-            creator.chosenSkills.add(skill.index);
-          } else {
-            creator.chosenSkills.delete(skill.index);
-          }
-          updateSkillCounter();
-        },
-      }),
-      `${skill.name} (${skill.ability.slice(0, 3)})`,
-    ]);
-    list.append(item);
+            updateSkillCounter();
+          },
+        }),
+        el('span', {}, skill.name),
+        el('span', { class: 'skill-ability' }, skill.ability.slice(0, 3)),
+      ]),
+    );
   }
-
-  qs('#skill-counter').textContent = `от предыстории: ${bgSkills.join(', ') || '—'}`;
   updateSkillCounter();
 }
 
@@ -233,46 +271,26 @@ function updateSkillCounter() {
   const cls = currentClass();
   const bgSkills = options.backgrounds.find((b) => b.index === qs('#c-background').value)?.skills || [];
   qs('#skill-counter').textContent =
-    `выбрано ${creator.chosenSkills.size} из ${cls.skillChoices.choose}` +
+    `${creator.chosenSkills.size}/${cls.skillChoices.choose}` +
     (bgSkills.length ? ` · от предыстории: ${bgSkills.join(', ')}` : '');
 }
 
 function setPool(scores) {
-  creator.pool = scores;
-  const order = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+  creator.pool = scores.length ? scores : [...options.standardArray];
+  const sorted = [...creator.pool].sort((a, b) => b - a);
+  const priority = CLASS_PRIORITY[qs('#c-class').value] || Object.keys(ABILITY_LABELS);
   creator.assignment = {};
-  // Раскладываем по приоритету класса, чтобы новичку сразу было играбельно.
-  const sorted = [...scores].sort((a, b) => b - a);
-  const priority = CLASS_PRIORITY[qs('#c-class').value] || order;
   priority.forEach((ability, i) => {
     creator.assignment[ability] = sorted[i];
   });
   refreshAbilityRows();
 }
 
-const CLASS_PRIORITY = {
-  barbarian: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
-  bard: ['cha', 'dex', 'con', 'wis', 'int', 'str'],
-  cleric: ['wis', 'con', 'str', 'cha', 'dex', 'int'],
-  druid: ['wis', 'con', 'dex', 'int', 'cha', 'str'],
-  fighter: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
-  monk: ['dex', 'wis', 'con', 'str', 'cha', 'int'],
-  paladin: ['str', 'cha', 'con', 'wis', 'dex', 'int'],
-  ranger: ['dex', 'wis', 'con', 'str', 'int', 'cha'],
-  rogue: ['dex', 'int', 'con', 'wis', 'cha', 'str'],
-  sorcerer: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
-  warlock: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
-  wizard: ['int', 'con', 'dex', 'wis', 'cha', 'str'],
-};
-
-const ABILITY_LABELS = { str: 'Сила', dex: 'Ловкость', con: 'Телосложение', int: 'Интеллект', wis: 'Мудрость', cha: 'Харизма' };
-
 function refreshAbilityRows() {
   const node = clear(qs('#ability-rows'));
   for (const [ability, label] of Object.entries(ABILITY_LABELS)) {
     const score = creator.assignment[ability] ?? 10;
     const select = el('select', {
-      value: String(score),
       onchange: (event) => {
         const wanted = Number(event.target.value);
         // Значения из набора уникальны: если оно занято — меняемся местами.
@@ -295,8 +313,6 @@ function refreshAbilityRows() {
     );
   }
 }
-
-const formatMod = (value) => (value < 0 ? `−${Math.abs(value)}` : `+${value}`);
 
 function submitCharacter() {
   const name = qs('#c-name').value.trim();
@@ -323,12 +339,10 @@ function submitCharacter() {
   });
 }
 
-// -------------------------------------------------------- игровой экран
+// ========================================================== игровой экран
 
 function wireGame() {
-  initMap({
-    onMove: (x, y) => net.send({ t: 'move-token', x, y }),
-  });
+  initMap({ onMove: (x, y) => net.send({ t: 'move-token', x, y }) });
 
   qsa('.mode').forEach((button) =>
     button.addEventListener('click', () => {
@@ -345,19 +359,44 @@ function wireGame() {
     }),
   );
 
-  qsa('.die').forEach((button) =>
+  qsa('.die-btn').forEach((button) =>
+    button.addEventListener('click', () =>
+      net.send({ t: 'roll', expression: button.dataset.die, reason: button.title || button.textContent.trim() }),
+    ),
+  );
+
+  qsa('.mobile-nav button').forEach((button) =>
     button.addEventListener('click', () => {
-      net.send({ t: 'roll', expression: button.dataset.die, reason: 'бросок' });
+      qsa('.mobile-nav button').forEach((b) => b.classList.toggle('active', b === button));
+      qsa('.panel').forEach((p) => p.classList.toggle('mobile-active', p.dataset.mobile === button.dataset.target));
     }),
   );
 
+  qs('#share-code').addEventListener('click', async () => {
+    const url = `${location.origin}/?code=${qs('#game-table-code').textContent}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Ссылка на стол скопирована');
+      qs('#toast').classList.add('good');
+    } catch {
+      toast(url);
+    }
+  });
+
   qs('#send-btn').addEventListener('click', sendChat);
   qs('#nudge-btn').addEventListener('click', () => net.send({ t: 'nudge' }));
-  qs('#input').addEventListener('keydown', (event) => {
+
+  const input = qs('#input');
+  input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       sendChat();
     }
+  });
+  // Поле растёт под текст, но не бесконечно.
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
   });
 }
 
@@ -367,9 +406,10 @@ function sendChat() {
   if (!text) return;
   net.send({ t: 'chat', mode: chatMode, text });
   input.value = '';
+  input.style.height = 'auto';
 }
 
-// ----------------------------------------------------------------- сокет
+// ================================================================= сокет
 
 function wireSocket() {
   net.on('joined', (payload) => {
@@ -379,15 +419,14 @@ function wireSocket() {
     currentTableId = payload.tableId;
 
     qs('#char-table-code').textContent = payload.code;
-    clear(qs('#log'));
+    clear(qs('#log-inner'));
     for (const message of payload.transcript || []) game.appendMessage(message);
     history.replaceState(null, '', `?code=${payload.code}`);
   });
 
   net.on('state', (payload) => {
     const mine = payload.state.party.find((c) => c.playerId === playerId);
-    hasCharacter = Boolean(mine);
-    showScreen(hasCharacter ? 'screen-game' : 'screen-character');
+    showScreen(mine ? 'screen-game' : 'screen-character');
     game.renderState(payload.state, playerId);
   });
 
@@ -396,12 +435,19 @@ function wireSocket() {
   net.on('dm-delta', (payload) => game.appendDelta(payload.text));
   net.on('dm-status', (payload) => game.setTyping(payload.busy));
   net.on('ability-roll', (payload) => setPool(payload.scores));
-  net.on('error', (payload) => toast(payload.text));
+  net.on('error', (payload) => {
+    qs('#toast').classList.remove('good');
+    toast(payload.text);
+  });
 
   net.on('closed', () => {
-    if (currentTableId) game.setTyping(false);
+    qs('#link-status').classList.add('offline');
+    qs('#link-status').textContent = 'связь потеряна';
+    game.setTyping(false);
   });
   net.on('open', () => {
+    qs('#link-status').classList.remove('offline');
+    qs('#link-status').textContent = 'на связи';
     // После переподключения возвращаемся за тот же стол.
     if (currentTableId && net.identity.playerName) {
       net.joinTable({ tableId: currentTableId, playerName: net.identity.playerName });

@@ -9,7 +9,13 @@ export function el(tag, props = {}, children = []) {
   for (const [key, value] of Object.entries(props)) {
     if (value === undefined || value === null || value === false) continue;
     if (key === 'class') node.className = value;
-    else if (key === 'style' && typeof value === 'object') Object.assign(node.style, value);
+    else if (key === 'style' && typeof value === 'object') {
+      for (const [property, setting] of Object.entries(value)) {
+        // Пользовательские свойства (--accent) через присваивание не ставятся.
+        if (property.startsWith('--')) node.style.setProperty(property, setting);
+        else node.style[property] = setting;
+      }
+    }
     else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2), value);
     else if (key === 'dataset') Object.assign(node.dataset, value);
     else if (key in node && key !== 'list') node[key] = value;
