@@ -1,0 +1,21 @@
+{
+  "name": "dnd-master",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Чат-приложение, в котором мастера подземелий заменяет AI (D&D 5e SRD)",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "build:srd": "node tools/build-srd.mjs",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

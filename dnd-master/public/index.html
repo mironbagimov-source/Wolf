@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Мастер подземелий — D&D в чате</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%B2%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <!-- Экран 1: лобби -->
+    <section id="screen-lobby" class="screen active">
+      <div class="lobby">
+        <h1>Мастер подземелий</h1>
+        <p class="tagline">
+          D&amp;D 5-й редакции в чате. Мастера ведёт нейросеть, правила считает движок,
+          кубики бросает сервер — и каждый бросок видно всем.
+        </p>
+
+        <div class="lobby-grid">
+          <div class="card">
+            <h2>Присоединиться к столу</h2>
+            <label>Твоё имя<input id="join-name" maxlength="40" placeholder="Как тебя зовут" /></label>
+            <label>Код стола<input id="join-code" maxlength="5" placeholder="ABCDE" class="code-input" /></label>
+            <button id="join-btn" class="primary">Войти</button>
+            <div id="recent-tables" class="recent"></div>
+          </div>
+
+          <div class="card">
+            <h2>Создать стол</h2>
+            <label>Твоё имя<input id="host-name" maxlength="40" placeholder="Как тебя зовут" /></label>
+            <label>Название кампании<input id="table-name" maxlength="60" placeholder="Например: Тени над Гринхоллоу" /></label>
+            <label>Настроение<select id="table-tone"></select></label>
+            <span id="tone-desc" class="hint"></span>
+            <label>Сложность<select id="table-difficulty"></select></label>
+            <span id="difficulty-desc" class="hint"></span>
+            <label>
+              Завязка (необязательно)
+              <textarea id="table-premise" rows="3" placeholder="С чего начинается история? Оставь пустым — мастер придумает сам."></textarea>
+            </label>
+            <button id="create-btn" class="primary">Создать</button>
+          </div>
+        </div>
+
+        <p id="dm-warning" class="warning hidden">
+          AI-мастер выключен: на сервере не задан <code>ANTHROPIC_API_KEY</code>. Играть можно,
+          но вести партию придётся человеку.
+        </p>
+      </div>
+    </section>
+
+    <!-- Экран 2: персонаж -->
+    <section id="screen-character" class="screen">
+      <div class="creator">
+        <header>
+          <h1>Кто ты в этой истории?</h1>
+          <div class="table-code">Код стола: <strong id="char-table-code"></strong></div>
+        </header>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="pregen">Готовые герои</button>
+          <button class="tab" data-tab="custom">Собрать своего</button>
+        </div>
+
+        <div id="tab-pregen" class="tab-panel active">
+          <div id="pregen-list" class="pregen-list"></div>
+        </div>
+
+        <div id="tab-custom" class="tab-panel">
+          <div class="custom-grid">
+            <label>Имя<input id="c-name" maxlength="40" placeholder="Имя персонажа" /></label>
+            <label>Раса<select id="c-race"></select></label>
+            <label>Разновидность<select id="c-subrace"></select></label>
+            <label>Класс<select id="c-class"></select></label>
+            <label>Предыстория<select id="c-background"></select></label>
+            <label>Мировоззрение
+              <select id="c-alignment">
+                <option>законно-добрый</option>
+                <option>нейтрально-добрый</option>
+                <option>хаотично-добрый</option>
+                <option>законно-нейтральный</option>
+                <option selected>нейтральный</option>
+                <option>хаотично-нейтральный</option>
+                <option>законно-злой</option>
+                <option>нейтрально-злой</option>
+                <option>хаотично-злой</option>
+              </select>
+            </label>
+            <label>Цвет фишки<input type="color" id="c-color" value="#38bdf8" /></label>
+          </div>
+
+          <div class="abilities-block">
+            <h3>Характеристики</h3>
+            <div class="ability-mode">
+              <button id="use-array" class="chip active">Стандартный набор</button>
+              <button id="use-roll" class="chip">Бросить 4d6</button>
+            </div>
+            <div id="ability-rows" class="ability-rows"></div>
+          </div>
+
+          <div class="skills-block">
+            <h3>Навыки <span id="skill-counter" class="hint"></span></h3>
+            <div id="skill-list" class="skill-list"></div>
+          </div>
+
+          <label>Пара слов о персонаже<textarea id="c-blurb" rows="2" placeholder="Кем он был до того, как всё началось?"></textarea></label>
+          <label>Зацепка для мастера<textarea id="c-hook" rows="2" placeholder="Что тянет его в приключение? Мастер это использует."></textarea></label>
+
+          <button id="create-character-btn" class="primary">В игру</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Экран 3: игра -->
+    <section id="screen-game" class="screen">
+      <div class="game">
+        <aside class="panel panel-left">
+          <div class="panel-header">
+            <span id="scene-location">—</span>
+            <span id="scene-time" class="hint"></span>
+          </div>
+          <div id="initiative" class="initiative hidden"></div>
+          <div id="party" class="party"></div>
+          <div id="quests" class="quests"></div>
+          <div class="panel-footer">
+            <span class="hint">Код стола: <strong id="game-table-code"></strong></span>
+          </div>
+        </aside>
+
+        <main class="panel panel-chat">
+          <div id="log" class="log"></div>
+          <div id="dm-typing" class="dm-typing hidden"><span></span><span></span><span></span> мастер думает</div>
+          <div class="composer">
+            <div class="modes">
+              <button class="mode active" data-mode="say" title="Персонаж говорит вслух">Речь</button>
+              <button class="mode" data-mode="action" title="Персонаж что-то делает">Действие</button>
+              <button class="mode" data-mode="ooc" title="Разговор за столом — мастер не отвечает">Вне игры</button>
+            </div>
+            <textarea id="input" rows="2" placeholder="Что ты делаешь? Enter — отправить, Shift+Enter — новая строка"></textarea>
+            <div class="composer-actions">
+              <div class="dice-bar">
+                <button class="die" data-die="1d20">d20</button>
+                <button class="die" data-die="1d12">d12</button>
+                <button class="die" data-die="1d10">d10</button>
+                <button class="die" data-die="1d8">d8</button>
+                <button class="die" data-die="1d6">d6</button>
+                <button class="die" data-die="1d4">d4</button>
+                <button class="die" data-die="2d20kh1" title="С преимуществом">преим.</button>
+                <button class="die" data-die="2d20kl1" title="С помехой">помеха</button>
+              </div>
+              <button id="nudge-btn" class="ghost" title="Попросить мастера продолжить">Мастер, дальше</button>
+              <button id="send-btn" class="primary">Отправить</button>
+            </div>
+          </div>
+        </main>
+
+        <aside class="panel panel-right">
+          <div class="panel-tabs">
+            <button class="ptab active" data-ptab="map">Карта</button>
+            <button class="ptab" data-ptab="sheet">Лист</button>
+          </div>
+          <div id="ptab-map" class="ptab-panel active">
+            <div id="map-title" class="map-title">Карты пока нет</div>
+            <canvas id="map-canvas"></canvas>
+            <div id="map-hint" class="hint map-hint"></div>
+          </div>
+          <div id="ptab-sheet" class="ptab-panel">
+            <div id="sheet"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>

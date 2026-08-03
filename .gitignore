@@ -50,3 +50,8 @@ crashlytics-build.properties
 
 # WebGL build output
 webgl-build/
+
+# dnd-master (Node)
+node_modules/
+.env
+dnd-master/server/data/tables/
