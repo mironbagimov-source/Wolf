@@ -50,3 +50,6 @@ crashlytics-build.properties
 
 # WebGL build output
 webgl-build/
+
+# hermes-node: локальный конфиг с ключом DeepSeek — в репозиторий не кладём
+deploy/hermes-node/config.env
