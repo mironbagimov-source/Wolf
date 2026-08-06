@@ -1200,20 +1200,111 @@ func _try_hit_door(e: WolfChar) -> void:
 		return
 
 
-## Руки уходят вниз-в сторону и подрагивают: игрок ВИДИТ, что копается
-## в теле (собственная модель в первом лице не рендерится).
-func _vm_work(t: float) -> void:
-	if viewmodel == null:
+## --- АНИМАЦИЯ РУК -------------------------------------------------------
+## Раньше руки умели одно: качаться на месте. Теперь у них набор клипов —
+## список поз [время, смещение, поворот], между которыми идёт интерполяция.
+## Клип перебивает покой, по окончании руки сами возвращаются в стойку.
+const VM_CLIPS := {
+	# Установка начинки: рука ныряет вниз, вдавливает железо, проворачивает
+	# и уходит, стряхивая кровь.
+	"insert": [
+		[0.00, Vector3(-0.04, -0.10, 0.06), Vector3(24, -8, 4)],
+		[0.18, Vector3(-0.07, -0.21, 0.13), Vector3(58, -14, 9)],
+		[0.34, Vector3(-0.07, -0.25, 0.16), Vector3(66, -13, 22)],
+		[0.52, Vector3(-0.06, -0.22, 0.12), Vector3(60, -10, -12)],
+		[0.72, Vector3(-0.05, -0.14, 0.06), Vector3(34, -6, 3)],
+		[0.95, Vector3.ZERO, Vector3.ZERO],
+	],
+	# Взвод: большой палец щёлкает тумблером сбоку.
+	"arm": [
+		[0.00, Vector3.ZERO, Vector3.ZERO],
+		[0.10, Vector3(-0.03, 0.03, 0.05), Vector3(-10, 12, -14)],
+		[0.20, Vector3(-0.01, 0.01, 0.02), Vector3(-4, 6, 4)],
+		[0.36, Vector3.ZERO, Vector3.ZERO],
+	],
+	# Смена режима: короткий флик кистью.
+	"mode": [
+		[0.00, Vector3.ZERO, Vector3.ZERO],
+		[0.08, Vector3(0.02, 0.02, 0.0), Vector3(-6, -10, 12)],
+		[0.22, Vector3.ZERO, Vector3.ZERO],
+	],
+	# Подрыв: рука вскидывается, большой палец давит, потом отдача.
+	"detonate": [
+		[0.00, Vector3.ZERO, Vector3.ZERO],
+		[0.09, Vector3(-0.02, 0.07, 0.06), Vector3(-26, 8, -6)],
+		[0.17, Vector3(-0.02, 0.05, 0.10), Vector3(-14, 8, -4)],
+		[0.30, Vector3(0.01, -0.03, -0.04), Vector3(12, -4, 3)],
+		[0.52, Vector3.ZERO, Vector3.ZERO],
+	],
+	# Лепим липучий заряд: замах от плеча и бросок.
+	"toss": [
+		[0.00, Vector3.ZERO, Vector3.ZERO],
+		[0.10, Vector3(0.05, 0.04, 0.10), Vector3(-34, 18, -10)],
+		[0.22, Vector3(-0.06, -0.04, -0.12), Vector3(30, -14, 8)],
+		[0.42, Vector3.ZERO, Vector3.ZERO],
+	],
+}
+
+var _vm_clip: Array = []
+var _vm_clip_t := 0.0
+var _vm_busy := false     # клип перебивает и покой, и рабочее покачивание
+
+
+## Запустить клип рук по имени.
+func _vm_play(clip: String) -> void:
+	if viewmodel == null or not VM_CLIPS.has(clip):
 		return
+	_vm_clip = VM_CLIPS[clip]
+	_vm_clip_t = 0.0
+	_vm_busy = true
+
+
+## Проигрывание клипа: ищем пару соседних поз и мягко идём между ними.
+func _tick_viewmodel(delta: float) -> void:
+	if not _vm_busy or viewmodel == null:
+		return
+	_vm_clip_t += delta
+	var last: Array = _vm_clip[_vm_clip.size() - 1]
+	if _vm_clip_t >= float(last[0]):
+		viewmodel.position = _vm_rest_pos
+		viewmodel.rotation_degrees = _vm_rest_rot
+		_vm_busy = false
+		return
+	var a: Array = _vm_clip[0]
+	var b: Array = last
+	for i in range(_vm_clip.size() - 1):
+		var cur: Array = _vm_clip[i]
+		var nxt: Array = _vm_clip[i + 1]
+		if _vm_clip_t >= float(cur[0]) and _vm_clip_t <= float(nxt[0]):
+			a = cur
+			b = nxt
+			break
+	var span := maxf(0.0001, float(b[0]) - float(a[0]))
+	# Сглаживание: рывок в начале, торможение в конце — рука не «телепортит».
+	var k := smoothstep(0.0, 1.0, (_vm_clip_t - float(a[0])) / span)
+	viewmodel.position = _vm_rest_pos + (a[1] as Vector3).lerp(b[1] as Vector3, k)
+	viewmodel.rotation_degrees = _vm_rest_rot + (a[2] as Vector3).lerp(b[2] as Vector3, k)
+
+
+## Руки уходят вниз-в сторону и работают: игрок ВИДИТ, что копается в теле
+## (собственная модель в первом лице не рендерится). Не просто дрожь —
+## ритмичные нажимы: рука давит, отпускает, снова давит.
+func _vm_work(t: float) -> void:
+	if viewmodel == null or _vm_busy:
+		return
+	var beat := absf(sin(t * 3.2))          # медленный нажим всем весом
+	var tremor := sin(t * 13.0) * 0.010     # мелкая дрожь от натуги
 	viewmodel.position = _vm_rest_pos + Vector3(-0.06, -0.16, 0.10) + Vector3(
-		sin(t * 11.0) * 0.012, absf(sin(t * 5.5)) * -0.03, sin(t * 7.0) * 0.008)
-	viewmodel.rotation_degrees = _vm_rest_rot + Vector3(46.0 + sin(t * 5.5) * 7.0, -12.0, 8.0)
+		tremor, -0.045 * beat, 0.03 * beat + sin(t * 7.0) * 0.006)
+	viewmodel.rotation_degrees = _vm_rest_rot + Vector3(
+		44.0 + beat * 13.0, -12.0 + sin(t * 2.1) * 4.0, 8.0 + sin(t * 4.3) * 5.0)
 
 
 ## Возврат рук в боевую стойку после возни.
 func _vm_rest() -> void:
 	if viewmodel == null:
 		return
+	_vm_busy = false
 	var tw := create_tween()
 	tw.tween_property(viewmodel, "position", _vm_rest_pos, 0.25)
 	tw.parallel().tween_property(viewmodel, "rotation_degrees", _vm_rest_rot, 0.25)
@@ -1371,6 +1462,17 @@ var _blood_pools: Array = []
 ## Брутальное добивание: жертва зафиксирована, палач бьёт дважды — первый
 ## удар с брызгами, второй с фонтаном крови и лужей под телом.
 func _perform_execute(executor: WolfChar, victim: WolfChar) -> void:
+	# ЛОВУШКА: тело в режиме «готов к добиванию» рвёт того, кто нагнулся.
+	# Ловушка своих не бьёт — начинка помнит, чья она.
+	var trap_owner := victim.get_meta("implanter", null) as WolfChar
+	var own_faction := "killer"
+	if trap_owner != null and is_instance_valid(trap_owner):
+		own_faction = trap_owner.faction
+	if victim.civ_implant != "" and victim.civ_mode == "ready" and victim.emp_t <= 0.0 \
+			and executor.faction != own_faction:
+		executor.stagger_t = maxf(executor.stagger_t, 0.5)
+		_fire_implant(victim, trap_owner)
+		return
 	victim.being_executed = true
 	victim.move_input = Vector2.ZERO
 	executor.recover_t = 2.5
@@ -2166,9 +2268,14 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.wants_execute = false
 
 	if e.wants_throw and e.cd_throw <= 0.0 and e.faction == "killer" and e.knives > 0:
-		_throw_knife(e)
+		# У подрывника на той же кнопке не нож, а липучий заряд.
+		if e.throws == "sticky":
+			_throw_sticky(e)
+			e.cd_throw = WolfCfg.STICKY_CD
+		else:
+			_throw_knife(e)
+			e.cd_throw = WolfCfg.CONFIG["killer"]["throw_cd"]
 		e.knives -= 1
-		e.cd_throw = WolfCfg.CONFIG["killer"]["throw_cd"]
 	e.wants_throw = false
 
 	_apply_interact(e, delta)
@@ -2246,8 +2353,18 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 			var corpse := _nearest_dead_survivor(e)
 			if corpse != null:
 				_make_bait(corpse)
+	# Начинять умеют трое — значит, и рвать начинку должны трое.
+	if e.faction in ["killer", "cannibal", "ghoul"]:
 		if _key_pressed_once(KEY_G):
 			_activate_devices(e)
+		# [X] — перебрать режимы ближайшего начинённого тела.
+		if _key_pressed_once(KEY_X):
+			var dev_body := _implanted_near(e)
+			if dev_body != null:
+				_cycle_civ_mode(e, dev_body)
+			else:
+				_loot_msg = "Рядом нет начинённого тела — [X] переключает его режим"
+				_loot_msg_t = 3.0
 
 	# Взрывчатка: найти (подбор E), донести до грав-лифта, заложить (держать E).
 	if e.faction == "killer" and not bomb_planted:
@@ -2265,7 +2382,7 @@ func _apply_interact(e: WolfChar, delta: float) -> void:
 				plant_at = Vector3(0.0, e.global_position.y, 21.0)   # сцена клуба
 			var shaft_d := Vector2(e.global_position.x - plant_at.x, e.global_position.z - plant_at.z).length()
 			if shaft_d <= WolfCfg.BOMB_PLANT_RANGE and e.interact_held:
-				bomb_progress += delta
+				bomb_progress += delta * e.plant_mul   # подрывник управляется вдвое быстрее
 				if bomb_progress >= WolfCfg.BOMB_PLANT_TIME:
 					bomb_planted = true
 					bomb_carried = false
@@ -3300,26 +3417,17 @@ func _do_civ_implant(surgeon: WolfChar, t: WolfChar) -> void:
 	_blood_burst(t.global_position + Vector3(0, 0.5, 0), 12, 2.0)
 	_spark_burst(t.global_position + Vector3(0, 0.4, 0))
 	surgeon.play_oneshot("Activate")
-	# Маячок над телом дублирует рану — виден и с другого конца этажа.
-	var mi := MeshInstance3D.new()
-	mi.name = "CivImplantMark"
-	var sph := SphereMesh.new()
-	sph.radius = 0.07
-	sph.height = 0.14
-	mi.mesh = sph
-	var m := StandardMaterial3D.new()
-	var col: Color = imp.get("color", Color(1.0, 0.1, 0.1))
-	m.albedo_color = col
-	m.emission_enabled = true
-	m.emission = col
-	m.emission_energy_multiplier = 3.0
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mi.material_override = m
-	mi.position = Vector3(0, 0.45, 0)
-	t.add_child(mi)
+	# Свежая начинка ложится в режим «готов к добиванию»: тело как лежало,
+	# так и лежит, но теперь оно — ловушка.
+	t.civ_mode = "ready"
+	t.arm_t = 0.0
+	t.set_meta("implanter", surgeon)
+	_civ_device(t)
 	if surgeon.is_player:
-		_loot_msg = "ВЖИВЛЕНО В РАНЕНОГО: %s" % imp["name"]
-		_loot_msg_t = 5.0
+		_loot_msg = "ВЖИВЛЕНО: %s · [X] — режим тела (%s)" % [imp["name"],
+			WolfCfg.CIV_MODE_INFO[t.civ_mode]["name"]]
+		_loot_msg_t = 6.0
+		_vm_play("insert")
 	surgeon.play_oneshot("Implant")
 
 
@@ -3381,14 +3489,545 @@ func _blind(e: WolfChar, secs: float) -> void:
 		ui.set_blind(true)
 
 
+# ---------------------------------------------------------------------------
+# НАЧИНЁННОЕ ТЕЛО: что видно снаружи и в каком оно режиме
+# ---------------------------------------------------------------------------
+# Тело с начинкой — это устройство, и выглядеть оно должно как устройство:
+# ядро тлеет в ране, начинка тихо работает (искрит, пузырится, инеет),
+# под телом лежит кольцо цвета режима, а над телом — бирка с режимом.
+
+## Фонтанчик по типу начинки. Один узел на тело, живёт вместе с ним.
+func _fx_emitter(kind: String, color: Color) -> CPUParticles3D:
+	var p := CPUParticles3D.new()
+	p.name = "Fx"
+	p.local_coords = false
+	p.amount = 12
+	p.lifetime = 1.1
+	p.spread = 45.0
+	p.gravity = Vector3(0, -2.0, 0)
+	p.initial_velocity_min = 0.3
+	p.initial_velocity_max = 1.0
+	p.scale_amount_min = 0.02
+	p.scale_amount_max = 0.05
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.05
+	mesh.height = 0.1
+	mesh.radial_segments = 6
+	mesh.rings = 3
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 2.2
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	match kind:
+		"spark":
+			# Детонатор роняет искры: редко, резко, вниз.
+			p.amount = 8
+			p.lifetime = 0.45
+			p.initial_velocity_min = 1.2
+			p.initial_velocity_max = 2.6
+			p.gravity = Vector3(0, -9.0, 0)
+			p.scale_amount_max = 0.03
+		"bubble":
+			# Слизь пузырится и лениво всплывает.
+			p.amount = 16
+			p.lifetime = 1.6
+			p.gravity = Vector3(0, 0.6, 0)
+			p.initial_velocity_max = 0.6
+			p.scale_amount_min = 0.04
+			p.scale_amount_max = 0.11
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.albedo_color = Color(color.r, color.g, color.b, 0.75)
+		"arc":
+			# Электроды бьют короткими дугами.
+			p.amount = 10
+			p.lifetime = 0.22
+			p.spread = 80.0
+			p.initial_velocity_min = 2.0
+			p.initial_velocity_max = 4.5
+			p.gravity = Vector3.ZERO
+			p.scale_amount_min = 0.015
+			p.scale_amount_max = 0.045
+			mat.emission_energy_multiplier = 4.0
+		"ember":
+			# Уголёк тлеет: угли всплывают и гаснут.
+			p.amount = 14
+			p.lifetime = 1.3
+			p.gravity = Vector3(0, 1.1, 0)
+			p.initial_velocity_max = 0.7
+			p.scale_amount_max = 0.04
+		"frost":
+			# Иней стелется вниз и оседает.
+			p.amount = 18
+			p.lifetime = 1.8
+			p.spread = 75.0
+			p.gravity = Vector3(0, -0.8, 0)
+			p.initial_velocity_max = 0.5
+			p.scale_amount_min = 0.03
+			p.scale_amount_max = 0.07
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.albedo_color = Color(color.r, color.g, color.b, 0.6)
+		"dust":
+			# Воронка тянет пылинки к себе: они падают внутрь.
+			p.amount = 20
+			p.lifetime = 1.0
+			p.spread = 20.0
+			p.direction = Vector3(0, -1, 0)
+			p.gravity = Vector3(0, -3.5, 0)
+			p.initial_velocity_min = 1.0
+			p.initial_velocity_max = 2.0
+			p.scale_amount_max = 0.03
+		"glitch":
+			# Проектор рябит: плоские осколки картинки.
+			p.amount = 10
+			p.lifetime = 0.5
+			p.gravity = Vector3.ZERO
+			p.initial_velocity_min = 0.8
+			p.initial_velocity_max = 2.0
+			p.scale_amount_min = 0.05
+			p.scale_amount_max = 0.14
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.albedo_color = Color(color.r, color.g, color.b, 0.55)
+		"squirm":
+			# Живая начинка ворочается: мясные капли выдавливаются наружу.
+			p.amount = 8
+			p.lifetime = 1.4
+			p.spread = 30.0
+			p.gravity = Vector3(0, -1.4, 0)
+			p.initial_velocity_max = 0.5
+			p.scale_amount_min = 0.05
+			p.scale_amount_max = 0.10
+			mat.emission_energy_multiplier = 1.2
+	mesh.surface_set_material(0, mat)
+	p.mesh = mesh
+	p.emitting = true
+	return p
+
+
+## Собрать (или пересобрать) устройство на теле: ядро, свет, фонтанчик,
+## кольцо режима под ногами и бирка над телом.
+func _civ_device(t: WolfChar) -> void:
+	var old := t.get_node_or_null("CivDevice")
+	if old != null:
+		var old_rig := old.get_meta("rig", null) as Node3D
+		if old_rig != null and is_instance_valid(old_rig):
+			old_rig.queue_free()
+		old.queue_free()
+	if t.civ_implant == "":
+		return
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS[t.civ_implant]
+	var col: Color = imp.get("color", Color(1.0, 0.1, 0.1))
+	var fx: Dictionary = WolfCfg.CIV_IMPLANT_FX.get(t.civ_implant, {"fx": "spark", "light": 1.6})
+	var root := Node3D.new()
+	root.name = "CivDevice"
+	t.add_child(root)
+
+	# Начинка светит и работает ИЗ САМОЙ РАНЫ, поэтому ядро, свет и фонтанчик
+	# висят на той же кости груди, что и вырез: тело лежит — работает лёжа,
+	# встало — работает стоя. Компенсируем масштаб кости, иначе шар раздувает.
+	var chest := _bone_mount(t, "Spine1")
+	var comp := 1.0
+	if chest != t and chest is Node3D:
+		var gs := (chest as Node3D).global_transform.basis.get_scale()
+		comp = 1.0 / maxf(0.001, (gs.x + gs.y + gs.z) / 3.0)
+	var rig := Node3D.new()
+	rig.name = "Rig"
+	rig.scale = Vector3.ONE * comp
+	chest.add_child(rig)
+	root.set_meta("rig", rig)
+
+	# Ядро начинки — тлеет в самой ране.
+	var core := MeshInstance3D.new()
+	core.name = "Core"
+	var sph := SphereMesh.new()
+	sph.radius = 0.075
+	sph.height = 0.15
+	core.mesh = sph
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.emission_enabled = true
+	m.emission = col
+	m.emission_energy_multiplier = 3.0
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	core.material_override = m
+	core.position = Vector3(0, 0.0, 0.14)
+	rig.add_child(core)
+
+	# Свет начинки: подсвечивает тело изнутри своим цветом.
+	var l := OmniLight3D.new()
+	l.name = "Glow"
+	l.light_color = col
+	l.light_energy = float(fx.get("light", 1.6))
+	l.omni_range = 3.2
+	l.position = Vector3(0, 0.0, 0.1)
+	rig.add_child(l)
+
+	rig.add_child(_fx_emitter(String(fx.get("fx", "spark")), col))
+
+	# Кольцо под телом — цвет РЕЖИМА, а не начинки: издалека видно, что
+	# тело делает прямо сейчас.
+	var ring := MeshInstance3D.new()
+	ring.name = "Ring"
+	var tor := TorusMesh.new()
+	tor.inner_radius = 0.42
+	tor.outer_radius = 0.50
+	tor.rings = 20
+	ring.mesh = tor
+	var rm := StandardMaterial3D.new()
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ring.material_override = rm
+	ring.position = Vector3(0, 0.04, 0)
+	root.add_child(ring)
+
+	# Бирка: что внутри и в каком режиме.
+	var lbl := Label3D.new()
+	lbl.name = "Badge"
+	lbl.font_size = 64
+	lbl.pixel_size = 0.0013     # вплотную бирка не должна закрывать пол-экрана
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.position = Vector3(0, 1.35, 0)
+	root.add_child(lbl)
+	_civ_badge(t)
+
+
+## Обновить бирку и кольцо под текущий режим.
+func _civ_badge(t: WolfChar) -> void:
+	var root := t.get_node_or_null("CivDevice")
+	if root == null or t.civ_implant == "":
+		return
+	var imp: Dictionary = WolfCfg.CIV_IMPLANTS[t.civ_implant]
+	var mode: Dictionary = WolfCfg.CIV_MODE_INFO[t.civ_mode]
+	var lbl := root.get_node_or_null("Badge") as Label3D
+	if lbl != null:
+		lbl.text = "%s\n[ %s ]" % [imp["name"], mode["name"]]
+		lbl.modulate = mode["color"]
+	var ring := root.get_node_or_null("Ring") as MeshInstance3D
+	if ring != null:
+		var rm := ring.material_override as StandardMaterial3D
+		if rm != null:
+			var c: Color = mode["color"]
+			rm.albedo_color = Color(c.r, c.g, c.b, 0.55)
+			rm.emission_enabled = true
+			rm.emission = c
+			rm.emission_energy_multiplier = 2.0
+
+
+## Переключить режим тела: [X] рядом с начинённым телом.
+func _cycle_civ_mode(p: WolfChar, t: WolfChar) -> void:
+	var i := WolfCfg.CIV_MODES.find(t.civ_mode)
+	t.civ_mode = WolfCfg.CIV_MODES[(i + 1) % WolfCfg.CIV_MODES.size()]
+	t.arm_t = 0.0
+	var mode: Dictionary = WolfCfg.CIV_MODE_INFO[t.civ_mode]
+	# Режим — это ещё и поза: «готов к добиванию» валит тело, «свободный»
+	# поднимает его на ноги.
+	match t.civ_mode:
+		"free":
+			if t.downed:
+				t.downed = false
+				t.agony_t = 0.0
+				t.hp = maxf(t.hp, t.max_hp * 0.3)
+				t.revive_anim()
+			t.follow_target = p if p.is_player else null
+		"lure":
+			t.follow_target = null
+			t.move_input = Vector2.ZERO
+		"ready":
+			t.follow_target = null
+			t.move_input = Vector2.ZERO
+			if not t.downed:
+				t.downed = true
+				t.agony_t = 0.0
+				t.play_death(false)
+		"armed":
+			t.follow_target = null
+			t.move_input = Vector2.ZERO
+	t.play_oneshot("Hit")
+	t.hit_flash = 0.3
+	_civ_badge(t)
+	if p.is_player:
+		_vm_play("mode")
+		_loot_msg = "РЕЖИМ ТЕЛА: %s — %s" % [mode["name"], mode["desc"]]
+		_loot_msg_t = 5.0
+
+
+## Начинённое тело рядом (для переключения режима).
+func _implanted_near(p: WolfChar) -> WolfChar:
+	var best: WolfChar = null
+	var best_d := 3.0
+	for t: WolfChar in entities:
+		if t == p or t.civ_implant == "" or t.is_dead:
+			continue
+		var dp := t.global_position - p.global_position
+		if absf(dp.y) > 2.5:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
+## Каждый кадр: тела в своих режимах работают, а начинка пульсирует в такт.
+func _tick_civ_modes(delta: float) -> void:
+	var beat := Time.get_ticks_msec() / 1000.0
+	for t: WolfChar in entities:
+		if t.civ_implant == "":
+			continue
+		var mode: Dictionary = WolfCfg.CIV_MODE_INFO.get(t.civ_mode, WolfCfg.CIV_MODE_INFO["free"])
+		var rate: float = mode["pulse"]
+		var root := t.get_node_or_null("CivDevice")
+		if root != null:
+			var pulse := 0.5 + 0.5 * absf(sin(beat * rate * PI))
+			var rig := root.get_meta("rig", null) as Node3D
+			if rig != null and is_instance_valid(rig):
+				var core := rig.get_node_or_null("Core") as MeshInstance3D
+				if core != null:
+					var cm := core.material_override as StandardMaterial3D
+					if cm != null:
+						cm.emission_energy_multiplier = 1.2 + pulse * 4.0
+					core.scale = Vector3.ONE * (0.85 + pulse * 0.35)
+				var glow := rig.get_node_or_null("Glow") as OmniLight3D
+				if glow != null:
+					glow.light_energy = 0.6 + pulse * 2.2
+				# Бирка тоже над грудью, иначе висит над пустым местом.
+				var badge := root.get_node_or_null("Badge") as Label3D
+				if badge != null:
+					badge.global_position = rig.global_position + Vector3(0, 0.85, 0)
+			var ring := root.get_node_or_null("Ring") as MeshInstance3D
+			if ring != null:
+				# Кольцо держится под ГРУДЬЮ, а не под точкой опоры: лежачее
+				# тело уезжает от своего origin, и кольцо иначе валяется рядом.
+				if rig != null and is_instance_valid(rig):
+					var rp := rig.global_position
+					ring.global_position = Vector3(rp.x, t.global_position.y + 0.05, rp.z)
+				ring.scale = Vector3(1.0 + pulse * 0.12, 1.0, 1.0 + pulse * 0.12)
+				ring.rotation.y += delta * (0.6 + rate * 0.4)
+		# ЭМИ глушит чужую начинку — в это время тело не работает вовсе.
+		if t.emp_t > 0.0:
+			continue
+		match t.civ_mode:
+			"lure":
+				# Тело хрипит и дёргается: твари идут на звук.
+				if fmod(beat, 1.0) < delta:
+					t.hit_flash = maxf(t.hit_flash, 0.25)
+					for e: WolfChar in entities:
+						if e.faction not in ["cannibal", "ghoul"] or e.is_dead or e.is_player:
+							continue
+						if e.global_position.distance_to(t.global_position) > WolfCfg.CIV_MODE_LURE:
+							continue
+						e.investigate_pos = t.global_position
+						e.investigate_t = 3.0
+			"armed":
+				# Самоспуск: враг подошёл вплотную — щелчок и подрыв.
+				var near := false
+				for e: WolfChar in entities:
+					if e.faction not in ["cannibal", "ghoul"] or e.is_dead:
+						continue
+					if e.global_position.distance_to(t.global_position) <= WolfCfg.CIV_MODE_ARM_RADIUS:
+						near = true
+						break
+				if near:
+					t.arm_t += delta
+					if t.arm_t >= WolfCfg.CIV_MODE_ARM_DELAY:
+						t.arm_t = 0.0
+						_fire_implant(t, t.get_meta("implanter", null) as WolfChar)
+				else:
+					t.arm_t = maxf(0.0, t.arm_t - delta)
+
+
+## Сработала начинка одного тела (самоспуск, добивание, ручной подрыв).
+func _fire_implant(t: WolfChar, source: WolfChar) -> void:
+	if t.civ_implant == "":
+		return
+	var actor := source
+	if actor == null or not is_instance_valid(actor):
+		actor = player
+	match t.civ_implant:
+		"bomb": _detonate_body(t, actor)
+		"softener": _shock_body(t, actor)
+		"flare": _ignite_flare(t, actor)
+		"cryo": _burst_cryo(t, actor)
+		"emp": _discharge_emp(t, actor)
+		"singularity": _collapse_singularity(t, actor)
+		"holo": _project_holo(t, actor)
+		"brood": _hatch_brood(t, actor)
+		"puppet": _release_puppeteer(t, actor)
+		"slime":
+			# У слизи нет «взрыва» — она выплёскивается вся разом.
+			for e: WolfChar in entities:
+				if e.faction not in ["cannibal", "ghoul"] or e.is_dead:
+					continue
+				if e.global_position.distance_to(t.global_position) <= 5.0:
+					_blind(e, WolfCfg.BLIND_TIME)
+			t.slime_cd = 0.0
+			_clear_body_implant(t)
+
+
+## Взрывы подрывника шире и злее: масштабируем урон и радиус под бойца.
+func _scaled_blast(imp: Dictionary, source: WolfChar) -> Dictionary:
+	if source == null or not is_instance_valid(source) or absf(source.blast_mul - 1.0) < 0.01:
+		return imp
+	var out := imp.duplicate()
+	for key: String in ["dmg", "radius", "lure"]:
+		if out.has(key):
+			out[key] = float(out[key]) * source.blast_mul
+	return out
+
+
+# ---------------------------------------------------------------------------
+# ПОДРЫВНИК: липучие заряды на [Q]
+# ---------------------------------------------------------------------------
+
+var _stickies: Array = []   # [{node, armed_t}]
+
+
+## Кинуть липучий заряд: летит по прямой, втыкается в первое, что задел.
+func _throw_sticky(thrower: WolfChar) -> void:
+	var dir := _fwd(thrower)
+	if thrower.is_player:
+		dir = -player_cam.global_transform.basis.z
+	var from := thrower.global_position + dir * 0.7 + Vector3(0, WolfCfg.KNIFE_EYE, 0)
+	var node := Node3D.new()
+	node.name = "Sticky"
+	add_child(node)
+	node.global_position = from
+	# Кирпич взрывчатки с индикатором.
+	var body := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.16, 0.10, 0.24)
+	body.mesh = box
+	var bm := StandardMaterial3D.new()
+	bm.albedo_color = Color(0.22, 0.18, 0.14)
+	bm.roughness = 0.85
+	body.material_override = bm
+	node.add_child(body)
+	var led := MeshInstance3D.new()
+	led.name = "Led"
+	var sph := SphereMesh.new()
+	sph.radius = 0.035
+	sph.height = 0.07
+	led.mesh = sph
+	var lm := StandardMaterial3D.new()
+	lm.albedo_color = WolfCfg.STICKY_COLOR
+	lm.emission_enabled = true
+	lm.emission = WolfCfg.STICKY_COLOR
+	lm.emission_energy_multiplier = 3.0
+	lm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	led.material_override = lm
+	led.position = Vector3(0, 0.08, 0)
+	node.add_child(led)
+	_stickies.append({"node": node, "dir": dir, "life": WolfCfg.STICKY_RANGE / WolfCfg.STICKY_SPEED,
+		"stuck": false, "owner": thrower})
+	if thrower.is_player:
+		_vm_play("toss")
+
+
+## Полёт и прилипание зарядов.
+func _tick_stickies(delta: float) -> void:
+	var space := get_world_3d().direct_space_state
+	var beat := Time.get_ticks_msec() / 1000.0
+	for i in range(_stickies.size() - 1, -1, -1):
+		var st: Dictionary = _stickies[i]
+		if not is_instance_valid(st["node"]):
+			_stickies.remove_at(i)
+			continue
+		var node: Node3D = st["node"]
+		# Индикатор мигает — заряд ждёт команды.
+		var led := node.get_node_or_null("Led") as MeshInstance3D
+		if led != null:
+			var lm := led.material_override as StandardMaterial3D
+			if lm != null:
+				lm.emission_energy_multiplier = 1.0 + absf(sin(beat * 6.0)) * 4.0
+		var stuck: bool = st["stuck"]
+		if stuck:
+			continue
+		st["life"] = float(st["life"]) - delta
+		var prev := node.global_position
+		var step: Vector3 = (st["dir"] as Vector3) * WolfCfg.STICKY_SPEED * delta
+		node.global_position = prev + step
+		node.rotation.x += delta * 9.0
+		# Прилип к телу?
+		for t: WolfChar in entities:
+			if t.is_dead or t == st["owner"]:
+				continue
+			var dp := t.global_position + Vector3(0, 1.0, 0) - node.global_position
+			if absf(dp.y) < 1.3 and Vector2(dp.x, dp.z).length() <= 0.7:
+				st["stuck"] = true
+				node.rotation = Vector3.ZERO
+				break
+		if bool(st["stuck"]):
+			continue
+		# ...или к стене/полу?
+		var q := PhysicsRayQueryParameters3D.create(prev, node.global_position, 1 | 4)
+		var hit := space.intersect_ray(q)
+		if not hit.is_empty():
+			st["stuck"] = true
+			node.global_position = hit["position"] as Vector3
+			node.rotation = Vector3.ZERO
+		elif float(st["life"]) <= 0.0:
+			st["stuck"] = true
+
+
+## Рвануть все расставленные заряды разом.
+func _detonate_stickies(actor: WolfChar) -> bool:
+	if _stickies.is_empty():
+		return false
+	var mul := 1.0
+	if actor != null and is_instance_valid(actor):
+		mul = actor.blast_mul
+	var radius := WolfCfg.STICKY_RADIUS * mul
+	for st: Dictionary in _stickies:
+		if not is_instance_valid(st["node"]):
+			continue
+		var node: Node3D = st["node"]
+		var pos := node.global_position
+		_fireball(pos, radius)
+		for e: WolfChar in entities:
+			if e.is_dead or e == actor:
+				continue
+			var dp := e.global_position - pos
+			var flat := Vector2(dp.x, dp.z).length()
+			if absf(dp.y) > 3.0 or flat > radius:
+				continue
+			_damage(e, WolfCfg.STICKY_DMG * mul * (1.0 - clampf(flat / (radius + 1.5), 0.0, 0.6)), actor)
+		node.queue_free()
+	_stickies.clear()
+	return true
+
+
+## Огненный шар подрывника: вспышка, свет и разлёт осколков.
+func _fireball(pos: Vector3, radius: float) -> void:
+	var l := OmniLight3D.new()
+	l.light_color = Color(1.0, 0.65, 0.3)
+	l.light_energy = 5.5
+	l.omni_range = radius * 2.2
+	l.position = pos
+	add_child(l)
+	get_tree().create_timer(0.35).timeout.connect(func() -> void:
+		if is_instance_valid(l):
+			l.queue_free())
+	_cloud(pos, Color(1.0, 0.6, 0.25), 26, 9.0, 0.9, -3.0, 0.16)
+	_cloud(pos, Color(0.25, 0.22, 0.2), 18, 3.0, 1.6, -0.5, 0.3)
+	_spark_burst(pos)
+
+
 ## [G]: подрывает заряды (в приманке и в телах) и бьёт шоком по размягчённым.
 func _activate_devices(actor: WolfChar) -> void:
 	actor.play_oneshot("Activate")
+	if actor.is_player:
+		_vm_play("detonate")
 	var did := false
+	if _detonate_stickies(actor):
+		did = true
 	if bait != null and is_instance_valid(bait) and not bait.is_dead:
 		_detonate_bait(actor)
 		did = true
 	for t: WolfChar in entities.duplicate():
+		# «Свободное» тело на подрыв не отзывается: начинка в нём спит.
+		if t.civ_implant != "" and t.civ_mode == "free":
+			continue
 		match t.civ_implant:
 			"bomb":
 				_detonate_body(t, actor)
@@ -3418,18 +4057,16 @@ func _activate_devices(actor: WolfChar) -> void:
 				_release_puppeteer(t, actor)
 				did = true
 	if not did and actor.is_player:
-		_loot_msg = "Нечего активировать — сначала начини тело [держать E]"
-		_loot_msg_t = 3.0
+		_loot_msg = "Нечего рвать: начини тело [держать E] или переведи его из «СВОБОДНОГО» [X]"
+		_loot_msg_t = 3.5
 
 
 ## Заряд в грудине: тело рвёт, всех вокруг — тоже.
 func _detonate_body(t: WolfChar, source: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["bomb"]
+	imp = _scaled_blast(imp, source)
 	var pos := t.global_position + Vector3(0, 0.8, 0)
-	t.civ_implant = ""
-	var mark := t.get_node_or_null("CivImplantMark")
-	if mark != null:
-		mark.queue_free()
+	_clear_body_implant(t)
 	var l := OmniLight3D.new()
 	l.light_color = Color(1.0, 0.6, 0.25)
 	l.light_energy = 6.0
@@ -3546,8 +4183,14 @@ func _cloud(pos: Vector3, color: Color, amount: int, speed: float, life: float,
 
 func _clear_body_implant(t: WolfChar) -> void:
 	t.civ_implant = ""
-	var mark := t.get_node_or_null("CivImplantMark")
+	t.civ_mode = "free"
+	t.arm_t = 0.0
+	var mark := t.get_node_or_null("CivDevice")
 	if mark != null:
+		# Начинка висит на кости, снаружи узла CivDevice — снимаем и её.
+		var rig := mark.get_meta("rig", null) as Node3D
+		if rig != null and is_instance_valid(rig):
+			rig.queue_free()
 		mark.queue_free()
 
 
@@ -3555,6 +4198,7 @@ func _clear_body_implant(t: WolfChar) -> void:
 ## светом, а всех рядом медленно поджаривает.
 func _ignite_flare(t: WolfChar, source: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["flare"]
+	imp = _scaled_blast(imp, source)
 	var col: Color = imp["color"]
 	_clear_body_implant(t)
 	if not t.is_dead:
@@ -3599,6 +4243,7 @@ func _ignite_flare(t: WolfChar, source: WolfChar) -> void:
 ## КРИО-ЗАРЯД: тело лопается облаком азота — иней, осколки, сковывающий холод.
 func _burst_cryo(t: WolfChar, source: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["cryo"]
+	imp = _scaled_blast(imp, source)
 	var col: Color = imp["color"]
 	var pos := t.global_position + Vector3(0, 0.9, 0)
 	_clear_body_implant(t)
@@ -3678,6 +4323,7 @@ func _burst_cryo(t: WolfChar, source: WolfChar) -> void:
 ## ЭМИ-СЕРДЦЕ: цепные молнии по всем вокруг, чужое железо глохнет, свет гаснет.
 func _discharge_emp(t: WolfChar, source: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["emp"]
+	imp = _scaled_blast(imp, source)
 	var col: Color = imp["color"]
 	var pos := t.global_position + Vector3(0, 1.1, 0)
 	_clear_body_implant(t)
@@ -3736,6 +4382,7 @@ func _discharge_emp(t: WolfChar, source: WolfChar) -> void:
 ## ГРАВ-КОЛЛАПС: воронка стягивает всех к телу, потом схлопывается хлопком.
 func _collapse_singularity(t: WolfChar, source: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["singularity"]
+	imp = _scaled_blast(imp, source)
 	var col: Color = imp["color"]
 	_clear_body_implant(t)
 	var pos := t.global_position + Vector3(0, 1.0, 0)
@@ -3781,6 +4428,7 @@ func _collapse_singularity(t: WolfChar, source: WolfChar) -> void:
 ## ГОЛО-ПРОЕКТОР: из тела выходит светящийся двойник и уводит стаю за собой.
 func _project_holo(t: WolfChar, source: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["holo"]
+	imp = _scaled_blast(imp, source)
 	var col: Color = imp["color"]
 	_clear_body_implant(t)
 	var pos := t.global_position
@@ -3838,6 +4486,7 @@ var _spawnlings: Array = []
 ## мокрые, с хвостами, ползут к ближайшей твари и лопаются кислотой.
 func _hatch_brood(t: WolfChar, source: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["brood"]
+	imp = _scaled_blast(imp, source)
 	var col: Color = imp["color"]
 	var pos := t.global_position + Vector3(0, 0.5, 0)
 	_clear_body_implant(t)
@@ -3904,6 +4553,7 @@ func _hatch_brood(t: WolfChar, source: WolfChar) -> void:
 ## та десять секунд рвёт своих же.
 func _release_puppeteer(t: WolfChar, source: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["puppet"]
+	imp = _scaled_blast(imp, source)
 	var col: Color = imp["color"]
 	_clear_body_implant(t)
 	var pos := t.global_position + Vector3(0, 1.0, 0)
@@ -4123,6 +4773,7 @@ func _tick_devices(delta: float) -> void:
 ## Шоковая терапия: размягчённое тело бьётся и вопит — убийцы идут на звук.
 func _shock_body(t: WolfChar, actor: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["softener"]
+	imp = _scaled_blast(imp, actor)
 	t.play_oneshot("Hit")
 	t.hit_flash = 0.5
 	_blood_burst(t.global_position + Vector3(0, 0.5, 0), 8, 1.4)
@@ -4586,9 +5237,18 @@ func _prompt_for(p: WolfChar) -> String:
 		return "ТАЩИШЬ ЖЕРТВУ · [F] добить · [E] бросить"
 	if p.faction == "ghoul" and _feed_target(p) != null:
 		return "[F] ЖРАТЬ (%d/%d до мутации)" % [p.feeds, WolfCfg.FEEDS_TO_MUTATE]
+	# Стоишь у начинённого тела — подсказка про режим важнее всего прочего.
+	if p.faction in ["killer", "cannibal", "ghoul"]:
+		var dev_body := _implanted_near(p)
+		if dev_body != null:
+			var dm: Dictionary = WolfCfg.CIV_MODE_INFO[dev_body.civ_mode]
+			var nxt: String = WolfCfg.CIV_MODES[(WolfCfg.CIV_MODES.find(dev_body.civ_mode) + 1) % WolfCfg.CIV_MODES.size()]
+			return "%s · режим: %s (%s) · [X] → %s · [G] подрыв" % [
+				WolfCfg.CIV_IMPLANTS[dev_body.civ_implant]["name"], dm["name"], dm["tag"],
+				WolfCfg.CIV_MODE_INFO[nxt]["name"]]
 	var civ := _civ_target(p)
 	if civ != null and civ.downed and civ.civ_implant == "" and p.faction in ["killer", "cannibal", "ghoul"]:
-		return "[держать E] НАЧИНИТЬ РАНЕНОГО: %s  ·  1-8 меняют начинку" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"]
+		return "[держать E] НАЧИНИТЬ РАНЕНОГО: %s  ·  1-0 меняют начинку" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"]
 	if civ != null:
 		match p.faction:
 			"survivor":
@@ -4690,17 +5350,27 @@ func _update_hud() -> void:
 	if p.faction in ["cannibal", "killer"]:
 		stance.append(p.weapon.get("name", ""))
 	if p.faction == "killer":
-		stance.append("Ножи %d" % p.knives)
+		stance.append(("Заряды %d" if p.throws == "sticky" else "Ножи %d") % p.knives)
+	if not _stickies.is_empty():
+		stance.append("Расставлено зарядов: %d [G]" % _stickies.size())
 	if blueprints > 0 and p.faction in ["cannibal", "killer"]:
 		stance.append("Чертежи %d/3" % blueprints)
 	if p.faction == "ghoul":
 		stance.append("КИБЕР-ВАМПИР" if p.is_vampire else "Съедено: %d/%d" % [p.feeds, WolfCfg.FEEDS_TO_MUTATE])
+	# Начинённые тела в HUD разложены ПО РЕЖИМАМ: сразу видно, что где стоит.
+	var by_mode := {}
 	var armed := 0
 	for e2: WolfChar in entities:
-		if e2.civ_implant != "":
-			armed += 1
-	if armed > 0:
-		stance.append("Начинённых тел: %d [G]" % armed)
+		if e2.civ_implant == "":
+			continue
+		armed += 1
+		by_mode[e2.civ_mode] = int(by_mode.get(e2.civ_mode, 0)) + 1
+	if not by_mode.is_empty():
+		var parts: Array = []
+		for mid: String in WolfCfg.CIV_MODES:
+			if by_mode.has(mid):
+				parts.append("%s %d" % [WolfCfg.CIV_MODE_INFO[mid]["name"], by_mode[mid]])
+		stance.append("Тела: %s · [G] подрыв" % " · ".join(parts))
 	if p.faction in ["killer", "cannibal", "ghoul"]:
 		stance.append("Начинка: %s" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"])
 	var followers := _followers(p)
@@ -4771,6 +5441,9 @@ func _physics_process(delta: float) -> void:
 	_tick_devices(delta)
 	_tick_wounds(delta)
 	_tick_spawnlings(delta)
+	_tick_viewmodel(delta)
+	_tick_civ_modes(delta)
+	_tick_stickies(delta)
 	_loot_msg_t = maxf(0.0, _loot_msg_t - delta)
 	# Conditions like "merc stands in the evac zone" change without anyone
 	# dying, so the win check runs every tick, not only on kill events.
@@ -4890,6 +5563,12 @@ func _run_test(delta: float) -> void:
 			_test_city(delta)
 		"civdev":
 			_test_civdev(delta)
+		"mode":
+			_test_civmode(delta)
+		"demo":
+			_test_demo(delta)
+		"hands":
+			_test_hands(delta)
 		"civbomb":
 			_test_civbomb(delta)
 		"slime":
@@ -5375,6 +6054,226 @@ func _test_city_place() -> void:
 
 ## Новые начинки (WOLF_DEV=cryo|emp|singularity|flare|holo): вживить в
 ## раненого, поставить психа рядом, нажать [G] и проверить эффект.
+var _mode_seen: Array = []
+var _mode_probe_hp := 0.0
+var _mode_armed := false
+
+
+## Живой рядовой псих для опытов (мёртвые в списке тоже лежат).
+func _live_psycho() -> WolfChar:
+	for e: WolfChar in entities:
+		if e.faction == "cannibal" and not e.is_leader and not e.is_dead:
+			return e
+	return null
+
+
+## РЕЖИМЫ НАЧИНЁННОГО ТЕЛА (WOLF_MODE=cycle|lure|ready|armed).
+## cycle — [X] честно перебирает все четыре режима и меняет позу тела;
+## lure  — психи разворачиваются и идут на хрип;
+## ready — тот, кто нагнулся добить, ловит начинку в лицо;
+## armed — начинка срабатывает сама, когда враг подходит вплотную.
+func _test_civmode(_delta: float) -> void:
+	var what := OS.get_environment("WOLF_MODE")
+	if what == "":
+		what = "cycle"
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+		return
+	if mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		player.max_hp = 9999.0
+		player.hp = 9999.0
+		_implant_pick = OS.get_environment("WOLF_DEV") if OS.get_environment("WOLF_DEV") != "" else "bomb"
+		_mode_seen.clear()
+		_mode_armed = false
+		# Валим гражданского и начиняем его напрямую — механику установки
+		# проверяет отдельный тест, здесь важен режим.
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		_damage(_duel_bot, 999.0, null)
+		_do_civ_implant(player, _duel_bot)
+		return
+	if not _test_staged:
+		return
+
+	if not _test_shot_taken:
+		match what:
+			"cycle":
+				# Перебираем режимы: каждый должен встретиться ровно один раз.
+				if not _mode_seen.has(_duel_bot.civ_mode):
+					_mode_seen.append(_duel_bot.civ_mode)
+				if _mode_seen.size() >= WolfCfg.CIV_MODES.size():
+					_test_shot_taken = true
+				elif fmod(_test_t, 0.4) < 0.02:
+					_cycle_civ_mode(player, _duel_bot)
+			"look":
+				# Обзорный кадр начинённого тела: WOLF_CIVMODE задаёт режим,
+				# WOLF_DEV — начинку. Камера садится вплотную к телу.
+				if not _mode_armed:
+					_mode_armed = true
+					var want := OS.get_environment("WOLF_CIVMODE")
+					if want != "":
+						_duel_bot.civ_mode = want
+						_civ_badge(_duel_bot)
+				elif _test_t > 3.0:
+					var off := Vector3(-3.0, 1.35, -3.0)
+					player.velocity = Vector3.ZERO
+					player.global_position = _duel_bot.global_position + off
+					player.rotation.y = _yaw_toward(-off.x, -off.z)
+					_pitch = -0.42
+					_test_shot_taken = true
+			"lure":
+				if not _mode_armed:
+					_mode_armed = true
+					_duel_bot.civ_mode = "lure"
+					_civ_badge(_duel_bot)
+					_psycho_probe = _live_psycho()
+					_psycho_probe.global_position = _duel_bot.global_position + Vector3(14.0, 0, 0)
+				elif _psycho_probe.investigate_t > 0.0:
+					_test_shot_taken = true
+			"ready":
+				if not _mode_armed:
+					_mode_armed = true
+					_duel_bot.civ_mode = "ready"
+					_civ_badge(_duel_bot)
+					_psycho_probe = _live_psycho()
+					_psycho_probe.global_position = _duel_bot.global_position + Vector3(1.2, 0, 0)
+					_psycho_probe.max_hp = 4000.0
+					_psycho_probe.hp = 4000.0
+					_mode_probe_hp = _psycho_probe.hp
+					player.global_position = _duel_bot.global_position + Vector3(-14.0, 0.2, 0)
+				elif _test_t > 3.5:
+					# Псих нагибается добить — ловушка обязана сработать.
+					_perform_execute(_psycho_probe, _duel_bot)
+					_test_shot_taken = true
+			"armed":
+				if not _mode_armed:
+					_mode_armed = true
+					_duel_bot.civ_mode = "armed"
+					_civ_badge(_duel_bot)
+					_psycho_probe = _live_psycho()
+					_psycho_probe.max_hp = 4000.0
+					_psycho_probe.hp = 4000.0
+					_mode_probe_hp = _psycho_probe.hp
+					player.global_position = _duel_bot.global_position + Vector3(-14.0, 0.2, 0)
+				else:
+					_psycho_probe.global_position = _duel_bot.global_position + Vector3(1.2, 0, 0)
+					if _duel_bot.civ_implant == "":
+						_test_shot_taken = true
+		if _test_t > 14.0:
+			_test_shot_taken = true
+		if _test_shot_taken and _test_shot != "":
+			await _save_shot()
+		return
+
+	if _test_t < 15.5:
+		return
+	var ok := false
+	var info := ""
+	match what:
+		"look":
+			ok = _duel_bot.civ_implant != "" and _duel_bot.get_node_or_null("CivDevice") != null
+			info = "начинка=«%s» режим=%s устройство=%s" % [_duel_bot.civ_implant,
+				_duel_bot.civ_mode, str(_duel_bot.get_node_or_null("CivDevice") != null)]
+		"cycle":
+			ok = _mode_seen.size() == WolfCfg.CIV_MODES.size()
+			info = "режимов=%d (%s)" % [_mode_seen.size(), ", ".join(_mode_seen)]
+		"lure":
+			ok = _psycho_probe.investigate_t > 0.0 \
+				or _psycho_probe.global_position.distance_to(_duel_bot.global_position) < 12.0
+			info = "интерес=%.1f дистанция=%.1f" % [_psycho_probe.investigate_t,
+				_psycho_probe.global_position.distance_to(_duel_bot.global_position)]
+		"ready":
+			ok = _psycho_probe.hp < _mode_probe_hp or _psycho_probe.is_dead
+			info = "псих HP %.0f->%.0f мёртв=%s" % [_mode_probe_hp, _psycho_probe.hp, str(_psycho_probe.is_dead)]
+		"armed":
+			ok = (_psycho_probe.hp < _mode_probe_hp or _psycho_probe.is_dead) and _duel_bot.civ_implant == ""
+			info = "самоспуск: псих HP %.0f->%.0f начинка=«%s»" % [_mode_probe_hp,
+				_psycho_probe.hp, _duel_bot.civ_implant]
+	print("TEST RESULT: mode %s %s %s" % [what, info, "OK" if ok else "FAIL"])
+	get_tree().quit(0 if ok else 1)
+
+
+## ПОДРЫВНИК: [Q] лепит липучий заряд, [G] рвёт всё разом и рвёт СИЛЬНЕЕ.
+func _test_demo(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 1, 0)      # архетип 1 = Подрывник
+		return
+	if mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		player.max_hp = 9999.0
+		player.hp = 9999.0
+		_psycho_probe = entities.filter(func(e: WolfChar) -> bool: return e.faction == "cannibal" and not e.is_leader)[0]
+		_psycho_probe.global_position = player.global_position + Vector3(3.0, 0, 0)
+		_psycho_probe.max_hp = 4000.0     # чтобы выжил и было что мерить
+		_psycho_probe.hp = 4000.0
+		_mode_probe_hp = _psycho_probe.hp
+		player.rotation.y = _yaw_toward(1.0, 0.0)
+		return
+	if not _test_staged:
+		return
+	if not _test_shot_taken:
+		# Лепим заряд в психа и рвём.
+		if _stickies.is_empty() and _test_t < 6.0:
+			_psycho_probe.global_position = player.global_position + Vector3(3.0, 0, 0)
+			player.wants_throw = true
+		elif not _stickies.is_empty():
+			var all_stuck := true
+			for st: Dictionary in _stickies:
+				if not bool(st["stuck"]):
+					all_stuck = false
+			if all_stuck:
+				_activate_devices(player)
+				_test_shot_taken = true
+		elif _test_t > 6.5:
+			_test_shot_taken = true
+		if _test_shot_taken and _test_shot != "":
+			await _save_shot()
+		return
+	if _test_t < 8.0:
+		return
+	var demo_ok := player.throws == "sticky" and player.blast_mul > 1.0 and player.plant_mul > 1.0
+	var hurt := _psycho_probe.hp < _mode_probe_hp or _psycho_probe.is_dead
+	var ok := demo_ok and hurt and _stickies.is_empty()
+	print("TEST RESULT: demo бросок=%s взрыв x%.2f закладка x%.2f · псих HP %.0f->%.0f · зарядов осталось %d %s"
+		% [player.throws, player.blast_mul, player.plant_mul, _mode_probe_hp, _psycho_probe.hp,
+		_stickies.size(), "OK" if ok else "FAIL"])
+	get_tree().quit(0 if ok else 1)
+
+
+## АНИМАЦИЯ РУК: клип действительно двигает viewmodel и сам возвращает
+## руки в стойку.
+func _test_hands(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+		return
+	if mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		_hands_max = 0.0
+		_vm_play(OS.get_environment("WOLF_CLIP") if OS.get_environment("WOLF_CLIP") != "" else "insert")
+		return
+	if not _test_staged:
+		return
+	if _vm_busy:
+		# Копим самое дальнее отклонение от стойки за весь клип.
+		_hands_max = maxf(_hands_max, (viewmodel.rotation_degrees - _vm_rest_rot).length())
+		return
+	if not _test_shot_taken:
+		_test_shot_taken = true
+		if _test_shot != "":
+			await _save_shot()
+		return
+	var back := (viewmodel.rotation_degrees - _vm_rest_rot).length()
+	var ok := _hands_max > 8.0 and back < 0.5
+	print("TEST RESULT: hands размах=%.1f° возврат=%.2f° %s" % [_hands_max, back, "OK" if ok else "FAIL"])
+	get_tree().quit(0 if ok else 1)
+
+
+var _hands_max := 0.0
+
+
 func _test_civdev(_delta: float) -> void:
 	var kind := OS.get_environment("WOLF_DEV")
 	if kind == "":

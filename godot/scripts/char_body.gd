@@ -42,6 +42,9 @@ var weapon := {"id": "fists", "name": "Кулаки", "dmg": 1.0, "speed": 1.0, 
 var stamina := WolfCfg.STAMINA_MAX
 var stamina_delay := 0.0
 var stamina_block_mul := 1.0
+var throws := "knife"      # что летит с [Q]: нож или липучий заряд подрывника
+var blast_mul := 1.0       # подрывник рвёт шире и злее
+var plant_mul := 1.0       # ...и закладывает основной заряд быстрее
 var charging := false                     # player: LMB held, damage grows
 var charge_t := 0.0
 var winding := false                      # bots: wind-up before the strike lands
@@ -84,6 +87,8 @@ var follow_target: WolfChar = null  # ведомый: идёт за тем, кт
 var interrogated := false           # уже раскололся наёмнику
 var revive_t := 0.0                 # бот-медтех поднимает лежачего
 var civ_implant := ""               # начинка тела (см. WolfCfg.CIV_IMPLANTS)
+var civ_mode := "free"              # режим начинённого тела (см. WolfCfg.CIV_MODES)
+var arm_t := 0.0                    # взведённое тело: отсчёт до самоспуска
 var chill_t := 0.0                  # обморожен крио-зарядом: ползёт вдвое медленнее
 var emp_t := 0.0                    # импланты выбиты ЭМИ-разрядом
 var puppet_t := 0.0                 # захвачен слизнем-кукловодом
@@ -207,6 +212,11 @@ func apply_archetype(arche: Dictionary) -> void:
 	hp = max_hp
 	if faction == "killer":
 		knives += int(arche.get("knives_add", 0))
+	throws = String(arche.get("throws", "knife"))
+	blast_mul = arche.get("blast_mul", 1.0)
+	plant_mul = arche.get("plant_mul", 1.0)
+	if arche.has("stamina_block_mul"):
+		stamina_block_mul = arche["stamina_block_mul"]
 	if arche.has("accent"):
 		set_accent(arche["accent"])
 	has_defib = arche.get("defib", false)

@@ -4,7 +4,7 @@ class_name WolfCfg
 ## psychos, plant the bomb in the club and exfil through the lobby.
 
 ## Версия сборки — печатается в меню, чтобы отличить архивы на глаз.
-const BUILD_VERSION := "v23 · КВАРТАЛ «НИЖНИЙ ВОСТОК»"
+const BUILD_VERSION := "v24 · АРАСАКА-ТАУЭР · режимы тел и подрывник"
 
 const EYE_STAND := 1.62
 const EYE_CROUCH := 1.02
@@ -100,6 +100,54 @@ const CIV_IMPLANTS := {
 	"puppet": {"name": "Кукловод", "desc": "[G] — из затылка вылезает слизень, прыгает на тварь и ведёт её против своих.",
 		"radius": 9.0, "time": 11.0, "color": Color(0.6, 0.15, 0.55)},
 }
+## РЕЖИМ НАЧИНЁННОГО ТЕЛА. Одно и то же тело работает четырьмя способами —
+## переключается [X], когда стоишь рядом. Режим виден по бейджу над телом,
+## по цвету кольца под ним и по темпу пульса начинки.
+const CIV_MODES := ["free", "lure", "ready", "armed"]
+const CIV_MODE_INFO := {
+	"free": {"name": "СВОБОДНЫЙ", "tag": "ходит сам",
+		"desc": "Тело живёт своей жизнью и таскается за тобой. Начинка спит и сама не сработает.",
+		"color": Color(0.55, 0.85, 1.0), "pulse": 0.7},
+	"lure": {"name": "ПРИМАНКА", "tag": "шумит",
+		"desc": "Тело хрипит и дёргается на месте. Психи и гули идут на звук через весь этаж.",
+		"color": Color(1.0, 0.72, 0.2), "pulse": 2.6},
+	"ready": {"name": "ГОТОВ К ДОБИВАНИЮ", "tag": "лежит",
+		"desc": "Тело валится и ждёт. Кто наклонится добить — тому начинка и достанется.",
+		"color": Color(1.0, 0.35, 0.45), "pulse": 1.4},
+	"armed": {"name": "ВЗВЕДЁН", "tag": "автоспуск",
+		"desc": "Начинка на самоспуске: сработает сама, как только враг подойдёт вплотную.",
+		"color": Color(1.0, 0.15, 0.15), "pulse": 5.0},
+}
+const CIV_MODE_LURE := 30.0       # радиус, с которого слышно приманку
+const CIV_MODE_ARM_RADIUS := 2.6  # взведённое тело срабатывает на этой дистанции
+const CIV_MODE_ARM_DELAY := 0.55  # ...с задержкой: слышно щелчок, есть полсекунды
+
+## ЧТО ВИДНО НА НАЧИНЁННОМ ТЕЛЕ, пока начинка ждёт своего часа. Тихая, но
+## узнаваемая работа каждой начинки: по одному взгляду ясно, что внутри.
+## fx: тип фонтанчика, rate: частиц в секунду, up: летят вверх или оседают.
+const CIV_IMPLANT_FX := {
+	"bomb":        {"fx": "spark", "rate": 2.0, "up": true, "light": 2.4},
+	"slime":       {"fx": "bubble", "rate": 7.0, "up": true, "light": 1.2},
+	"softener":    {"fx": "arc", "rate": 5.0, "up": false, "light": 1.6},
+	"flare":       {"fx": "ember", "rate": 6.0, "up": true, "light": 2.8},
+	"cryo":        {"fx": "frost", "rate": 8.0, "up": false, "light": 1.4},
+	"emp":         {"fx": "arc", "rate": 4.0, "up": true, "light": 1.8},
+	"singularity": {"fx": "dust", "rate": 10.0, "up": false, "light": 2.0},
+	"holo":        {"fx": "glitch", "rate": 4.0, "up": true, "light": 1.6},
+	"brood":       {"fx": "squirm", "rate": 3.0, "up": false, "light": 1.2},
+	"puppet":      {"fx": "squirm", "rate": 2.0, "up": true, "light": 1.4},
+}
+
+# --- Подрывник: липучие заряды --------------------------------------------
+# У «Клинка» метательные ножи, у «Подрывника» на [Q] летит ЛИПУЧИЙ ЗАРЯД:
+# втыкается куда попал, ждёт и уходит на воздух вместе со всем остальным [G].
+const STICKY_DMG := 210.0
+const STICKY_RADIUS := 5.2
+const STICKY_SPEED := 22.0
+const STICKY_RANGE := 22.0
+const STICKY_CD := 0.85
+const STICKY_COLOR := Color(1.0, 0.55, 0.1)
+
 const SPAWNLING_SPEED := 3.6      # скорость мясного паразита
 const PUPPET_SLOW := 0.9          # марионетка чуть заторможена
 const CHILL_SPEED_MUL := 0.5      # обмороженный еле ползёт
@@ -364,7 +412,7 @@ const CHARACTERS := {
 	],
 	"killer": [
 		{"id": "blade", "name": "Клинок", "tag": "стелс · добивание", "desc": "Скорость, лишние ножи и добивание раненых [F].", "speed_mul": 1.1, "hp_mul": 0.85, "knives_add": 2, "can_execute": true, "accent": Color(1.0, 0.15, 0.2)},
-		{"id": "armor", "name": "Броня", "tag": "танк", "desc": "Медленный таран, держит удар и держит блок.", "speed_mul": 0.9, "hp_mul": 1.25, "stamina_block_mul": 0.6, "accent": Color(0.45, 0.35, 1.0)},
+		{"id": "demo", "name": "Подрывник", "tag": "заряды · подрыв", "desc": "Вместо ножей [Q] — липучие заряды. [G] рвёт разом всё: заряды, приманку и начинённые тела. Взрывы шире и злее, закладка вдвое быстрее.", "speed_mul": 0.98, "hp_mul": 1.05, "throws": "sticky", "blast_mul": 1.4, "plant_mul": 2.0, "knives_add": 1, "accent": Color(1.0, 0.55, 0.1)},
 	],
 	"ghoul": [
 		{"id": "feeder", "name": "Пожиратель", "tag": "рост · трапеза", "desc": "Жри тела [F] — с каждым крепчаешь. Четыре трапезы, и ты КИБЕР-ВАМПИР.", "speed_mul": 1.0, "hp_mul": 1.0, "can_execute": true},

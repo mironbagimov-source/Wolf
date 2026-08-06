@@ -32,6 +32,7 @@ var hitmark: Control        # крестик-хитмаркер вокруг п�
 var implant_panel: VBoxContainer   # список начинок с клавишами
 var implant_rows: Array = []
 var drunk_overlay: ColorRect       # хмель: тёплая муть по краям
+const LOCATION_PICKER := false     # true — вернуть выбор хаба и квартала
 var location_pick := "tower"       # выбранная локация
 var _loc_btn: Button
 var _keys_label: Label            # подсказка по клавишам — своя для мирной локации
@@ -41,7 +42,7 @@ var _faction_row: HBoxContainer
 var blind_overlay: ColorRect  # залитый слизью экран
 var vampire_unlocked := false # КИБЕР-ВАМПИР открыт мутацией
 
-const KEYS_FIGHT := "Мышь — осмотр · WASD — движение · двойное WASD — дэш · Shift — бег · C — присед · SPACE в грав-шахте — вверх\nЛКМ — удар · ПКМ — блок (в последний момент = парирование) · Q — нож · F — добивание / трапеза гуля / фонарь\nE — двери, взрывчатка, раненые (держать) · 1-8 — начинка для раненых · G — активировать начинку · ESC — курсор"
+const KEYS_FIGHT := "Мышь — осмотр · WASD — движение · двойное WASD — дэш · Shift — бег · C — присед · SPACE в грав-шахте — вверх\nЛКМ — удар · ПКМ — блок (в последний момент = парирование) · Q — нож (у подрывника — липучий заряд) · F — добивание / трапеза гуля / фонарь\nE — двери, взрывчатка, раненые (держать) · 1-0 — начинка для раненых · X — РЕЖИМ начинённого тела · G — подрыв всего разом · ESC — курсор"
 const KEYS_PEACE := "Мышь — осмотр · WASD — движение · Shift — бег · C — присед · ESC — курсор\nE — ЗАГОВОРИТЬ с горожанином (и взять посылку в диспетчерской)\nОружия и ударов в квартале нет: над головой у каждого — имя и профессия, а разговор зависит ещё и от места"
 
 signal faction_picked(faction: String)
@@ -164,14 +165,19 @@ func _build_menu() -> void:
 
 	_keys_label = _label(box, "", 14, Color(0.45, 0.52, 0.66))
 
-	_loc_btn = Button.new()
-	_loc_btn.add_theme_font_size_override("font_size", 16)
-	_loc_btn.add_theme_color_override("font_color", Color(1.0, 0.75, 0.2))
-	_loc_btn.pressed.connect(func() -> void:
-		var order := ["tower", "hub", "city"]
-		location_pick = order[(order.find(location_pick) + 1) % order.size()]
-		refresh_location())
-	box.add_child(_loc_btn)
+	# В этой сборке локация одна — башня; кнопка выбора места не строится,
+	# но код хаба и квартала на месте и включается одним флагом.
+	if LOCATION_PICKER:
+		_loc_btn = Button.new()
+		_loc_btn.add_theme_font_size_override("font_size", 16)
+		_loc_btn.add_theme_color_override("font_color", Color(1.0, 0.75, 0.2))
+		_loc_btn.pressed.connect(func() -> void:
+			var order := ["tower", "hub", "city"]
+			location_pick = order[(order.find(location_pick) + 1) % order.size()]
+			refresh_location())
+		box.add_child(_loc_btn)
+	else:
+		location_pick = "tower"
 	refresh_location()
 
 	var gfx := Button.new()
@@ -208,13 +214,16 @@ func _build_faction_cards() -> void:
 
 ## Публичная: перестроить меню под выбранную локацию.
 func refresh_location() -> void:
-	match location_pick:
-		"tower":
-			_loc_btn.text = "ЛОКАЦИЯ: АРАСАКА-ТАУЭР — 16 этажей, грав-шахта, хоррор и бой"
-		"hub":
-			_loc_btn.text = "ЛОКАЦИЯ: ХАБ «СУХОЙ ДОК» — крытый рынок, заведения, бой"
-		"city":
-			_loc_btn.text = "ЛОКАЦИЯ: КВАРТАЛ «НИЖНИЙ ВОСТОК» — открытый город, БЕЗ БОЯ, люди и профессии"
+	if not LOCATION_PICKER:
+		location_pick = "tower"
+	if _loc_btn != null:
+		match location_pick:
+			"tower":
+				_loc_btn.text = "ЛОКАЦИЯ: АРАСАКА-ТАУЭР — 16 этажей, грав-шахта, хоррор и бой"
+			"hub":
+				_loc_btn.text = "ЛОКАЦИЯ: ХАБ «СУХОЙ ДОК» — крытый рынок, заведения, бой"
+			"city":
+				_loc_btn.text = "ЛОКАЦИЯ: КВАРТАЛ «НИЖНИЙ ВОСТОК» — открытый город, БЕЗ БОЯ, люди и профессии"
 	if _keys_label != null:
 		# В мирном квартале половина клавиш не работает — не врём про них.
 		_keys_label.text = KEYS_PEACE if location_pick == "city" else KEYS_FIGHT
