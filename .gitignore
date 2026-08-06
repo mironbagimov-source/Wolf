@@ -54,3 +54,4 @@ webgl-build/
 # hermes-node: локальный конфиг с ключом DeepSeek — в репозиторий не кладём
 deploy/hermes-node/config.env
 deploy/hermes-node/logs/
+deploy/hermes-node/web/__pycache__/
