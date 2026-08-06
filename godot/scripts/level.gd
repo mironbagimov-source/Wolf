@@ -769,14 +769,47 @@ static func _emissive(parent: Node3D, pos: Vector3, size: Vector3, color: Color,
 static var _tex_cache := {}
 
 
+## Процедурные текстуры лежат ОТДЕЛЬНЫМИ ФАЙЛАМИ в res://textures/.
+## Иначе Godot вшивает картинку прямо в .tscn — и один и тот же кирпич
+## трижды копируется в башню, хаб и квартал, раздувая сцены на мегабайты.
+const TEX_DIR := "res://textures/"
+
+
+static func _tex_load(key: String) -> ImageTexture:
+	var path := TEX_DIR + key + ".res"
+	if ResourceLoader.exists(path):
+		var res := ResourceLoader.load(path)
+		if res is ImageTexture:
+			return res as ImageTexture
+	return null
+
+
+## true только в пекаре: тогда сгенерированное сохраняем на диск.
+static var bake_textures := false
+
+
+static func _tex_store(key: String, tex: ImageTexture) -> void:
+	if not bake_textures:
+		return
+	DirAccess.make_dir_recursive_absolute(TEX_DIR)
+	var path := TEX_DIR + key + ".res"
+	tex.take_over_path(path)
+	ResourceSaver.save(tex, path)
+
+
 static func _texture(key: String, size: int, shade: Callable) -> ImageTexture:
 	if _tex_cache.has(key):
 		return _tex_cache[key]
+	var cached := _tex_load(key)
+	if cached != null:
+		_tex_cache[key] = cached
+		return cached
 	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
 	for py in size:
 		for px in size:
 			img.set_pixel(px, py, shade.call(float(px) / size, float(py) / size))
 	var tex := ImageTexture.create_from_image(img)
+	_tex_store(key, tex)
 	_tex_cache[key] = tex
 	return tex
 
@@ -785,6 +818,10 @@ static func _normal_tex(key: String, size: int, height: Callable, strength: floa
 	var nkey := key + "_n"
 	if _tex_cache.has(nkey):
 		return _tex_cache[nkey]
+	var cached := _tex_load(nkey)
+	if cached != null:
+		_tex_cache[nkey] = cached
+		return cached
 	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
 	var e := 1.0 / size
 	for py in size:
@@ -796,6 +833,7 @@ static func _normal_tex(key: String, size: int, height: Callable, strength: floa
 			var n := Vector3(-hx, -hy, 1.0).normalized()
 			img.set_pixel(px, py, Color(n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5))
 	var tex := ImageTexture.create_from_image(img)
+	_tex_store(nkey, tex)
 	_tex_cache[nkey] = tex
 	return tex
 

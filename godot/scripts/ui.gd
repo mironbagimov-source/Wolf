@@ -32,7 +32,7 @@ var hitmark: Control        # крестик-хитмаркер вокруг п�
 var implant_panel: VBoxContainer   # список начинок с клавишами
 var implant_rows: Array = []
 var drunk_overlay: ColorRect       # хмель: тёплая муть по краям
-const LOCATION_PICKER := false     # true — вернуть выбор хаба и квартала
+const LOCATION_PICKER := true      # выбор места: башня / хаб / квартал
 var location_pick := "tower"       # выбранная локация
 var _loc_btn: Button
 var _keys_label: Label            # подсказка по клавишам — своя для мирной локации

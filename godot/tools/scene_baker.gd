@@ -11,6 +11,10 @@ const City = preload("res://scripts/city.gd")
 
 func _init() -> void:
 	DirAccess.make_dir_recursive_absolute("res://scenes/chars")
+	# Процедурные текстуры сохраняем ОТДЕЛЬНЫМИ файлами до сборки сцен:
+	# тогда все три локации ссылаются на одни и те же картинки, а не тащат
+	# по своей копии внутри .tscn.
+	WolfLevel.bake_textures = true
 
 	# --- district ---
 	var district := Node3D.new()

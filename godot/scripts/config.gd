@@ -4,7 +4,7 @@ class_name WolfCfg
 ## psychos, plant the bomb in the club and exfil through the lobby.
 
 ## Версия сборки — печатается в меню, чтобы отличить архивы на глаз.
-const BUILD_VERSION := "v24 · АРАСАКА-ТАУЭР · режимы тел и подрывник"
+const BUILD_VERSION := "v25 · три локации · вампир урезан"
 
 const EYE_STAND := 1.62
 const EYE_CROUCH := 1.02
@@ -64,15 +64,19 @@ const ALPHA_DMG_MUL := 0.8     # и бьёт мягче рядового пси�
 const GHOUL_COUNT := 3            # сколько гулей рыщет по башне
 const FEED_TIME := 2.4            # сколько длится трапеза над телом
 const FEED_RANGE := 2.4
-const FEED_HP := 55.0             # +макс. HP за каждого съеденного
-const FEED_DMG := 0.12            # +12% урона
-const FEED_SPEED := 0.045         # +4.5% скорости
+const FEED_HP := 30.0             # +макс. HP за каждого съеденного
+const FEED_DMG := 0.08            # +8% урона
+const FEED_SPEED := 0.03          # +3% скорости
 const FEEDS_TO_MUTATE := 4        # столько тел — и ты вампир
-const VAMPIRE_HP := 520.0
-const VAMPIRE_DMG_MUL := 1.75
-const VAMPIRE_SPEED_MUL := 1.22
-const VAMPIRE_LIFESTEAL := 0.35   # доля урона, возвращаемая в здоровье
-const VAMPIRE_LUNGE_MUL := 1.5    # прыжок дальше и чаще
+## Вампир — вершина ветки гуля, но не таран: он должен быть чуть крепче
+## откормленного гуля (150 + 4x30 = 270) и слабее Альфы (360). Наёмник с
+## его 270 HP и уроном 54 выигрывает лобовую драку — вампир берёт другим:
+## скоростью, прыжком и тем, что лечится чужой кровью.
+const VAMPIRE_HP := 300.0
+const VAMPIRE_DMG_MUL := 1.35
+const VAMPIRE_SPEED_MUL := 1.1
+const VAMPIRE_LIFESTEAL := 0.15   # доля урона, возвращаемая в здоровье
+const VAMPIRE_LUNGE_MUL := 1.2    # прыжок дальше и чаще
 
 # --- Импланты в истекающего кровью гражданского ----------------------------
 # Раненого можно не добивать, а НАЧИНИТЬ. Тело становится инструментом.
@@ -417,6 +421,6 @@ const CHARACTERS := {
 	"ghoul": [
 		{"id": "feeder", "name": "Пожиратель", "tag": "рост · трапеза", "desc": "Жри тела [F] — с каждым крепчаешь. Четыре трапезы, и ты КИБЕР-ВАМПИР.", "speed_mul": 1.0, "hp_mul": 1.0, "can_execute": true},
 		{"id": "stalker", "name": "Ловчий", "tag": "скорость · нюх", "desc": "Быстрее и чует дальше, но хлипкий. Догнать — не проблема.", "speed_mul": 1.15, "hp_mul": 0.8, "can_execute": true},
-		{"id": "vampire", "name": "КИБЕР-ВАМПИР", "tag": "разблокировано мутацией", "desc": "Сразу в высшей форме: живучий, быстрый, бьёт как таран и лечится чужой кровью.", "speed_mul": 1.0, "hp_mul": 1.0, "can_execute": true, "vampire": true},
+		{"id": "vampire", "name": "КИБЕР-ВАМПИР", "tag": "разблокировано мутацией", "desc": "Сразу в высшей форме: быстрый, прыгучий и лечится чужой кровью. Но не таран: наёмник в лобовой всё равно сильнее.", "speed_mul": 1.0, "hp_mul": 1.0, "can_execute": true, "vampire": true},
 	],
 }
