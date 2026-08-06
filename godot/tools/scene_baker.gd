@@ -15,6 +15,19 @@ func _init() -> void:
 	# тогда все три локации ссылаются на одни и те же картинки, а не тащат
 	# по своей копии внутри .tscn.
 	WolfLevel.bake_textures = true
+	# Материалы начинки собираются не при сборке уровня, а в игре — в момент
+	# вживления. Если их не испечь заранее, игра будет генерировать 2048-е
+	# текстуры прямо в кадре и вставать колом. Трогаем их здесь, чтобы легли
+	# на диск вместе с мировыми.
+	WolfLevel._mat_imp_steel()
+	WolfLevel._mat_imp_circuit(Color(1, 0.2, 0.2))
+	WolfLevel._mat_imp_meat()
+	WolfLevel._mat_imp_gut()
+	WolfLevel._mat_imp_bone()
+	WolfLevel._mat_imp_gel(Color(0.5, 1.0, 0.15))
+	WolfLevel._mat_imp_frost()
+	WolfLevel._mat_imp_char()
+	print("IMPLANT TEXTURES BAKED")
 
 	# --- district ---
 	var district := Node3D.new()

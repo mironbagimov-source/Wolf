@@ -4,7 +4,7 @@ class_name WolfCfg
 ## psychos, plant the bomb in the club and exfil through the lobby.
 
 ## Версия сборки — печатается в меню, чтобы отличить архивы на глаз.
-const BUILD_VERSION := "v25 · три локации · вампир урезан"
+const BUILD_VERSION := "v27 · графика, текстуры имплантов, повреждения"
 
 const EYE_STAND := 1.62
 const EYE_CROUCH := 1.02
@@ -399,6 +399,14 @@ const MERC_BOT_THROW_MAX := 12.0
 
 const KNIFE_HIT_RADIUS := 0.75
 const KNIFE_EYE := 1.25
+
+# --- Возрождение ------------------------------------------------------------
+# Смерть игрока больше не оставляет его лежать до конца матча: через паузу он
+# встаёт на дальнем от врагов спавне. Матч при этом не «прощает» задачу —
+# гражданские, бомба и полиция живут по-прежнему.
+const RESPAWN_TIME := 4.0         # сколько лежишь перед подъёмом
+const RESPAWN_SAFE := 12.0        # спавн ищем не ближе этого к живому врагу
+const RESPAWN_INVULN := 2.0       # пара секунд неуязвимости после подъёма
 
 ## Vertical tolerance: melee/sense interactions require being on ~the same
 ## floor, not just close in XZ (the tower is stacked).

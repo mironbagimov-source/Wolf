@@ -59,3 +59,7 @@ godot/.godot/
 
 # Exported game builds
 build/
+
+# Процедурные текстуры — их пересобирает tools/scene_baker.gd, в репозитории
+# им делать нечего (216 МБ сгенерированных .res).
+godot/textures/

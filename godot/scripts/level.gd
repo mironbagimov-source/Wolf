@@ -838,6 +838,99 @@ static func _normal_tex(key: String, size: int, height: Callable, strength: floa
 	return tex
 
 
+## --- ДВИЖОК ТЕКСТУР -------------------------------------------------------
+## Раньше весь мир был обтянут картинками 160x160: на них физически негде
+## разместить царапину или потёк, поэтому всё выглядело как крашеный картон.
+## Теперь базовое разрешение задаётся здесь, а рисунок собирается из НЕСКОЛЬКИХ
+## октав шума — крупные пятна, средняя фактура и мелкое зерно. Мелочь видна
+## только при высоком разрешении, ради неё всё и затевалось.
+## Мир смотрят с метров, и текстура на нём повторяется каждые ~3 метра —
+## 1024 там уже избыточно плотно (было 160). А вот НАЧИНКУ разглядывают
+## с двадцати сантиметров, в дыре размером с ладонь: ей 2048 честно нужны.
+## Разрешение стоит там, где его видно, а не везде подряд: на 2048 по всему
+## миру кадр падал вчетверо без заметной разницы в картинке.
+const TEX_RES := 1024        # мир: альбедо и шероховатость
+const TEX_RES_N := 512       # мир: рельеф
+const IMP_RES := 2048        # начинка: её смотрят вплотную
+const IMP_RES_N := 1024
+
+
+## Многооктавный шум: крупное пятно + фактура + зерно.
+static func _fbm(u: float, v: float, scale: float, seed_v: float, octaves := 4) -> float:
+	var sum := 0.0
+	var amp := 0.5
+	var norm := 0.0
+	var sc := scale
+	for i in octaves:
+		sum += amp * (_noise2(u, v, sc, seed_v + float(i) * 17.3) - 0.5)
+		norm += amp
+		amp *= 0.5
+		sc *= 2.03
+	return 0.5 + sum / maxf(0.0001, norm) * 0.5
+
+
+## Ячейки Вороного — из них получаются сколы, крошка и пятна ржавчины.
+static func _cells(u: float, v: float, scale: float, seed_v: float) -> float:
+	var su := u * scale
+	var sv := v * scale
+	var iu := floorf(su)
+	var iv := floorf(sv)
+	var best := 9.0
+	for dy in [-1.0, 0.0, 1.0]:
+		for dx in [-1.0, 0.0, 1.0]:
+			var cx: float = iu + dx
+			var cy: float = iv + dy
+			var px: float = cx + _hash2(cx, cy, seed_v)
+			var py: float = cy + _hash2(cx, cy, seed_v + 3.1)
+			best = minf(best, Vector2(su - px, sv - py).length())
+	return clampf(best, 0.0, 1.0)
+
+
+## Царапины: тонкие направленные штрихи, заметные только вблизи.
+static func _scratch(u: float, v: float, scale: float, seed_v: float) -> float:
+	var a := _hash2(floorf(v * scale), 0.0, seed_v) * PI
+	var t := u * cos(a) + v * sin(a)
+	var line := absf(fmod(t * scale * 3.0, 1.0) - 0.5)
+	var strength := _hash2(floorf(v * scale), 1.0, seed_v + 5.0)
+	if strength < 0.86:
+		return 0.0
+	return clampf(1.0 - line * 24.0, 0.0, 1.0)
+
+
+## Потёки сверху вниз — грязь, ржавчина, конденсат.
+static func _streak(u: float, v: float, scale: float, seed_v: float) -> float:
+	var col := floorf(u * scale)
+	var start := _hash2(col, 0.0, seed_v)
+	var len_v := 0.15 + _hash2(col, 1.0, seed_v) * 0.5
+	if _hash2(col, 2.0, seed_v) < 0.62:
+		return 0.0
+	if v < start or v > start + len_v:
+		return 0.0
+	var k := (v - start) / len_v
+	var w := absf(fmod(u * scale, 1.0) - 0.5) * 2.0
+	return clampf((1.0 - k) * (1.0 - w * w), 0.0, 1.0)
+
+
+## Карта шероховатости: где потёрто и мокро, там блестит иначе.
+static func _rough_tex(key: String, size: int, shade: Callable) -> ImageTexture:
+	var rkey := key + "_r"
+	if _tex_cache.has(rkey):
+		return _tex_cache[rkey]
+	var cached := _tex_load(rkey)
+	if cached != null:
+		_tex_cache[rkey] = cached
+		return cached
+	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
+	for py in size:
+		for px in size:
+			var r: float = clampf(shade.call(float(px) / size, float(py) / size), 0.0, 1.0)
+			img.set_pixel(px, py, Color(r, r, r))
+	var tex := ImageTexture.create_from_image(img)
+	_tex_store(rkey, tex)
+	_tex_cache[rkey] = tex
+	return tex
+
+
 static func _noise2(u: float, v: float, scale: float, seed_v: float) -> float:
 	return 0.5 + 0.25 * sin(u * scale * TAU + seed_v * 12.9898) * cos(v * scale * TAU + seed_v * 78.233) \
 		+ 0.25 * sin((u + v) * scale * 0.7 * TAU + seed_v * 39.4)
@@ -847,12 +940,17 @@ static func _hash2(ix: float, iy: float, s: float) -> float:
 	return fposmod(sin(ix * 127.1 + iy * 311.7 + s) * 43758.5453, 1.0)
 
 
-static func _std(albedo_tex: ImageTexture, normal: ImageTexture, tint: Color, rough: float, metal := 0.0, tri_scale := 0.35) -> StandardMaterial3D:
+static func _std(albedo_tex: ImageTexture, normal: ImageTexture, tint: Color, rough: float,
+		metal := 0.0, tri_scale := 0.35, rough_tex: ImageTexture = null) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_texture = albedo_tex
 	mat.albedo_color = tint
 	mat.roughness = rough
 	mat.metallic = metal
+	if rough_tex != null:
+		# Карта шероховатости: мокрое блестит, потёртое матовое.
+		mat.roughness_texture = rough_tex
+		mat.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 	if normal != null:
 		mat.normal_enabled = true
 		mat.normal_texture = normal
@@ -864,16 +962,25 @@ static func _std(albedo_tex: ImageTexture, normal: ImageTexture, tint: Color, ro
 
 
 static func _mat_plaster() -> StandardMaterial3D:
+	# Штукатурка: крупные наплывы, мелкая шагрень, трещины по сколам и потёки
+	# от протечек сверху.
 	var h := func(u: float, v: float) -> float:
-		return _noise2(u, v, 9.0, 3.7)
-	var tex := _texture("plaster", 160, func(u: float, v: float) -> Color:
-		var n: float = h.call(u, v) * 0.12
-		var g := 0.56 + n
-		return Color(g, g * 0.985, g * 0.955))
-	return _std(tex, _normal_tex("plaster", 160, h, 1.6), Color.WHITE, 0.85)
+		var crack: float = 1.0 - smoothstep(0.0, 0.06, _cells(u, v, 7.0, 3.7))
+		return _fbm(u, v, 9.0, 3.7) - crack * 0.8
+	var tex := _texture("plaster", TEX_RES, func(u: float, v: float) -> Color:
+		var n: float = (_fbm(u, v, 9.0, 3.7) - 0.5) * 0.16
+		var grain: float = (_fbm(u, v, 90.0, 12.1, 2) - 0.5) * 0.05
+		var crack: float = 1.0 - smoothstep(0.0, 0.05, _cells(u, v, 7.0, 3.7))
+		var drip: float = _streak(u, v, 26.0, 4.4) * 0.14
+		var g := 0.56 + n + grain - crack * 0.22 - drip
+		return Color(g, g * 0.985 - drip * 0.1, g * 0.955 - drip * 0.16))
+	var rough := _rough_tex("plaster", TEX_RES, func(u: float, v: float) -> float:
+		return 0.88 - _streak(u, v, 26.0, 4.4) * 0.35 + (_fbm(u, v, 40.0, 8.8, 2) - 0.5) * 0.1)
+	return _std(tex, _normal_tex("plaster", TEX_RES_N, h, 1.6), Color.WHITE, 0.85, 0.0, 0.35, rough)
 
 
 static func _mat_concrete() -> StandardMaterial3D:
+	# Бетон: плиты со швами, выкрошенные углы, ржавые подтёки из-под арматуры.
 	var h := func(u: float, v: float) -> float:
 		var seam := 0.0
 		var fv := absf(fmod(v * 3.0, 1.0) - 0.5)
@@ -882,57 +989,89 @@ static func _mat_concrete() -> StandardMaterial3D:
 			seam = -0.6
 		if fu > 0.48:
 			seam = minf(seam, -0.5)
-		return _noise2(u, v, 15.0, 7.3) * 0.5 + seam
-	var tex := _texture("concrete", 160, func(u: float, v: float) -> Color:
-		var n := _noise2(u, v, 15.0, 7.3) * 0.10
-		var g := 0.46 + n
+		var chip: float = 1.0 - smoothstep(0.02, 0.1, _cells(u, v, 22.0, 7.3))
+		return _fbm(u, v, 15.0, 7.3) * 0.5 + seam - chip * 0.5
+	var tex := _texture("concrete", TEX_RES, func(u: float, v: float) -> Color:
+		var n: float = (_fbm(u, v, 15.0, 7.3) - 0.5) * 0.16
+		var grit: float = (_fbm(u, v, 120.0, 3.3, 2) - 0.5) * 0.07
+		var g := 0.46 + n + grit
 		var fv := absf(fmod(v * 3.0, 1.0) - 0.5)
 		var fu := absf(fmod(u * 2.0, 1.0) - 0.5)
 		if fv > 0.47 or fu > 0.48:
-			g -= 0.10
-		var grime := _noise2(u * 0.5, v * 0.5, 3.0, 21.7)
-		g -= maxf(0.0, grime - 0.72) * 0.35
-		return Color(g, g * 0.99, g * 0.96))
-	return _std(tex, _normal_tex("concrete", 160, h, 2.2), Color.WHITE, 0.9, 0.0, 0.28)
+			g -= 0.12
+		var chip: float = 1.0 - smoothstep(0.02, 0.09, _cells(u, v, 22.0, 7.3))
+		g += chip * 0.10                       # свежий скол светлее
+		var grime: float = _fbm(u * 0.5, v * 0.5, 3.0, 21.7)
+		g -= maxf(0.0, grime - 0.66) * 0.5
+		var rust: float = _streak(u, v, 18.0, 9.1)
+		return Color(g + rust * 0.16, (g) * 0.99 - rust * 0.04, (g) * 0.96 - rust * 0.1))
+	var rough := _rough_tex("concrete", TEX_RES, func(u: float, v: float) -> float:
+		return 0.92 - _streak(u, v, 18.0, 9.1) * 0.3 + (_fbm(u, v, 60.0, 2.2, 2) - 0.5) * 0.08)
+	return _std(tex, _normal_tex("concrete", TEX_RES_N, h, 2.2), Color.WHITE, 0.9, 0.0, 0.28, rough)
 
 
 static func _mat_floor_tile() -> StandardMaterial3D:
+	# Плитка: затирка в швах, потёртости по ходу и редкие сколотые углы.
 	var h := func(u: float, v: float) -> float:
 		var gx := absf(fmod(u * 4.0, 1.0) - 0.5)
 		var gz := absf(fmod(v * 4.0, 1.0) - 0.5)
-		return -1.0 if (gx > 0.46 or gz > 0.46) else _noise2(u, v, 13.0, 8.1) * 0.15
-	var tex := _texture("tile", 160, func(u: float, v: float) -> Color:
+		if gx > 0.46 or gz > 0.46:
+			return -1.0
+		var chip: float = 1.0 - smoothstep(0.02, 0.08, _cells(u, v, 30.0, 8.1))
+		return _fbm(u, v, 13.0, 8.1) * 0.15 - chip * 0.6
+	var tex := _texture("tile", TEX_RES, func(u: float, v: float) -> Color:
 		var gx := absf(fmod(u * 4.0, 1.0) - 0.5)
 		var gz := absf(fmod(v * 4.0, 1.0) - 0.5)
 		var grout := 0.30 if (gx > 0.46 or gz > 0.46) else 0.0
-		var g := 0.5 + _noise2(u, v, 13.0, 8.1) * 0.08 - grout
-		var tvar := _hash2(floor(u * 4.0), floor(v * 4.0), 5.0) * 0.06
-		return Color(g + tvar, g + tvar, (g + tvar) * 1.02))
-	return _std(tex, _normal_tex("tile", 160, h, 1.8), Color.WHITE, 0.35, 0.05, 0.5)
+		var g: float = 0.5 + (_fbm(u, v, 13.0, 8.1) - 0.5) * 0.10 - grout
+		var tvar := _hash2(floorf(u * 4.0), floorf(v * 4.0), 5.0) * 0.06
+		var wear: float = maxf(0.0, _fbm(u * 0.7, v * 0.7, 2.0, 15.5) - 0.6) * 0.35
+		var scr: float = _scratch(u, v, 55.0, 6.6) * 0.06
+		return Color(g + tvar - wear + scr, g + tvar - wear + scr, (g + tvar) * 1.02 - wear + scr))
+	var rough := _rough_tex("tile", TEX_RES, func(u: float, v: float) -> float:
+		var gx := absf(fmod(u * 4.0, 1.0) - 0.5)
+		var gz := absf(fmod(v * 4.0, 1.0) - 0.5)
+		if gx > 0.46 or gz > 0.46:
+			return 0.95                        # затирка матовая
+		# Протоптанные дорожки блестят меньше, чистая плитка — зеркалит.
+		return 0.22 + maxf(0.0, _fbm(u * 0.7, v * 0.7, 2.0, 15.5) - 0.55) * 0.9)
+	return _std(tex, _normal_tex("tile", TEX_RES_N, h, 1.8), Color.WHITE, 0.35, 0.05, 0.5, rough)
 
 
 static func _mat_carpet() -> StandardMaterial3D:
+	# Ковролин: ворс, вытоптанные тропы и пятна.
 	var h := func(u: float, v: float) -> float:
-		return _noise2(u, v, 17.0, 5.2) + 0.3 * sin(u * 40.0 * TAU) * sin(v * 40.0 * TAU)
-	var tex := _texture("carpet", 160, func(u: float, v: float) -> Color:
-		var n := _noise2(u, v, 17.0, 5.2) * 0.09
-		var motif := 0.03 if fmod(floor(u * 8.0) + floor(v * 8.0), 2.0) == 0.0 else 0.0
-		return Color(0.40 + n + motif, 0.12 + n * 0.5, 0.14 + n * 0.5 + motif * 0.4))
-	return _std(tex, _normal_tex("carpet", 160, h, 0.7), Color.WHITE, 0.95)
+		return _fbm(u, v, 17.0, 5.2) + 0.3 * sin(u * 120.0 * TAU) * sin(v * 120.0 * TAU)
+	var tex := _texture("carpet", TEX_RES, func(u: float, v: float) -> Color:
+		var n: float = (_fbm(u, v, 17.0, 5.2) - 0.5) * 0.12
+		var pile: float = (_fbm(u, v, 200.0, 7.7, 2) - 0.5) * 0.07
+		var motif := 0.03 if fmod(floorf(u * 8.0) + floorf(v * 8.0), 2.0) == 0.0 else 0.0
+		var stain: float = maxf(0.0, _fbm(u * 0.6, v * 0.6, 3.0, 31.2) - 0.62) * 0.5
+		return Color(0.40 + n + pile + motif - stain, 0.12 + n * 0.5 + pile - stain * 0.6,
+			0.14 + n * 0.5 + pile + motif * 0.4 - stain * 0.6))
+	var rough := _rough_tex("carpet", TEX_RES, func(u: float, v: float) -> float:
+		return 0.97 - maxf(0.0, _fbm(u * 0.6, v * 0.6, 3.0, 31.2) - 0.62) * 0.5)
+	return _std(tex, _normal_tex("carpet", TEX_RES_N, h, 0.7), Color.WHITE, 0.95, 0.0, 0.35, rough)
 
 
 static func _mat_club_floor() -> StandardMaterial3D:
+	# Наливной пол клуба: блёстки в толще и мокрые разводы.
 	var h := func(u: float, v: float) -> float:
-		return _noise2(u, v, 21.0, 9.9) * 0.2
-	var tex := _texture("club", 160, func(u: float, v: float) -> Color:
-		var n := _noise2(u, v, 21.0, 9.9)
-		var sparkle := 0.3 if n > 0.93 else 0.0
+		return _fbm(u, v, 21.0, 9.9) * 0.2
+	var tex := _texture("club", TEX_RES, func(u: float, v: float) -> Color:
+		var n: float = _fbm(u, v, 21.0, 9.9)
+		var spark: float = _hash2(floorf(u * 320.0), floorf(v * 320.0), 3.3)
+		var sparkle := 0.45 if spark > 0.985 else 0.0
 		var g := 0.14 + n * 0.05 + sparkle
 		return Color(g, g, g * 1.18))
-	return _std(tex, _normal_tex("club", 160, h, 0.5), Color.WHITE, 0.25, 0.25)
+	var rough := _rough_tex("club", TEX_RES, func(u: float, v: float) -> float:
+		return 0.20 + maxf(0.0, _fbm(u * 0.8, v * 0.8, 4.0, 12.7) - 0.6) * 0.8)
+	return _std(tex, _normal_tex("club", TEX_RES_N, h, 0.5), Color.WHITE, 0.25, 0.25, 0.35, rough)
 
 
 static func _mat_metal() -> StandardMaterial3D:
+	# Металл: панели на заклёпках, полированные полосы, царапины и ржавчина
+	# в швах — вблизи видно, что по нему ходили и его чинили.
 	var h := func(u: float, v: float) -> float:
 		var seam := -0.8 if absf(fmod(u * 3.0, 1.0) - 0.5) > 0.47 else 0.0
 		var rivet := 0.0
@@ -942,37 +1081,201 @@ static func _mat_metal() -> StandardMaterial3D:
 			var d := Vector2(ru - c[0], rv - c[1]).length()
 			if d < 0.045:
 				rivet = 0.9
-		return _noise2(u * 4.0, v, 7.0, 2.2) * 0.2 + seam + rivet
-	var tex := _texture("metal", 160, func(u: float, v: float) -> Color:
-		var g := 0.5 + _noise2(u * 4.0, v, 7.0, 2.2) * 0.07
+		return _fbm(u * 4.0, v, 7.0, 2.2) * 0.2 + seam + rivet - _scratch(u, v, 70.0, 4.4) * 0.25
+	var tex := _texture("metal", TEX_RES, func(u: float, v: float) -> Color:
+		var brush: float = (_fbm(u * 40.0, v, 60.0, 2.2, 2) - 0.5) * 0.09   # шлифовка вдоль
+		var g := 0.5 + brush
 		if absf(fmod(u * 3.0, 1.0) - 0.5) > 0.47:
-			g -= 0.12
-		return Color(g * 0.95, g, g * 1.06))
-	return _std(tex, _normal_tex("metal", 160, h, 1.6), Color.WHITE, 0.32, 0.55, 0.6)
+			g -= 0.14
+		var scr: float = _scratch(u, v, 70.0, 4.4) * 0.16
+		var rust: float = _streak(u, v, 22.0, 17.5) * maxf(0.0, _fbm(u, v, 6.0, 5.5) - 0.45)
+		return Color((g + scr) * 0.95 + rust * 0.45, (g + scr) - rust * 0.06,
+			(g + scr) * 1.06 - rust * 0.22))
+	var rough := _rough_tex("metal", TEX_RES, func(u: float, v: float) -> float:
+		var base := 0.34 + (_fbm(u * 40.0, v, 60.0, 2.2, 2) - 0.5) * 0.2
+		return clampf(base + _streak(u, v, 22.0, 17.5) * 0.5 - _scratch(u, v, 70.0, 4.4) * 0.2, 0.05, 1.0))
+	return _std(tex, _normal_tex("metal", TEX_RES_N, h, 1.6), Color.WHITE, 0.32, 0.55, 0.6, rough)
 
 
 static func _mat_wood() -> StandardMaterial3D:
+	# Дерево: годовые кольца, поры, сучки и затёртый лак.
 	var h := func(u: float, v: float) -> float:
-		return 0.3 * sin(u * 6.0 * TAU + sin(v * 2.0 * TAU)) + _noise2(u, v, 11.0, 4.4) * 0.3
-	var tex := _texture("wood", 160, func(u: float, v: float) -> Color:
+		return 0.3 * sin(u * 6.0 * TAU + sin(v * 2.0 * TAU)) + _fbm(u, v, 11.0, 4.4) * 0.3 \
+			- _cells(u, v, 5.0, 6.6) * 0.15
+	var tex := _texture("wood", TEX_RES, func(u: float, v: float) -> Color:
 		var ring := 0.5 + 0.28 * sin(u * 6.0 * TAU + sin(v * 2.0 * TAU) * 2.0)
-		var n := _noise2(u, v, 23.0, 4.4) * 0.06
-		return Color(0.34 + ring * 0.14 + n, 0.2 + ring * 0.09 + n, 0.1 + ring * 0.05))
-	return _std(tex, _normal_tex("wood", 160, h, 1.0), Color.WHITE, 0.55)
+		var fine := 0.5 + 0.1 * sin(u * 90.0 * TAU + sin(v * 3.0 * TAU) * 4.0)   # поры
+		var n: float = (_fbm(u, v, 23.0, 4.4) - 0.5) * 0.08
+		var knot: float = 1.0 - smoothstep(0.0, 0.09, _cells(u, v, 5.0, 6.6))
+		return Color(0.34 + ring * 0.14 + fine * 0.05 + n - knot * 0.16,
+			0.2 + ring * 0.09 + fine * 0.03 + n - knot * 0.12,
+			0.1 + ring * 0.05 - knot * 0.06))
+	var rough := _rough_tex("wood", TEX_RES, func(u: float, v: float) -> float:
+		return 0.62 - maxf(0.0, _fbm(u * 0.8, v * 0.8, 3.0, 9.3) - 0.6) * 0.35)
+	return _std(tex, _normal_tex("wood", TEX_RES_N, h, 1.0), Color.WHITE, 0.55, 0.0, 0.35, rough)
 
 
 static func _mat_pool() -> StandardMaterial3D:
-	var tex := _texture("pool", 96, func(u: float, v: float) -> Color:
-		var n := _noise2(u, v, 13.0, 2.9) * 0.06
+	var tex := _texture("pool", 256, func(u: float, v: float) -> Color:
+		var n: float = (_fbm(u, v, 13.0, 2.9) - 0.5) * 0.1
 		return Color(0.05 + n, 0.32 + n, 0.12 + n))
 	return _std(tex, null, Color.WHITE, 0.8)
 
 
 static func _mat_explosive() -> StandardMaterial3D:
-	var tex := _texture("explosive", 64, func(u: float, v: float) -> Color:
-		var n := _noise2(u, v, 9.0, 4.1) * 0.06
-		return Color(0.72 + n, 0.62 + n, 0.42 + n))
+	var tex := _texture("explosive", 256, func(u: float, v: float) -> Color:
+		var n: float = (_fbm(u, v, 9.0, 4.1) - 0.5) * 0.1
+		var fiber: float = (_fbm(u * 30.0, v, 40.0, 8.8, 2) - 0.5) * 0.06
+		return Color(0.72 + n + fiber, 0.62 + n + fiber, 0.42 + n))
 	return _std(tex, null, Color.WHITE, 0.8, 0.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# ТЕКСТУРЫ ИМПЛАНТОВ
+# ---------------------------------------------------------------------------
+# Начинка раньше была набором одноцветных коробочек. Здесь для неё сделан
+# отдельный набор материалов: хирургическая сталь с травлением, плата с
+# дорожками и пайкой, мокрое мясо с волокнами и венами, кость, био-гель,
+# иней и обугленное. Разрешение то же, что у мира, — начинку разглядывают
+# вплотную, в дыре размером с ладонь.
+
+## Хирургическая сталь: шлифовка, микроцарапины, травлёная сетка.
+static func _mat_imp_steel() -> StandardMaterial3D:
+	var h := func(u: float, v: float) -> float:
+		var etch := 0.0
+		if absf(fmod(u * 12.0, 1.0) - 0.5) > 0.45 or absf(fmod(v * 12.0, 1.0) - 0.5) > 0.45:
+			etch = -0.5
+		return _fbm(u * 30.0, v, 40.0, 3.1, 2) * 0.3 + etch - _scratch(u, v, 90.0, 7.7) * 0.4
+	var tex := _texture("imp_steel", IMP_RES, func(u: float, v: float) -> Color:
+		var brush: float = (_fbm(u * 30.0, v, 50.0, 3.1, 2) - 0.5) * 0.12
+		var g := 0.62 + brush
+		if absf(fmod(u * 12.0, 1.0) - 0.5) > 0.45 or absf(fmod(v * 12.0, 1.0) - 0.5) > 0.45:
+			g -= 0.16                                  # травлёные канавки
+		g += _scratch(u, v, 90.0, 7.7) * 0.22
+		return Color(g * 0.93, g * 0.96, g))
+	var rough := _rough_tex("imp_steel", IMP_RES, func(u: float, v: float) -> float:
+		return clampf(0.22 + (_fbm(u * 30.0, v, 50.0, 3.1, 2) - 0.5) * 0.3
+			+ _scratch(u, v, 90.0, 7.7) * 0.3, 0.05, 1.0))
+	return _std(tex, _normal_tex("imp_steel", IMP_RES_N, h, 1.2), Color.WHITE, 0.25, 0.85, 3.0, rough)
+
+
+## Плата: тёмный текстолит, медные дорожки, пайка и светящиеся переходы.
+static func _mat_imp_circuit(glow: Color) -> StandardMaterial3D:
+	var key := "imp_circuit"
+	var h := func(u: float, v: float) -> float:
+		var t := 0.0
+		if absf(fmod(u * 16.0, 1.0) - 0.5) > 0.38 or absf(fmod(v * 11.0, 1.0) - 0.5) > 0.40:
+			t = 0.6
+		return t + _fbm(u, v, 60.0, 2.4, 2) * 0.15
+	var tex := _texture(key, IMP_RES, func(u: float, v: float) -> Color:
+		var board := Color(0.05, 0.09, 0.07)
+		var trace := absf(fmod(u * 16.0, 1.0) - 0.5) > 0.38 or absf(fmod(v * 11.0, 1.0) - 0.5) > 0.40
+		var pad := _cells(u, v, 14.0, 4.2) < 0.10
+		if pad:
+			return Color(0.72, 0.68, 0.45)             # пайка
+		if trace:
+			return Color(0.55, 0.42, 0.16)             # медь
+		var n: float = (_fbm(u, v, 40.0, 8.4, 2) - 0.5) * 0.04
+		return Color(board.r + n, board.g + n, board.b + n))
+	var em := _texture(key + "_e", IMP_RES, func(u: float, v: float) -> Color:
+		# Светятся только редкие переходные отверстия — не вся плата.
+		var via: float = 1.0 - smoothstep(0.0, 0.05, _cells(u, v, 9.0, 11.9))
+		return Color(via, via, via))
+	var mat := _std(tex, _normal_tex(key, IMP_RES_N, h, 1.0), Color.WHITE, 0.55, 0.15, 3.0)
+	mat.emission_enabled = true
+	mat.emission = glow
+	mat.emission_texture = em
+	mat.emission_energy_multiplier = 2.4
+	return mat
+
+
+## Мокрое мясо: волокна, вены, блики на влаге.
+static func _mat_imp_meat() -> StandardMaterial3D:
+	var h := func(u: float, v: float) -> float:
+		var vein: float = 1.0 - smoothstep(0.0, 0.07, _cells(u, v, 6.0, 13.7))
+		return _fbm(u * 8.0, v, 24.0, 5.5, 3) * 0.4 + vein * 0.5
+	var tex := _texture("imp_meat", IMP_RES, func(u: float, v: float) -> Color:
+		var fiber: float = (_fbm(u * 12.0, v, 30.0, 5.5, 3) - 0.5) * 0.22   # волокна вдоль
+		var vein: float = 1.0 - smoothstep(0.0, 0.06, _cells(u, v, 6.0, 13.7))
+		var deep: float = (_fbm(u, v, 5.0, 2.2) - 0.5) * 0.12
+		var r := 0.34 + fiber + deep - vein * 0.14
+		return Color(r, r * 0.20 + vein * 0.05, r * 0.18 + vein * 0.08))
+	var rough := _rough_tex("imp_meat", IMP_RES, func(u: float, v: float) -> float:
+		# Влага собирается во впадинах — там почти зеркало.
+		return clampf(0.42 - (_fbm(u * 12.0, v, 30.0, 5.5, 3) - 0.5) * 0.55, 0.05, 1.0))
+	return _std(tex, _normal_tex("imp_meat", IMP_RES_N, h, 1.6), Color.WHITE, 0.35, 0.0, 3.0, rough)
+
+
+## Изнанка раны: тёмная влажная полость.
+static func _mat_imp_gut() -> StandardMaterial3D:
+	var h := func(u: float, v: float) -> float:
+		return _fbm(u, v, 14.0, 9.1, 3) * 0.5
+	var tex := _texture("imp_gut", IMP_RES, func(u: float, v: float) -> Color:
+		var n: float = (_fbm(u, v, 14.0, 9.1, 3) - 0.5) * 0.16
+		var wet: float = maxf(0.0, _fbm(u, v, 7.0, 3.3) - 0.6) * 0.3
+		return Color(0.17 + n + wet, 0.03 + n * 0.3, 0.035 + n * 0.3))
+	var rough := _rough_tex("imp_gut", IMP_RES, func(u: float, v: float) -> float:
+		return clampf(0.3 - maxf(0.0, _fbm(u, v, 7.0, 3.3) - 0.55) * 0.6, 0.05, 1.0))
+	return _std(tex, _normal_tex("imp_gut", IMP_RES_N, h, 1.4), Color.WHITE, 0.3, 0.0, 3.0, rough)
+
+
+## Кость: плотная, с порами и сколами.
+static func _mat_imp_bone() -> StandardMaterial3D:
+	var h := func(u: float, v: float) -> float:
+		return _fbm(u, v, 30.0, 6.6, 3) * 0.3 - (1.0 - smoothstep(0.0, 0.04, _cells(u, v, 26.0, 2.8))) * 0.5
+	var tex := _texture("imp_bone", IMP_RES, func(u: float, v: float) -> Color:
+		var n: float = (_fbm(u, v, 30.0, 6.6, 3) - 0.5) * 0.12
+		var pore: float = 1.0 - smoothstep(0.0, 0.035, _cells(u, v, 26.0, 2.8))
+		var g := 0.78 + n - pore * 0.28
+		return Color(g, g * 0.96, g * 0.86))
+	return _std(tex, _normal_tex("imp_bone", IMP_RES_N, h, 1.3), Color.WHITE, 0.62, 0.0, 3.0)
+
+
+## Био-гель: полупрозрачная масса с пузырями.
+static func _mat_imp_gel(tint: Color) -> StandardMaterial3D:
+	var h := func(u: float, v: float) -> float:
+		return (1.0 - smoothstep(0.0, 0.12, _cells(u, v, 10.0, 4.9))) * 0.8
+	var tex := _texture("imp_gel", IMP_RES, func(u: float, v: float) -> Color:
+		var bub: float = 1.0 - smoothstep(0.0, 0.1, _cells(u, v, 10.0, 4.9))
+		var n: float = (_fbm(u, v, 18.0, 7.1) - 0.5) * 0.15
+		var g := 0.6 + n + bub * 0.3
+		return Color(g, g, g))
+	var mat := _std(tex, _normal_tex("imp_gel", IMP_RES_N, h, 1.8), tint, 0.12, 0.0, 3.0)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(tint.r, tint.g, tint.b, 0.72)
+	mat.emission_enabled = true
+	mat.emission = tint
+	mat.emission_energy_multiplier = 0.9
+	return mat
+
+
+## Иней на железе — крио.
+static func _mat_imp_frost() -> StandardMaterial3D:
+	var h := func(u: float, v: float) -> float:
+		return (1.0 - smoothstep(0.0, 0.09, _cells(u, v, 18.0, 8.3))) * 0.9 + _fbm(u, v, 50.0, 1.7, 2) * 0.2
+	var tex := _texture("imp_frost", IMP_RES, func(u: float, v: float) -> Color:
+		var cr: float = 1.0 - smoothstep(0.0, 0.08, _cells(u, v, 18.0, 8.3))
+		var n: float = (_fbm(u, v, 50.0, 1.7, 2) - 0.5) * 0.1
+		var g := 0.72 + n + cr * 0.25
+		return Color(g * 0.86, g * 0.95, g))
+	return _std(tex, _normal_tex("imp_frost", IMP_RES_N, h, 2.0), Color.WHITE, 0.25, 0.1, 3.0)
+
+
+## Обугленное — после факела и ЭМИ.
+static func _mat_imp_char() -> StandardMaterial3D:
+	var h := func(u: float, v: float) -> float:
+		return (1.0 - smoothstep(0.0, 0.05, _cells(u, v, 20.0, 15.2))) * 0.9
+	var tex := _texture("imp_char", IMP_RES, func(u: float, v: float) -> Color:
+		var crack: float = 1.0 - smoothstep(0.0, 0.05, _cells(u, v, 20.0, 15.2))
+		var n: float = (_fbm(u, v, 40.0, 6.1, 2) - 0.5) * 0.06
+		var g := 0.09 + n
+		# В трещинах ещё тлеет.
+		return Color(g + crack * 0.35, g + crack * 0.1, g))
+	var mat := _std(tex, _normal_tex("imp_char", IMP_RES_N, h, 1.7), Color.WHITE, 0.9, 0.0, 3.0)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.35, 0.08)
+	mat.emission_energy_multiplier = 0.6
+	return mat
 
 
 static func _mat_strap() -> StandardMaterial3D:

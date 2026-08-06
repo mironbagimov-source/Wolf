@@ -1,43 +1,43 @@
 [gd_scene load_steps=7 format=3]
 
-[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_t2f0b"]
-[ext_resource type="PackedScene" path="res://assets/characters/bodies/heraklios.fbx" id="2_im437"]
-[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_killer_b.res" id="3_ks5sg"]
+[ext_resource type="Script" path="res://scripts/char_body.gd" id="1_fcvd5"]
+[ext_resource type="PackedScene" path="res://assets/characters/bodies/heraklios.fbx" id="2_y3r21"]
+[ext_resource type="AnimationLibrary" path="res://scenes/chars/anims_killer_b.res" id="3_u16gi"]
 
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_upm7b"]
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_dngdc"]
 radius = 0.4
 height = 1.8
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ug8ur"]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ju1cj"]
 albedo_color = Color(1, 1, 0, 1)
 emission_enabled = true
 emission = Color(1, 1, 0, 1)
 emission_energy_multiplier = 4.0
 
-[sub_resource type="BoxMesh" id="BoxMesh_nhpnr"]
+[sub_resource type="BoxMesh" id="BoxMesh_traho"]
 size = Vector3(0.16, 0.16, 0.16)
 
 [node name="Merc B" type="CharacterBody3D"]
-script = ExtResource("1_t2f0b")
+script = ExtResource("1_fcvd5")
 faction = "killer"
 is_leader = false
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_upm7b")
+shape = SubResource("CapsuleShape3D_dngdc")
 
 [node name="Visual" type="Node3D" parent="."]
 
-[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_im437")]
+[node name="Body" type="Node3D" parent="Visual" instance=ExtResource("2_y3r21")]
 transform = Transform3D(-0.985611, 0, -8.61648e-08, 0, 0.985611, 0, 8.61648e-08, 0, -0.985611, 0, 0, 0)
 
 [node name="AnimationPlayer" type="AnimationPlayer" parent="Visual"]
 libraries = {
-"": ExtResource("3_ks5sg")
+"": ExtResource("3_u16gi")
 }
 
 [node name="Telegraph" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3, 0)
 visible = false
-material_override = SubResource("StandardMaterial3D_ug8ur")
-mesh = SubResource("BoxMesh_nhpnr")
+material_override = SubResource("StandardMaterial3D_ju1cj")
+mesh = SubResource("BoxMesh_traho")
