@@ -85,6 +85,8 @@ var peaceful := false              # в квартале никто не дер�
 var city_role := "fixer"           # фиксер / инфоброкер / курьер
 var npc_posts: Array = []          # [{pos, prof, place, who}]
 var bound := Vector2(WolfCfg.BOUND_X, WolfCfg.BOUND_Z)   # границы текущей локации
+var respawn_t := 0.0               # игрок лежит: отсчёт до подъёма
+var respawns := 0                  # сколько раз уже поднимался
 var role_progress := 0
 var deals_with := {}               # профессии, с которыми уже есть сделка
 var stories := {}                  # собранные истории
@@ -412,6 +414,8 @@ func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout
 	call_timer = 0.0
 	_caller = null
 	_caller_delay = 25.0
+	respawn_t = 0.0
+	respawns = 0
 	for d in doors:
 		if (d as WolfDoor).is_open and not (d as WolfDoor).is_broken:
 			(d as WolfDoor).toggle()  # matches start with doors closed
@@ -814,11 +818,112 @@ func _end_game(result: String) -> void:
 	ui.show_end(copy[0], copy[1], WolfCfg.FACTION_COLOR[copy[2]])
 
 
+# ---------------------------------------------------------------------------
+# ВОЗРОЖДЕНИЕ: смерть больше не выкидывает из матча
+# ---------------------------------------------------------------------------
+
+## Игрок убит — отсчитываем паузу и поднимаем его на дальнем спавне.
+func _tick_respawn(delta: float) -> void:
+	if player == null or not is_instance_valid(player) or mode != "playing":
+		return
+	player.invuln_t = maxf(0.0, player.invuln_t - delta)
+	if not player.is_dead:
+		respawn_t = 0.0
+		return
+	if respawn_t <= 0.0:
+		respawn_t = WolfCfg.RESPAWN_TIME
+		return
+	respawn_t -= delta
+	if respawn_t <= 0.0:
+		respawn_t = 0.0
+		_respawn_player()
+
+
+## Точка возрождения: из спавнов берём ту, что дальше всего от живых врагов.
+func _respawn_spot() -> Vector3:
+	var spots := _spawn_positions("Player")
+	if spots.is_empty():
+		spots = _spawn_positions("Survivor")
+	if spots.is_empty():
+		return player.global_position + Vector3(0, 0.3, 0)
+	var best: Vector3 = spots[0]
+	var best_score := -INF
+	for spot: Vector3 in spots:
+		var near := INF
+		for e: WolfChar in entities:
+			if e == player or e.is_dead or not _hostile(player, e):
+				continue
+			near = minf(near, e.global_position.distance_to(spot))
+		if near == INF:
+			near = WolfCfg.RESPAWN_SAFE * 2.0
+		if near > best_score:
+			best_score = near
+			best = spot
+	return best
+
+
+## Подъём: тело собирается обратно, все «прилипшие» состояния снимаются.
+func _respawn_player() -> void:
+	var p := player
+	respawns += 1
+	# Снимаем всё, что могло на нём висеть к моменту смерти.
+	if p.grabbed_by != null and is_instance_valid(p.grabbed_by):
+		_release_grab(p.grabbed_by)
+	if p.carrying != null and is_instance_valid(p.carrying):
+		_release_grab(p)
+	for i in range(_executions.size() - 1, -1, -1):
+		var ex: Dictionary = _executions[i]
+		if ex["victim"] == p or ex["executor"] == p:
+			_executions.remove_at(i)
+	exec_cam = {}
+	p.is_dead = false
+	p.downed = false
+	p.being_executed = false
+	p.agony_t = 0.0
+	p.hp = p.max_hp
+	p.stamina = WolfCfg.STAMINA_MAX
+	p.stagger_t = 0.0
+	p.recover_t = 0.0
+	p.knockback = Vector3.ZERO
+	p.velocity = Vector3.ZERO
+	p.move_input = Vector2.ZERO
+	p.charging = false
+	p.winding = false
+	p.is_blocking = false
+	p.feed_t = 0.0
+	p.glued_t = 0.0
+	p.blind_t = 0.0
+	p.chill_t = 0.0
+	p.emp_t = 0.0
+	p.puppet_t = 0.0
+	p.hit_flash = 0.0
+	p.installing = false
+	p.invuln_t = WolfCfg.RESPAWN_INVULN
+	if p.visual != null:
+		p.visual.rotation = Vector3.ZERO   # клип смерти валит модель — поднимаем
+	p.play_loop("Idle")
+	p.global_position = _respawn_spot()
+	ui.set_blind(false)
+	ui.set_flash_alpha(0.0)
+	_vm_rest()
+	_act_kind = ""
+	_act_target = null
+	_act_t = 0.0
+	_capture_mouse(true)
+	_cloud(p.global_position + Vector3(0, 1.0, 0), Color(0.4, 0.8, 1.0), 22, 3.0, 0.8, 1.0, 0.1)
+	_loot_msg = "ПОДЪЁМ (%d) — ты снова в деле. Пара секунд неуязвимости." % respawns
+	_loot_msg_t = 4.0
+
+
 func _alive(faction: String) -> int:
 	var n := 0
 	for e in entities:
-		if e.faction == faction and not e.is_dead and not e.is_bait:
+		if e.faction != faction or e.is_bait:
+			continue
+		if not e.is_dead:
 			n += 1  # приманка «жива», но выжившим не считается
+		elif e == player and respawn_t > 0.0:
+			n += 1  # игрок вот-вот поднимется — матч из-за него не кончается
 	return n
 
 
@@ -1352,6 +1457,9 @@ func _spark_burst(pos: Vector3) -> void:
 # ---------------------------------------------------------------------------
 
 func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
+	# Только что поднялся после смерти — пара секунд, чтобы отойти от спавна.
+	if target.invuln_t > 0.0:
+		return
 	var finisher_hit := dmg >= 9000.0
 	# Подкожная броня режет всё, кроме добиваний.
 	if not finisher_hit and target.has_implant("subdermal"):
@@ -2282,9 +2390,13 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	e.update_animation(delta)
 
 
+var _hold_t := 0.0   # сколько держится [E] — по этому разводим нажатие и удержание
+
+
 func _apply_interact(e: WolfChar, delta: float) -> void:
 	if not e.is_player:
 		return
+	_hold_t = _hold_t + delta if e.interact_held else 0.0
 
 	# --- МИРНЫЙ ГОРОД: только разговоры и заказы ---
 	if peaceful:
@@ -2937,6 +3049,27 @@ func _civ_target(e: WolfChar) -> WolfChar:
 	return best
 
 
+## Кого можно НАЧИНИТЬ. В отличие от _civ_target сюда попадают и трупы:
+## гуль обгладывает тело и оно становится мёртвым, но железу это не мешает —
+## раньше после трапезы вживить было уже некуда.
+func _implant_target(e: WolfChar) -> WolfChar:
+	var best: WolfChar = null
+	var best_d := WolfCfg.CIV_INTERACT_RANGE
+	for t: WolfChar in entities:
+		if t == e or t.faction != "survivor" or t.is_bait or t.being_executed:
+			continue
+		if t.civ_implant != "" or not (t.downed or t.is_dead):
+			continue
+		var dp := t.global_position - e.global_position
+		if absf(dp.y) > 2.2:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d < best_d:
+			best_d = d
+			best = t
+	return best
+
+
 ## Все действия игрока над гражданскими. Возвращает true, если нажатие/
 ## удержание E ушло сюда (чтобы не сработали двери, лут и взрывчатка).
 func _civ_actions(p: WolfChar, delta: float) -> bool:
@@ -2950,7 +3083,11 @@ func _civ_actions(p: WolfChar, delta: float) -> bool:
 	# Идёт удержание (подъём/допрос).
 	if _act_kind != "":
 		var t := _act_target
-		var alive: bool = t != null and is_instance_valid(t) and not t.is_dead
+		# Поднять и допросить можно только живого, а НАЧИНИТЬ — и труп тоже:
+		# иначе обглоданное гулём тело срывало установку на первом же кадре.
+		var alive: bool = t != null and is_instance_valid(t)
+		if _act_kind != "civimplant":
+			alive = alive and not t.is_dead
 		var near: bool = alive and t.global_position.distance_to(p.global_position) <= WolfCfg.CIV_INTERACT_RANGE + 1.0
 		if not p.interact_held or not near or p.stagger_t > 0.0:
 			_act_kind = ""
@@ -2986,17 +3123,22 @@ func _civ_actions(p: WolfChar, delta: float) -> bool:
 			_vm_rest()
 		return true
 
+	# Начинить можно и раненого, и труп — ищем отдельно от прочих действий.
+	# У ТРУПА короткое нажатие занято другим (наёмник делает из него
+	# приманку), поэтому за начинку берёмся только после заметного зажима.
+	if p.faction in ["killer", "cannibal", "ghoul"] and p.interact_held:
+		var meat := _implant_target(p)
+		if meat != null and meat.is_dead and _hold_t < 0.3:
+			meat = null
+		if meat != null:
+			_act_kind = "civimplant"
+			_act_target = meat
+			_act_t = 0.0
+			p.play_loop("Implant")
+			return true
 	var civ := _civ_target(p)
 	if civ == null:
 		return false
-	# Раненого можно НАЧИНИТЬ: тело становится инструментом (1/2/3 — выбор).
-	if civ.downed and civ.civ_implant == "" and p.faction in ["killer", "cannibal", "ghoul"] \
-			and p.interact_held:
-		_act_kind = "civimplant"
-		_act_target = civ
-		_act_t = 0.0
-		p.play_loop("Implant")
-		return true
 	match p.faction:
 		"survivor":
 			if civ.downed:
@@ -3419,7 +3561,9 @@ func _do_civ_implant(surgeon: WolfChar, t: WolfChar) -> void:
 	surgeon.play_oneshot("Activate")
 	# Свежая начинка ложится в режим «готов к добиванию»: тело как лежало,
 	# так и лежит, но теперь оно — ловушка.
-	t.civ_mode = "ready"
+	# Раненый ложится ловушкой на добивание, труп добивать уже некому —
+	# он встаёт сразу на самоспуск.
+	t.civ_mode = "armed" if t.is_dead else "ready"
 	t.arm_t = 0.0
 	t.set_meta("implanter", surgeon)
 	_civ_device(t)
@@ -3724,19 +3868,20 @@ func _cycle_civ_mode(p: WolfChar, t: WolfChar) -> void:
 	# поднимает его на ноги.
 	match t.civ_mode:
 		"free":
-			if t.downed:
+			# Труп так и лежит: «свободный» для него значит просто «начинка спит».
+			if t.downed and not t.is_dead:
 				t.downed = false
 				t.agony_t = 0.0
 				t.hp = maxf(t.hp, t.max_hp * 0.3)
 				t.revive_anim()
-			t.follow_target = p if p.is_player else null
+				t.follow_target = p if p.is_player else null
 		"lure":
 			t.follow_target = null
 			t.move_input = Vector2.ZERO
 		"ready":
 			t.follow_target = null
 			t.move_input = Vector2.ZERO
-			if not t.downed:
+			if not t.downed and not t.is_dead:
 				t.downed = true
 				t.agony_t = 0.0
 				t.play_death(false)
@@ -3757,8 +3902,8 @@ func _implanted_near(p: WolfChar) -> WolfChar:
 	var best: WolfChar = null
 	var best_d := 3.0
 	for t: WolfChar in entities:
-		if t == p or t.civ_implant == "" or t.is_dead:
-			continue
+		if t == p or t.civ_implant == "":
+			continue   # мёртвое тело с начинкой — тоже устройство, режим меняем
 		var dp := t.global_position - p.global_position
 		if absf(dp.y) > 2.5:
 			continue
@@ -3820,10 +3965,18 @@ func _tick_civ_modes(delta: float) -> void:
 						e.investigate_pos = t.global_position
 						e.investigate_t = 3.0
 			"armed":
-				# Самоспуск: враг подошёл вплотную — щелчок и подрыв.
+				# Самоспуск: ВРАГ подошёл вплотную — щелчок и подрыв.
+				# Своих не трогает: начинка помнит, кто её ставил, иначе
+				# рвётся в лицо тому же, кто её и вживил.
+				var owner := t.get_meta("implanter", null) as WolfChar
+				var own_side := "killer"
+				if owner != null and is_instance_valid(owner):
+					own_side = owner.faction
 				var near := false
 				for e: WolfChar in entities:
-					if e.faction not in ["cannibal", "ghoul"] or e.is_dead:
+					if e.faction == own_side or e.is_dead:
+						continue
+					if e.faction not in ["cannibal", "ghoul", "killer"]:
 						continue
 					if e.global_position.distance_to(t.global_position) <= WolfCfg.CIV_MODE_ARM_RADIUS:
 						near = true
@@ -5163,7 +5316,11 @@ func _detonate_bait(source: WolfChar) -> void:
 
 func _prompt_for(p: WolfChar) -> String:
 	if p.is_dead:
+		if respawn_t > 0.0:
+			return "УБИТ — подъём через %.1f сек  (подъёмов за матч: %d)" % [respawn_t, respawns]
 		return "Вы мертвы."
+	if p.invuln_t > 0.0:
+		return "ТОЛЬКО ПОДНЯЛСЯ — неуязвим ещё %.1f сек" % p.invuln_t
 	if p.being_executed:
 		return "Тебя добивают…"
 	if p.glued_t > 0.0:
@@ -5246,9 +5403,17 @@ func _prompt_for(p: WolfChar) -> String:
 			return "%s · режим: %s (%s) · [X] → %s · [G] подрыв" % [
 				WolfCfg.CIV_IMPLANTS[dev_body.civ_implant]["name"], dm["name"], dm["tag"],
 				WolfCfg.CIV_MODE_INFO[nxt]["name"]]
+	if p.faction in ["killer", "cannibal", "ghoul"]:
+		var meat := _implant_target(p)
+		if meat != null:
+			var what := "ТРУП" if meat.is_dead else "РАНЕНОГО"
+			var extra := ""
+			if meat.is_dead and p.faction == "killer" \
+					and (bait == null or not is_instance_valid(bait) or bait.is_dead):
+				extra = "  ·  короткое [E] — сделать приманку"
+			return "[держать E] НАЧИНИТЬ %s: %s%s  ·  1-0 меняют начинку" % [
+				what, WolfCfg.CIV_IMPLANTS[_implant_pick]["name"], extra]
 	var civ := _civ_target(p)
-	if civ != null and civ.downed and civ.civ_implant == "" and p.faction in ["killer", "cannibal", "ghoul"]:
-		return "[держать E] НАЧИНИТЬ РАНЕНОГО: %s  ·  1-0 меняют начинку" % WolfCfg.CIV_IMPLANTS[_implant_pick]["name"]
 	if civ != null:
 		match p.faction:
 			"survivor":
@@ -5386,6 +5551,8 @@ func _update_hud() -> void:
 		if p.dermal_cd > 0.0:
 			names.append("железа: %d с" % int(ceil(p.dermal_cd)))
 		stance.append(" ".join(names))
+	if respawns > 0:
+		stance.append("Подъёмов: %d" % respawns)
 	if p.crouching:
 		stance.append("присед")
 	elif p.sprinting:
@@ -5444,6 +5611,7 @@ func _physics_process(delta: float) -> void:
 	_tick_viewmodel(delta)
 	_tick_civ_modes(delta)
 	_tick_stickies(delta)
+	_tick_respawn(delta)
 	_loot_msg_t = maxf(0.0, _loot_msg_t - delta)
 	# Conditions like "merc stands in the evac zone" change without anyone
 	# dying, so the win check runs every tick, not only on kill events.
@@ -5569,6 +5737,10 @@ func _run_test(delta: float) -> void:
 			_test_demo(delta)
 		"hands":
 			_test_hands(delta)
+		"respawn":
+			_test_respawn(delta)
+		"eaten":
+			_test_eaten(delta)
 		"civbomb":
 			_test_civbomb(delta)
 		"slime":
@@ -6072,6 +6244,90 @@ func _live_psycho() -> WolfChar:
 ## lure  — психи разворачиваются и идут на хрип;
 ## ready — тот, кто нагнулся добить, ловит начинку в лицо;
 ## armed — начинка срабатывает сама, когда враг подходит вплотную.
+var _respawn_where := Vector3.ZERO
+
+
+## ВОЗРОЖДЕНИЕ: убитый игрок поднимается сам, целым и в другом месте.
+func _test_respawn(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+		return
+	if mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		_respawn_where = player.global_position
+		_mode_probe_hp = player.max_hp
+		player.invuln_t = 0.0
+		_damage(player, 99999.0, null)   # добивание насмерть
+		return
+	if not _test_staged:
+		return
+	if not _test_shot_taken:
+		if not player.is_dead and respawns > 0:
+			_test_shot_taken = true
+			if _test_shot != "":
+				await _save_shot()
+		elif _test_t > 14.0:
+			_test_shot_taken = true
+		return
+	if _test_t < 15.0:
+		return
+	var moved := _respawn_where.distance_to(player.global_position)
+	var ok := respawns > 0 and not player.is_dead and player.hp >= player.max_hp - 0.5 \
+		and mode == "playing"
+	print("TEST RESULT: respawn подъёмов=%d жив=%s HP=%.0f/%.0f отнесло=%.1f м режим=%s %s"
+		% [respawns, str(not player.is_dead), player.hp, player.max_hp, moved, mode,
+		"OK" if ok else "FAIL"])
+	get_tree().quit(0 if ok else 1)
+
+
+## ГУЛЬ СЪЕЛ — А НАЧИНИТЬ ВСЁ РАВНО МОЖНО. Раньше обглоданное тело
+## становилось мёртвым и переставало быть целью для импланта.
+func _test_eaten(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("ghoul", 0, -1)
+		return
+	if mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)   # подальше от чужой драки
+		player.max_hp = 9999.0
+		player.hp = 9999.0
+		_implant_pick = "bomb"
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool: return e.faction == "survivor")[0]
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		_damage(_duel_bot, 999.0, null)      # свалили в агонию
+		_devour(player, _duel_bot)           # гуль сел и съел
+		return
+	if not _test_staged:
+		return
+	if not _test_shot_taken:
+		# Тело обглодано и мертво — но начинить его обязано быть можно.
+		player.stagger_t = 0.0    # чужие тычки не должны срывать удержание
+		_duel_bot.global_position = player.global_position + Vector3(1.0, 0, 0)
+		if _duel_bot.civ_implant != "":
+			_test_shot_taken = true
+			if _test_shot != "":
+				await _save_shot()
+		elif _test_t < 12.0:
+			var ev := InputEventKey.new()
+			ev.keycode = KEY_E
+			ev.physical_keycode = KEY_E
+			ev.pressed = true
+			Input.parse_input_event(ev)
+		else:
+			_test_shot_taken = true
+		return
+	if _test_t < 13.0:
+		return
+	var eaten: bool = _duel_bot.get_meta("eaten", false)
+	var ok: bool = _duel_bot.is_dead and eaten \
+		and _duel_bot.civ_implant == "bomb" and _duel_bot.get_node_or_null("CivDevice") != null
+	print("TEST RESULT: eaten труп=%s обглодан=%s начинка=«%s» устройство=%s режим=%s %s"
+		% [str(_duel_bot.is_dead), str(eaten), _duel_bot.civ_implant,
+		str(_duel_bot.get_node_or_null("CivDevice") != null), _duel_bot.civ_mode,
+		"OK" if ok else "FAIL"])
+	get_tree().quit(0 if ok else 1)
+
+
 func _test_civmode(_delta: float) -> void:
 	var what := OS.get_environment("WOLF_MODE")
 	if what == "":
@@ -6210,14 +6466,22 @@ func _test_demo(_delta: float) -> void:
 		_psycho_probe.max_hp = 4000.0     # чтобы выжил и было что мерить
 		_psycho_probe.hp = 4000.0
 		_mode_probe_hp = _psycho_probe.hp
+		# Заряд летит по взгляду КАМЕРЫ — выравниваем её, иначе бросок уходит
+		# в пол или в потолок и тест «мажет» через раз.
 		player.rotation.y = _yaw_toward(1.0, 0.0)
+		_pitch = 0.0
+		player_cam.rotation.x = 0.0
 		return
 	if not _test_staged:
 		return
 	if not _test_shot_taken:
+		# Псих стоит смирно всё время опыта, иначе уходит из радиуса.
+		_psycho_probe.global_position = player.global_position + Vector3(2.5, 0, 0)
+		_psycho_probe.move_input = Vector2.ZERO
+		_pitch = 0.0
+		player_cam.rotation.x = 0.0
 		# Лепим заряд в психа и рвём.
 		if _stickies.is_empty() and _test_t < 6.0:
-			_psycho_probe.global_position = player.global_position + Vector3(3.0, 0, 0)
 			player.wants_throw = true
 		elif not _stickies.is_empty():
 			var all_stuck := true
