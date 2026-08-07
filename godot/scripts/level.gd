@@ -940,8 +940,16 @@ static func _hash2(ix: float, iy: float, s: float) -> float:
 	return fposmod(sin(ix * 127.1 + iy * 311.7 + s) * 43758.5453, 1.0)
 
 
+## uv_mapped — брать РАЗВЁРТКУ МЕША вместо мировой triplanar-проекции.
+##
+## Мир тайлится в мировых координатах: у процедурных стен и полов своей UV нет,
+## и triplanar там единственный вариант. У имплантов UV есть — её делает
+## Blender. И triplanar на них не просто лишний, а вреден: деталь размером
+## 5-15 см вырезает из текстуры однотонный клочок, и плата выходит белым
+## бруском, а кость — гладкой костяшкой.
 static func _std(albedo_tex: ImageTexture, normal: ImageTexture, tint: Color, rough: float,
-		metal := 0.0, tri_scale := 0.35, rough_tex: ImageTexture = null) -> StandardMaterial3D:
+		metal := 0.0, tri_scale := 0.35, rough_tex: ImageTexture = null,
+		uv_mapped := false) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_texture = albedo_tex
 	mat.albedo_color = tint
@@ -955,9 +963,12 @@ static func _std(albedo_tex: ImageTexture, normal: ImageTexture, tint: Color, ro
 		mat.normal_enabled = true
 		mat.normal_texture = normal
 		mat.normal_scale = 1.0
-	mat.uv1_triplanar = true
-	mat.uv1_world_triplanar = true
-	mat.uv1_scale = Vector3(tri_scale, tri_scale, tri_scale)
+	if uv_mapped:
+		mat.uv1_scale = Vector3.ONE   # плотность задана развёрткой в Blender
+	else:
+		mat.uv1_triplanar = true
+		mat.uv1_world_triplanar = true
+		mat.uv1_scale = Vector3(tri_scale, tri_scale, tri_scale)
 	return mat
 
 
@@ -1156,7 +1167,7 @@ static func _mat_imp_steel() -> StandardMaterial3D:
 	var rough := _rough_tex("imp_steel", IMP_RES, func(u: float, v: float) -> float:
 		return clampf(0.22 + (_fbm(u * 30.0, v, 50.0, 3.1, 2) - 0.5) * 0.3
 			+ _scratch(u, v, 90.0, 7.7) * 0.3, 0.05, 1.0))
-	return _std(tex, _normal_tex("imp_steel", IMP_RES_N, h, 1.2), Color.WHITE, 0.25, 0.85, 3.0, rough)
+	return _std(tex, _normal_tex("imp_steel", IMP_RES_N, h, 1.2), Color.WHITE, 0.25, 0.85, 3.0, rough, true)
 
 
 ## Плата: тёмный текстолит, медные дорожки, пайка и светящиеся переходы.
@@ -1181,10 +1192,13 @@ static func _mat_imp_circuit(glow: Color) -> StandardMaterial3D:
 		# Светятся только редкие переходные отверстия — не вся плата.
 		var via: float = 1.0 - smoothstep(0.0, 0.05, _cells(u, v, 9.0, 11.9))
 		return Color(via, via, via))
-	var mat := _std(tex, _normal_tex(key, IMP_RES_N, h, 1.0), Color.WHITE, 0.55, 0.15, 3.0)
+	var mat := _std(tex, _normal_tex(key, IMP_RES_N, h, 1.0), Color.WHITE, 0.55, 0.15, 3.0, null, true)
 	mat.emission_enabled = true
 	mat.emission = glow
 	mat.emission_texture = em
+	# MULTIPLY, а не ADD: при ADD цвет эмиссии ПРИБАВЛЯЕТСЯ к маске, маска
+	# перестаёт быть маской, и плата светится целиком — белым бруском.
+	mat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
 	mat.emission_energy_multiplier = 2.4
 	return mat
 
@@ -1203,7 +1217,7 @@ static func _mat_imp_meat() -> StandardMaterial3D:
 	var rough := _rough_tex("imp_meat", IMP_RES, func(u: float, v: float) -> float:
 		# Влага собирается во впадинах — там почти зеркало.
 		return clampf(0.42 - (_fbm(u * 12.0, v, 30.0, 5.5, 3) - 0.5) * 0.55, 0.05, 1.0))
-	return _std(tex, _normal_tex("imp_meat", IMP_RES_N, h, 1.6), Color.WHITE, 0.35, 0.0, 3.0, rough)
+	return _std(tex, _normal_tex("imp_meat", IMP_RES_N, h, 1.6), Color.WHITE, 0.35, 0.0, 3.0, rough, true)
 
 
 ## Изнанка раны: тёмная влажная полость.
@@ -1216,7 +1230,7 @@ static func _mat_imp_gut() -> StandardMaterial3D:
 		return Color(0.17 + n + wet, 0.03 + n * 0.3, 0.035 + n * 0.3))
 	var rough := _rough_tex("imp_gut", IMP_RES, func(u: float, v: float) -> float:
 		return clampf(0.3 - maxf(0.0, _fbm(u, v, 7.0, 3.3) - 0.55) * 0.6, 0.05, 1.0))
-	return _std(tex, _normal_tex("imp_gut", IMP_RES_N, h, 1.4), Color.WHITE, 0.3, 0.0, 3.0, rough)
+	return _std(tex, _normal_tex("imp_gut", IMP_RES_N, h, 1.4), Color.WHITE, 0.3, 0.0, 3.0, rough, true)
 
 
 ## Кость: плотная, с порами и сколами.
@@ -1226,9 +1240,11 @@ static func _mat_imp_bone() -> StandardMaterial3D:
 	var tex := _texture("imp_bone", IMP_RES, func(u: float, v: float) -> Color:
 		var n: float = (_fbm(u, v, 30.0, 6.6, 3) - 0.5) * 0.12
 		var pore: float = 1.0 - smoothstep(0.0, 0.035, _cells(u, v, 26.0, 2.8))
-		var g := 0.78 + n - pore * 0.28
-		return Color(g, g * 0.96, g * 0.86))
-	return _std(tex, _normal_tex("imp_bone", IMP_RES_N, h, 1.3), Color.WHITE, 0.62, 0.0, 3.0)
+		var g := 0.54 + n - pore * 0.26
+		# Обломок ребра в свежей ране мокрый и в крови, а не музейно-белый.
+		var blood: float = clampf((_fbm(u, v, 7.0, 9.3, 2) - 0.42) * 3.4, 0.0, 1.0)
+		return Color(g, g * 0.9, g * 0.78).lerp(Color(0.30, 0.05, 0.05), blood * 0.55))
+	return _std(tex, _normal_tex("imp_bone", IMP_RES_N, h, 1.3), Color.WHITE, 0.5, 0.0, 3.0, null, true)
 
 
 ## Био-гель: полупрозрачная масса с пузырями.
@@ -1240,7 +1256,7 @@ static func _mat_imp_gel(tint: Color) -> StandardMaterial3D:
 		var n: float = (_fbm(u, v, 18.0, 7.1) - 0.5) * 0.15
 		var g := 0.6 + n + bub * 0.3
 		return Color(g, g, g))
-	var mat := _std(tex, _normal_tex("imp_gel", IMP_RES_N, h, 1.8), tint, 0.12, 0.0, 3.0)
+	var mat := _std(tex, _normal_tex("imp_gel", IMP_RES_N, h, 1.8), tint, 0.12, 0.0, 3.0, null, true)
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.albedo_color = Color(tint.r, tint.g, tint.b, 0.72)
 	mat.emission_enabled = true
@@ -1258,7 +1274,89 @@ static func _mat_imp_frost() -> StandardMaterial3D:
 		var n: float = (_fbm(u, v, 50.0, 1.7, 2) - 0.5) * 0.1
 		var g := 0.72 + n + cr * 0.25
 		return Color(g * 0.86, g * 0.95, g))
-	return _std(tex, _normal_tex("imp_frost", IMP_RES_N, h, 2.0), Color.WHITE, 0.25, 0.1, 3.0)
+	return _std(tex, _normal_tex("imp_frost", IMP_RES_N, h, 2.0), Color.WHITE, 0.25, 0.1, 3.0, null, true)
+
+
+## Грузит блендеровскую сборку импланта и переводит её материалы на наши
+## процедурные текстуры.
+##
+## В GLB материалы — пустые ярлыки (imp_steel, imp_meat…): геометрию делает
+## Blender, текстуры печём мы. Поверхности с ярлыком imp_glow складываем в
+## мету "glow_mats" — по ним потом идёт пульс.
+static func load_implant(path: String, tint: Color) -> Node3D:
+	if not ResourceLoader.exists(path):
+		push_warning("нет сборки импланта: %s" % path)
+		return null
+	var packed := load(path) as PackedScene
+	if packed == null:
+		return null
+	var root := packed.instantiate() as Node3D
+	if root == null:
+		return null
+	var glow: Array = []
+	_swap_imp_mats(root, tint, glow)
+	root.set_meta("glow_mats", glow)
+	return root
+
+
+static func _swap_imp_mats(node: Node, tint: Color, glow: Array) -> void:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			for i in mi.mesh.get_surface_count():
+				var src := mi.mesh.surface_get_material(i)
+				var label := src.resource_name if src != null else ""
+				var repl := imp_material(label, tint)
+				if repl == null:
+					continue
+				# В полость всегда смотрят снаружи внутрь, поэтому её грани
+				# не отсекаем: иначе чаша исчезает и сквозь дыру видно
+				# изнанку спины.
+				if mi.name == "Cavity" and repl is BaseMaterial3D:
+					(repl as BaseMaterial3D).cull_mode = BaseMaterial3D.CULL_DISABLED
+				mi.set_surface_override_material(i, repl)
+				if label == "imp_glow":
+					glow.append(repl)
+	for c in node.get_children():
+		_swap_imp_mats(c, tint, glow)
+
+
+## Материал по ЯРЛЫКУ из Blender.
+##
+## Геометрию имплантов печёт tools/blender (настоящие корпуса, платы, кабели),
+## а текстуры — мы, процедурно. Связка между ними — имя материала: блендеровский
+## слот "imp_steel" получает здешнюю травлёную сталь. Так меш остаётся лёгким,
+## а текстуры не таскаются в репозитории.
+static func imp_material(label: String, tint: Color) -> Material:
+	match label:
+		"imp_steel":
+			return _mat_imp_steel()
+		"imp_pcb":
+			return _mat_imp_circuit(tint)
+		"imp_meat":
+			return _mat_imp_meat()
+		"imp_gut":
+			return _mat_imp_gut()
+		"imp_bone":
+			return _mat_imp_bone()
+		"imp_gel":
+			return _mat_imp_gel(tint)
+		"imp_frost":
+			return _mat_imp_frost()
+		"imp_char":
+			return _mat_imp_char()
+		"imp_glow":
+			# Ядро светится, но не выжигается в белое пятно: albedo держим
+			# тёмным, свет даёт emission, и цвет остаётся читаемым.
+			var m := StandardMaterial3D.new()
+			m.albedo_color = Color(tint.r * 0.3, tint.g * 0.3, tint.b * 0.3)
+			m.emission_enabled = true
+			m.emission = tint
+			m.emission_energy_multiplier = 0.55
+			m.roughness = 0.35
+			m.metallic = 0.2
+			return m
+	return null
 
 
 ## Обугленное — после факела и ЭМИ.
@@ -1271,10 +1369,19 @@ static func _mat_imp_char() -> StandardMaterial3D:
 		var g := 0.09 + n
 		# В трещинах ещё тлеет.
 		return Color(g + crack * 0.35, g + crack * 0.1, g))
-	var mat := _std(tex, _normal_tex("imp_char", IMP_RES_N, h, 1.7), Color.WHITE, 0.9, 0.0, 3.0)
+	# Угли тлеют В ТРЕЩИНАХ. Без маски вся корка ровно светится оранжевым и
+	# читается как крашеный пластик, а не как обугленное мясо.
+	var em := _texture("imp_char_e", IMP_RES, func(u: float, v: float) -> Color:
+		var crack: float = 1.0 - smoothstep(0.0, 0.05, _cells(u, v, 20.0, 15.2))
+		var breath: float = clampf(_fbm(u, v, 6.0, 3.3) * 1.6 - 0.35, 0.0, 1.0)
+		var e := crack * breath
+		return Color(e, e, e))
+	var mat := _std(tex, _normal_tex("imp_char", IMP_RES_N, h, 1.7), Color.WHITE, 0.9, 0.0, 3.0, null, true)
 	mat.emission_enabled = true
 	mat.emission = Color(1.0, 0.35, 0.08)
-	mat.emission_energy_multiplier = 0.6
+	mat.emission_texture = em
+	mat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+	mat.emission_energy_multiplier = 2.2
 	return mat
 
 

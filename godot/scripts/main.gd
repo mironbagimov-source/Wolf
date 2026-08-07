@@ -3516,7 +3516,7 @@ func _flesh_box(parent: Node3D, pos: Vector3, size: Vector3, mat: Material, rot 
 
 ## Переводит материалы тела на шейдер с ВЫРЕЗОМ: указанный кусок геометрии
 ## перестаёт рисоваться совсем (discard), а не закрывается накладкой.
-func _cut_open(t: WolfChar, radius: float) -> void:
+func _cut_open(t: WolfChar, radius: float, burn := 0.0) -> void:
 	if not t.wound_mats.is_empty() or t.visual == null:
 		return
 	var meshes: Array = []
@@ -3536,7 +3536,7 @@ func _cut_open(t: WolfChar, radius: float) -> void:
 			sm.set_shader_parameter("rough", src.roughness if src != null else 0.7)
 			sm.set_shader_parameter("metal", src.metallic if src != null else 0.0)
 			sm.set_shader_parameter("wound_r", radius)
-			sm.set_shader_parameter("wound_h", 1.35)
+			sm.set_shader_parameter("burn_r", burn)
 			mi.set_surface_override_material(i, sm)
 			t.wound_mats.append(sm)
 
@@ -3549,157 +3549,18 @@ func _collect_meshes(node: Node, out: Array) -> void:
 
 
 ## Начинка полости — у каждого импланта своя, узнаваемая с одного взгляда.
+## Начинка полости: чаша внутренностей, рваная губа разреза и само
+## устройство — всё собрано в Blender (tools/blender/implants.py) и лежит
+## готовым GLB. Здесь только подставляем процедурные текстуры по ярлыкам
+## материалов и запоминаем светящиеся поверхности для пульса.
 func _wound_contents(host: Node3D, kind: String) -> void:
 	var col: Color = WolfCfg.CIV_IMPLANTS.get(kind, {}).get("color", Color(1, 0.2, 0.2))
-	# Настоящие материалы вместо крашеных коробок: мокрое мясо с волокнами и
-	# венами, хирургическая сталь с травлением, плата с дорожками и пайкой.
-	# Начинку разглядывают в упор, в дыре размером с ладонь, — там видно всё.
-	var meat := WolfLevel._mat_imp_meat()
-	var metal := WolfLevel._mat_imp_steel()
-	var board := WolfLevel._mat_imp_circuit(col)
-	var glow := _flesh_mat(col, 2.6, 0.3)
-	match kind:
-		"bomb":
-			# Три брикета, стянутые лентой, с красным детонатором и таймером.
-			for i in 3:
-				_flesh_box(host, Vector3(-0.06 + i * 0.06, 0.02, 0.06), Vector3(0.05, 0.13, 0.06),
-						WolfLevel._mat_explosive())
-			_flesh_box(host, Vector3(0, 0.02, 0.075), Vector3(0.20, 0.03, 0.03), _flesh_mat(Color(0.1, 0.1, 0.11), 0.0, 0.9))
-			_flesh_box(host, Vector3(0, -0.06, 0.075), Vector3(0.17, 0.04, 0.02), board)   # плата детонатора
-			_flesh_box(host, Vector3(0.05, 0.09, 0.07), Vector3(0.035, 0.02, 0.03), glow).name = "WoundCore"
-			_flesh_box(host, Vector3(-0.04, 0.09, 0.07), Vector3(0.05, 0.025, 0.02), _flesh_mat(Color(0.2, 1.0, 0.35), 1.6, 0.3))
-		"slime":
-			# Пульсирующие мешки с зелёной жижей и трубками в мясо.
-			for i in 3:
-				var sac := MeshInstance3D.new()
-				var sp := SphereMesh.new()
-				sp.radius = 0.045 - i * 0.007
-				sp.height = sp.radius * 2.0
-				sac.mesh = sp
-				sac.position = Vector3(-0.06 + i * 0.06, -0.02 + i * 0.03, 0.07)
-				sac.material_override = WolfLevel._mat_imp_gel(col)
-				host.add_child(sac)
-				if i == 1:
-					sac.name = "WoundCore"
-			for i in 4:
-				_flesh_box(host, Vector3(-0.07 + i * 0.045, 0.08, 0.06), Vector3(0.012, 0.09, 0.012), meat)
-		"softener":
-			# Электродная решётка, вбитая в мясо, и провода.
-			for i in 4:
-				_flesh_box(host, Vector3(-0.07 + i * 0.047, 0.0, 0.075), Vector3(0.02, 0.16, 0.02), metal)
-			_flesh_box(host, Vector3(0, 0.08, 0.075), Vector3(0.19, 0.02, 0.02), glow).name = "WoundCore"
-			_flesh_box(host, Vector3(0, -0.09, 0.07), Vector3(0.16, 0.015, 0.015), _flesh_mat(Color(0.6, 0.4, 0.05), 0.4, 0.6))
-		"flare":
-			# Толстый стержень-ТЭН в кожухе: греется прямо в брюхе.
-			var rod := MeshInstance3D.new()
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.03
-			cyl.bottom_radius = 0.03
-			cyl.height = 0.22
-			rod.mesh = cyl
-			rod.position = Vector3(0, 0.0, 0.07)
-			rod.material_override = glow
-			rod.name = "WoundCore"
-			host.add_child(rod)
-			for s2: float in [-1.0, 1.0]:
-				_flesh_box(host, Vector3(0.06 * s2, 0.0, 0.07), Vector3(0.02, 0.2, 0.05), metal)
-		"cryo":
-			# Два баллона в инее и намёрзшая корка по краям разреза.
-			for s2: float in [-1.0, 1.0]:
-				var tank := MeshInstance3D.new()
-				var cyl2 := CylinderMesh.new()
-				cyl2.top_radius = 0.035
-				cyl2.bottom_radius = 0.035
-				cyl2.height = 0.19
-				tank.mesh = cyl2
-				tank.position = Vector3(0.055 * s2, 0.0, 0.07)
-				tank.material_override = glow if s2 > 0.0 else WolfLevel._mat_imp_frost()
-				host.add_child(tank)
-				if s2 > 0.0:
-					tank.name = "WoundCore"
-			for i in 5:
-				_flesh_box(host, Vector3(-0.1 + i * 0.05, 0.11, 0.06), Vector3(0.02, 0.03, 0.02),
-						WolfLevel._mat_imp_frost(), Vector3(0, 0, 20.0 - i * 10.0))
-		"emp":
-			# Катушка с обмоткой и конденсаторы по бокам.
-			var coil := MeshInstance3D.new()
-			var tor := TorusMesh.new()
-			tor.inner_radius = 0.03
-			tor.outer_radius = 0.065
-			coil.mesh = tor
-			coil.position = Vector3(0, 0.0, 0.07)
-			coil.rotation_degrees = Vector3(90, 0, 0)
-			coil.material_override = glow
-			coil.name = "WoundCore"
-			host.add_child(coil)
-			for s2: float in [-1.0, 1.0]:
-				_flesh_box(host, Vector3(0.09 * s2, 0.0, 0.07), Vector3(0.03, 0.1, 0.03), metal)
-		"singularity":
-			# Чёрное зерно в кольце-ускорителе, оно уже подрагивает.
-			var seed_m := MeshInstance3D.new()
-			var sp2 := SphereMesh.new()
-			sp2.radius = 0.035
-			sp2.height = 0.07
-			seed_m.mesh = sp2
-			seed_m.position = Vector3(0, 0.0, 0.07)
-			seed_m.material_override = _flesh_mat(Color(0.02, 0.0, 0.04), 0.0, 0.1)
-			host.add_child(seed_m)
-			var ring := MeshInstance3D.new()
-			var tor2 := TorusMesh.new()
-			tor2.inner_radius = 0.05
-			tor2.outer_radius = 0.075
-			ring.mesh = tor2
-			ring.position = Vector3(0, 0.0, 0.07)
-			ring.rotation_degrees = Vector3(75, 0, 0)
-			ring.material_override = glow
-			ring.name = "WoundCore"
-			host.add_child(ring)
-		"holo":
-			# Линза проектора и рёбра радиатора.
-			var lens := MeshInstance3D.new()
-			var cyl3 := CylinderMesh.new()
-			cyl3.top_radius = 0.055
-			cyl3.bottom_radius = 0.02
-			cyl3.height = 0.05
-			lens.mesh = cyl3
-			lens.position = Vector3(0, 0.02, 0.08)
-			lens.rotation_degrees = Vector3(90, 0, 0)
-			lens.material_override = glow
-			lens.name = "WoundCore"
-			host.add_child(lens)
-			for i in 4:
-				_flesh_box(host, Vector3(0, -0.05 - i * 0.022, 0.07), Vector3(0.16, 0.012, 0.04), metal)
-		"brood":
-			# Кладка: мокрые яйца, внутри что-то шевелится.
-			for i in 5:
-				var egg := MeshInstance3D.new()
-				var sp3 := SphereMesh.new()
-				sp3.radius = 0.032
-				sp3.height = 0.075
-				egg.mesh = sp3
-				egg.position = Vector3(-0.07 + (i % 3) * 0.07, 0.05 - int(i / 3) * 0.08, 0.07)
-				egg.material_override = _flesh_mat(Color(0.72, 0.45, 0.42), 0.5, 0.15)
-				host.add_child(egg)
-				if i == 0:
-					egg.name = "WoundCore"
-			_flesh_box(host, Vector3(0, -0.02, 0.055), Vector3(0.22, 0.16, 0.02), _flesh_mat(Color(0.45, 0.6, 0.2), 0.7, 0.2))
-		"puppet":
-			# Слизень свернулся в полости, усики наружу.
-			var slug := MeshInstance3D.new()
-			var cap := CapsuleMesh.new()
-			cap.radius = 0.045
-			cap.height = 0.17
-			slug.mesh = cap
-			slug.position = Vector3(0, 0.0, 0.07)
-			slug.rotation_degrees = Vector3(0, 0, 70)
-			slug.material_override = glow
-			slug.name = "WoundCore"
-			host.add_child(slug)
-			for s2: float in [-1.0, 1.0]:
-				_flesh_box(host, Vector3(0.05 * s2, 0.08, 0.075), Vector3(0.014, 0.09, 0.014),
-						glow, Vector3(0, 0, 22.0 * s2))
-		_:
-			_flesh_box(host, Vector3(0, 0, 0.07), Vector3(0.14, 0.16, 0.05), glow).name = "WoundCore"
+	var rig := WolfLevel.load_implant("res://assets/implants/civ_%s.glb" % kind, col)
+	if rig == null:
+		return
+	rig.name = "Assembly"
+	host.add_child(rig)
+	host.set_meta("glow_mats", rig.get_meta("glow_mats", []))
 
 
 ## Вскрытая полость: часть тела ВЫРЕЗАНА шейдером, внутри — мясо, обломки
@@ -3714,23 +3575,27 @@ func _build_wound(t: WolfChar, kind: String, frac: float) -> void:
 		host.name = "WoundHost"
 		host.unique_name_in_owner = true
 		mount.add_child(host)
-		host.position = Vector3.ZERO
-		# Кости живут в своём масштабе (модели нормализованы по росту) —
-		# гасим его, иначе рана раздувается на пол-этажа.
-		var gs := host.global_transform.basis.get_scale()
-		var comp := Vector3(1.0 / maxf(gs.x, 0.0001), 1.0 / maxf(gs.y, 0.0001), 1.0 / maxf(gs.z, 0.0001))
-		host.set_meta("comp", comp)
+		# Систему координат раны задаём ПО РАЗВОРОТУ ТЕЛА, а не по осям кости.
+		# Оси кости груди у моделей разные: у семи из восьми +Z смотрит вперёд,
+		# а у полицейского развёрнут на 90° — там начинка встала бы боком, а
+		# разрез ушёл бы в бок. Заодно снимается масштаб кости: модели
+		# нормализованы по росту, и без этого рана раздувалась.
+		var fwd := -t.global_transform.basis.z
+		fwd.y = 0.0
+		if fwd.length() < 0.01:
+			fwd = Vector3.FORWARD
+		fwd = fwd.normalized()
+		var side := Vector3.UP.cross(fwd).normalized()
+		host.global_transform = Transform3D(Basis(side, Vector3.UP, fwd),
+				(mount as Node3D).global_position)
 		t.wound_kind = kind
 		# Дыра в самом теле: кожи и мяса там просто НЕТ.
-		_cut_open(t, 0.135)
-		# Изнутри — тёмное мясо задней стенки и обломки рёбер поперёк.
-		# Задняя стенка — настоящая изнанка: мокрая полость и обломки рёбер.
-		var meat := WolfLevel._mat_imp_gut()
-		var bone_m := WolfLevel._mat_imp_bone()
-		_flesh_box(host, Vector3(0, 0, 0.02), Vector3(0.26, 0.30, 0.03), meat)
-		for i in 3:
-			_flesh_box(host, Vector3(0, 0.10 - i * 0.10, 0.055), Vector3(0.24, 0.016, 0.018), bone_m,
-					Vector3(0, 0, -7.0 + i * 7.0))
+		var cut: Dictionary = WolfCfg.CIV_IMPLANT_CUT.get(kind, {})
+		host.set_meta("cut_r", WolfCfg.CIV_CUT_R * float(cut.get("r", 1.0)))
+		host.set_meta("cut_burn", float(cut.get("burn", 0.0)))
+		_cut_open(t, host.get_meta("cut_r"), host.get_meta("cut_burn"))
+		# Чаша внутренностей, обломки рёбер и губа разреза приходят готовой
+		# блендеровской сборкой вместе с самим устройством.
 		_wound_contents(host, kind)
 		# Кровь стекает из разреза.
 		var drip := CPUParticles3D.new()
@@ -3755,12 +3620,19 @@ func _build_wound(t: WolfChar, kind: String, frac: float) -> void:
 		drip.position = Vector3(0, -0.14, 0.06)
 		host.add_child(drip)
 		drip.emitting = true
-	# Разрез раскрывается по мере работы: сперва щель, потом дыра.
+	# Разрез раскрывается по мере работы: сперва щель, потом дыра. Раскрытие
+	# ведём РАДИУСОМ, а не сплющиванием хоста: перекошенный хост ломал бы
+	# систему координат, в которой теперь считается сам вырез.
 	var f := clampf(frac, 0.12, 1.0)
-	var comp2: Vector3 = host.get_meta("comp", Vector3.ONE)
-	host.scale = Vector3(comp2.x * f, comp2.y, comp2.z)
+	var r: float = host.get_meta("cut_r", WolfCfg.CIV_CUT_R)
+	var burn: float = host.get_meta("cut_burn", 0.0)
+	var inv0 := host.global_transform.affine_inverse()
 	for m: ShaderMaterial in t.wound_mats:
-		m.set_shader_parameter("wound_r", 0.135 * f)
+		m.set_shader_parameter("wound_r", r * f)
+		m.set_shader_parameter("burn_r", burn * f)
+		# Сразу, а не со следующего кадра: иначе на один кадр матрица
+		# единичная и дыра прорезается вокруг начала координат мира.
+		m.set_shader_parameter("wound_inv", inv0)
 
 
 ## Пульс железа в ране (перед подрывом частит) + подсветка типа.
@@ -3771,18 +3643,20 @@ func _tick_wounds(_delta: float) -> void:
 		var host := t.get_node_or_null("%WoundHost") as Node3D
 		if host == null:
 			continue
-		# Дыра держится за телом: центр выреза едет вместе с костью.
-		var wp := host.global_position
+		# Дыра держится за телом: разрез считается в системе координат раны,
+		# и шейдеру нужен перевод из мировых координат в неё.
+		var inv := host.global_transform.affine_inverse()
 		for m: ShaderMaterial in t.wound_mats:
-			m.set_shader_parameter("wound_pos", wp)
-		var core := host.get_node_or_null("WoundCore") as MeshInstance3D
-		if core == null:
-			continue
-		var m := core.material_override as StandardMaterial3D
-		if m == null:
+			m.set_shader_parameter("wound_inv", inv)
+		var glow: Array = host.get_meta("glow_mats", [])
+		if glow.is_empty():
 			continue
 		var rate := 6.0 if t.civ_implant == "bomb" else 3.0
-		m.emission_energy_multiplier = 1.0 + absf(sin(Time.get_ticks_msec() / (1000.0 / rate))) * 3.0
+		# Пульс держим в пределах, где ЖЕЛЕЗО ещё видно: на энергии под четыре
+		# ядро выжигается в белое пятно и прячет за собой катушку и корпус.
+		var e := 0.5 + absf(sin(Time.get_ticks_msec() / (1000.0 / rate))) * 1.5
+		for m: StandardMaterial3D in glow:
+			m.emission_energy_multiplier = e
 
 
 ## Начинить раненого: тело перестаёт быть телом и становится устройством.
@@ -4016,42 +3890,9 @@ func _civ_device(t: WolfChar) -> void:
 	chest.add_child(rig)
 	root.set_meta("rig", rig)
 
-	# Ядро начинки — тлеет в самой ране.
-	var core := MeshInstance3D.new()
-	core.name = "Core"
-	var sph := SphereMesh.new()
-	sph.radius = 0.075
-	sph.height = 0.15
-	sph.radial_segments = 24
-	sph.rings = 12
-	core.mesh = sph
-	# Корпус вокруг ядра — травлёная сталь с платой: устройство, а не шарик.
-	var shell := MeshInstance3D.new()
-	shell.name = "Shell"
-	var sbox := BoxMesh.new()
-	sbox.size = Vector3(0.19, 0.13, 0.07)
-	shell.mesh = sbox
-	shell.material_override = WolfLevel._mat_imp_steel()
-	shell.position = Vector3(0, 0.0, 0.10)
-	rig.add_child(shell)
-	var pcb := MeshInstance3D.new()
-	pcb.name = "Pcb"
-	var pbox := BoxMesh.new()
-	pbox.size = Vector3(0.16, 0.10, 0.012)
-	pcb.mesh = pbox
-	pcb.material_override = WolfLevel._mat_imp_circuit(col)
-	pcb.position = Vector3(0, 0.0, 0.145)
-	rig.add_child(pcb)
-	var m := StandardMaterial3D.new()
-	m.albedo_color = col
-	m.emission_enabled = true
-	m.emission = col
-	m.emission_energy_multiplier = 3.0
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	core.material_override = m
-	core.position = Vector3(0, 0.0, 0.14)
-	rig.add_child(core)
-
+	# Само устройство — блендеровская сборка в ране (см. _wound_contents):
+	# корпус, плата, ядро. Здесь остаются только свет и фонтанчик искр —
+	# раньше тут строилась вторая копия железа поверх первой.
 	# Свет начинки: подсвечивает тело изнутри своим цветом.
 	var l := OmniLight3D.new()
 	l.name = "Glow"
@@ -4181,12 +4022,12 @@ func _tick_civ_modes(delta: float) -> void:
 			var pulse := 0.5 + 0.5 * absf(sin(beat * rate * PI))
 			var rig := root.get_meta("rig", null) as Node3D
 			if rig != null and is_instance_valid(rig):
-				var core := rig.get_node_or_null("Core") as MeshInstance3D
-				if core != null:
-					var cm := core.material_override as StandardMaterial3D
-					if cm != null:
-						cm.emission_energy_multiplier = 1.2 + pulse * 4.0
-					core.scale = Vector3.ONE * (0.85 + pulse * 0.35)
+				# Взведённое тело частит: пульс гоняем по светящимся
+				# поверхностям блендеровской сборки в самой ране.
+				var wh := t.get_node_or_null("%WoundHost") as Node3D
+				if wh != null:
+					for gm: StandardMaterial3D in wh.get_meta("glow_mats", []):
+						gm.emission_energy_multiplier = 0.6 + pulse * 2.6
 				var glow := rig.get_node_or_null("Glow") as OmniLight3D
 				if glow != null:
 					glow.light_energy = 0.6 + pulse * 2.2
@@ -5185,7 +5026,9 @@ func _tick_devices(delta: float) -> void:
 func _shock_body(t: WolfChar, actor: WolfChar) -> void:
 	var imp: Dictionary = WolfCfg.CIV_IMPLANTS["softener"]
 	imp = _scaled_blast(imp, actor)
-	t.play_oneshot("Hit")
+	# Судороги поставлены ключевыми позами в Blender: выгибает дугой, потом
+	# обмякает, потом второй разряд слабее. «Hit» тут читался как толчок.
+	t.play_oneshot("Convulse" if t.has_anim("Convulse") else "Hit")
 	t.hit_flash = 0.5
 	_blood_burst(t.global_position + Vector3(0, 0.5, 0), 8, 1.4)
 	_spark_burst(t.global_position + Vector3(0, 0.4, 0))
@@ -6880,7 +6723,16 @@ func _test_civdev(_delta: float) -> void:
 		_tap_key(KEY_G)
 	elif _test_shot_taken and _test_shot != "" and not _dev_shot_done and _test_t > _dev_fire_t + _dev_shot_delay():
 		_dev_shot_done = true
-		var cam_off := Vector3(-1.7, 0.15, -1.3)   # крупный план раны
+		# Крупный план раны. WOLF_CAM=<метры> подводит камеру ближе.
+		#
+		# Ракурс намеренно простой и фиксированный: попытки навести кадр по
+		# развороту тела ловили его то со спины, то в профиль — свободное
+		# тело доворачивается между наводкой и снимком. Ориентация самой раны
+		# проверяется не глазами, а замером (tools/bonedir.gd).
+		var dist := 2.15
+		if OS.get_environment("WOLF_CAM") != "":
+			dist = maxf(0.25, float(OS.get_environment("WOLF_CAM")))
+		var cam_off := Vector3(-0.79, 0.07, -0.605).normalized() * dist
 		player.velocity = Vector3.ZERO      # чтобы отдача не уволокла камеру
 		player.knockback = Vector3.ZERO
 		player.stagger_t = 0.0

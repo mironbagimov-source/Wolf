@@ -126,11 +126,23 @@ func _init() -> void:
 		ual_ap = WolfRetarget.find_anim_player(ual)
 		ual_skel = WolfRetarget.find_skeleton(ual)
 
+	# Клипы, поставленные ключевыми позами в Blender (tools/blender/anims.py):
+	# трапеза, вживление, активация, судороги. Ретаргетятся тем же путём.
+	var bl_ap: AnimationPlayer = null
+	var bl_skel: Skeleton3D = null
+	if ResourceLoader.exists("res://assets/anims/wolf_clips.glb"):
+		var bl: Node3D = (load("res://assets/anims/wolf_clips.glb") as PackedScene).instantiate()
+		root.add_child(bl)
+		bl.visible = false
+		bl_ap = WolfRetarget.find_anim_player(bl)
+		bl_skel = WolfRetarget.find_skeleton(bl)
+		print("BAKE: блендеровских клипов ", 0 if bl_ap == null else bl_ap.get_animation_list().size())
+
 	for c in chars:
 		var body := WolfChar.build_scene_tree(c[0], c[1], c[2])
 		body.name = (c[3] as String).get_file().get_basename().capitalize()
 		if ual_ap != null:
-			_apply_ual(body, c[0], c[1], c[2], ual_ap, ual_skel)
+			_apply_ual(body, c[0], c[1], c[2], ual_ap, ual_skel, bl_ap, bl_skel)
 		_save(body, c[3])
 
 	print("BAKE DONE")
@@ -140,7 +152,8 @@ func _init() -> void:
 ## Заменяет солдатскую библиотеку клипов на полную UAL (идл/шаг/бег, атаки,
 ## попадания, смерть, кувырок, присед) — ретаргет требует дерева сцены.
 func _apply_ual(char_root: Node3D, p_faction: String, p_is_leader: bool, p_variant: int,
-		ual_ap: AnimationPlayer, ual_skel: Skeleton3D) -> void:
+		ual_ap: AnimationPlayer, ual_skel: Skeleton3D,
+		bl_ap: AnimationPlayer = null, bl_skel: Skeleton3D = null) -> void:
 	var vis := char_root.get_node_or_null("Visual")
 	if vis == null:
 		return
@@ -161,6 +174,18 @@ func _apply_ual(char_root: Node3D, p_faction: String, p_is_leader: bool, p_varia
 		# Кузница: осанка под роль + клипы, которых в UAL нет (трапеза,
 		# вживление импланта, активация, вторая смерть, дыхание в простое).
 		Forge.apply_role(lib, tgt_skel, role)
+		# Блендеровские клипы идут ПОСЛЕ кузницы и вытесняют её версии там,
+		# где есть и то и другое: поставленная поза лучше синусоиды поверх
+		# чужого клипа.
+		if bl_ap != null and bl_skel != null:
+			var bl_lib := WolfRetarget.build_library(bl_ap, bl_skel, null, tgt_skel, null,
+					"Body/" + str(av.get_path_to(tgt_skel)))
+			for clip in bl_lib.get_animation_list():
+				var a := bl_lib.get_animation(clip)
+				a.loop_mode = Animation.LOOP_NONE if clip == "Activate" else Animation.LOOP_LINEAR
+				if lib.has_animation(clip):
+					lib.remove_animation(clip)
+				lib.add_animation(clip, a)
 		var res_path := "res://scenes/chars/anims_%s.res" % role
 		ResourceSaver.save(lib, res_path)
 		lib.take_over_path(res_path)
