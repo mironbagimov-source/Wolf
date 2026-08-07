@@ -3568,13 +3568,13 @@ func _wound_contents(host: Node3D, kind: String) -> void:
 func _build_wound(t: WolfChar, kind: String, frac: float) -> void:
 	if t.visual == null:
 		return
-	var host := t.get_node_or_null("%WoundHost") as Node3D
+	var host := _wound_host(t)
 	if host == null:
 		var mount := _bone_mount(t, "Spine1" if kind != "puppet" else "Neck")
 		host = Node3D.new()
 		host.name = "WoundHost"
-		host.unique_name_in_owner = true
 		mount.add_child(host)
+		t.set_meta("wound_host", host)
 		# Систему координат раны задаём ПО РАЗВОРОТУ ТЕЛА, а не по осям кости.
 		# Оси кости груди у моделей разные: у семи из восьми +Z смотрит вперёд,
 		# а у полицейского развёрнут на 90° — там начинка встала бы боком, а
@@ -3640,7 +3640,7 @@ func _tick_wounds(_delta: float) -> void:
 	for t: WolfChar in entities:
 		if t.wound_kind == "":
 			continue
-		var host := t.get_node_or_null("%WoundHost") as Node3D
+		var host := _wound_host(t)
 		if host == null:
 			continue
 		# Дыра держится за телом: разрез считается в системе координат раны,
@@ -4024,7 +4024,7 @@ func _tick_civ_modes(delta: float) -> void:
 			if rig != null and is_instance_valid(rig):
 				# Взведённое тело частит: пульс гоняем по светящимся
 				# поверхностям блендеровской сборки в самой ране.
-				var wh := t.get_node_or_null("%WoundHost") as Node3D
+				var wh := _wound_host(t)
 				if wh != null:
 					for gm: StandardMaterial3D in wh.get_meta("glow_mats", []):
 						gm.emission_energy_multiplier = 0.6 + pulse * 2.6
@@ -4429,6 +4429,19 @@ func _cloud(pos: Vector3, color: Color, amount: int, speed: float, life: float,
 	get_tree().create_timer(life * 2.0 + 0.5).timeout.connect(p.queue_free)
 
 
+## Узел раны тела.
+##
+## Раньше его искали как "%WoundHost" по уникальному имени. Это НЕ РАБОТАЕТ:
+## уникальные имена регистрируются относительно owner'а, а у созданных в
+## рантайме узлов owner пуст, так что поиск всегда возвращал null. Следствия
+## были тихие и скверные: _build_wound не находил свою же рану и создавал
+## новую КАЖДЫЙ КАДР операции, а пульс начинки и обновление матрицы выреза
+## не работали вовсе. Держим ссылку в мете.
+func _wound_host(t: WolfChar) -> Node3D:
+	var h := t.get_meta("wound_host", null) as Node3D
+	return h if h != null and is_instance_valid(h) else null
+
+
 func _clear_body_implant(t: WolfChar) -> void:
 	t.civ_implant = ""
 	t.civ_mode = "free"
@@ -4741,7 +4754,7 @@ func _hatch_brood(t: WolfChar, source: WolfChar) -> void:
 	var pos := t.global_position + Vector3(0, 0.5, 0)
 	_clear_body_implant(t)
 	# Разрыв: рана распахивается, брюхо выворачивает.
-	var host := t.get_node_or_null("%WoundHost") as Node3D
+	var host := _wound_host(t)
 	if host != null:
 		host.scale = Vector3(1.6, 1.25, 1.0)
 	t.play_oneshot("Hit")
@@ -6742,7 +6755,7 @@ func _test_civdev(_delta: float) -> void:
 	elif _test_shot_taken and _test_t > 8.5:
 		var ok := false
 		var info := ""
-		var wound_ok := _duel_bot.get_node_or_null("%WoundHost") != null or _duel_bot.is_dead
+		var wound_ok := _wound_host(_duel_bot) != null or _duel_bot.is_dead
 		match kind:
 			"cryo":
 				ok = _psycho_probe.chill_t > 0.0 or _psycho_probe.is_dead
@@ -7135,6 +7148,10 @@ func _test_civwin(_delta: float) -> void:
 	elif mode == "playing" and _test_t > 1.2 and not _test_staged:
 		_test_staged = true
 		player.global_position = call_points[0] + Vector3(0.3, 0.2, 0.3)
+		# Тест проверяет УСЛОВИЕ ПОБЕДЫ, а не ожидание. По умолчанию отряд
+		# едет 45 секунд, а сдаётся тест на 40-й — пройти он не мог в
+		# принципе. Сокращаем дорогу, поведение при этом то же.
+		police_arrive = 6.0
 	elif _test_staged and call_state == 0 and _test_t < 6.0:
 		var ev := InputEventKey.new()
 		ev.keycode = KEY_E

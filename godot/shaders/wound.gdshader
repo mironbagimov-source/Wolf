@@ -78,6 +78,6 @@ void fragment() {
 	if (burn > 0.0) {
 		ALBEDO = mix(ALBEDO, vec3(0.055, 0.035, 0.03), burn * 0.92);
 		ROUGHNESS = mix(ROUGHNESS, 0.85, burn);
-		EMISSION += vec3(1.0, 0.32, 0.06) * burn * burn * 0.7;
+		EMISSION += vec3(1.0, 0.32, 0.06) * burn * burn * 0.3;
 	}
 }
