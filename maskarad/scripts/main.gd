@@ -50,6 +50,70 @@ func _maybe_autotest() -> void:
 			Game.chosen_character = ""          # никто не игрок: чистая проверка ИИ
 	print("[autotest] персонаж: '%s'" % Game.chosen_character)
 	start_match.call_deferred()
+	if "--combattest" in args:
+		_combat_test.call_deferred()
+
+## Проверка боя и повреждений в отрыве от навигации: ставим лича вплотную
+## к гостю и смотрим, доходит ли удар и что он ломает.
+func _combat_test() -> void:
+	for i in 90:
+		await get_tree().physics_frame
+	var lich: Actor = null
+	var guest: Actor = null
+	for a in Game.living():
+		if a.role == Data.Role.LICH and lich == null:
+			lich = a
+		if a.role == Data.Role.GUEST and guest == null:
+			guest = a
+	if lich == null or guest == null:
+		print("[бой] некому драться"); return
+
+	# замораживаем обоих: иначе гость просто убегает за время замаха
+	for who in [lich, guest]:
+		var b: Node = who.get_node_or_null("Brain")
+		if b:
+			b.set_process(false)
+			b.set_physics_process(false)
+		who.move_input = Vector3.ZERO
+	guest.global_position = lich.global_position + Vector3(0, 0, -1.3)
+	lich.rotation.y = 0.0
+	lich.look_dir = Vector3(0, 0, -1)
+	await get_tree().physics_frame
+	var d := lich.global_position.distance_to(guest.global_position)
+	print("[бой] дистанция %.2f, оружие %s, урон %.0f" % [d,
+		Data.weapon_of(lich.char_id).get("name", "нет"), Data.weapon_of(lich.char_id).get("damage", 0.0)])
+	var hp0 := guest.hp
+	print("[бой] удар начат: ", lich.try_attack())
+	for i in 60:
+		guest.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+	print("[бой] гость %.0f -> %.0f, жив=%s, кровь=%.1f" % [hp0, guest.hp, guest.alive, guest.dmg.bleed])
+
+	var g2: Actor = null
+	for a in Game.living():
+		if a.role == Data.Role.GUEST and a != guest:
+			g2 = a; break
+	if g2 != null:
+		if g2.rig != null and g2.rig.ok:
+			var base := g2.global_position
+			var report: Array = []
+			for k in ["head", "spine1", "hips", "leg_l", "foot_l", "hand_r"]:
+				var bp: Vector3 = g2.rig.bone_point(k)
+				report.append("%s=(%.2f,%.2f,%.2f)" % [k, bp.x - base.x, bp.y - base.y, bp.z - base.z])
+			print("[кости] ", " ".join(report))
+		else:
+			print("[кости] скелета нет — примитивы")
+		g2.hp_max = 400.0
+		g2.hp = 400.0
+		var h0 := g2.hp
+		g2.take_damage(20.0, null, g2.global_position + Vector3(0, 1.72, 0))
+		var head := h0 - g2.hp
+		g2.invulnerable = 0.0
+		h0 = g2.hp
+		g2.take_damage(20.0, null, g2.global_position + Vector3(0, 0.35, 0))
+		print("[бой] урон 20: голова=%.0f нога=%.0f, скорость x%.2f, руки x%.2f" % [
+			head, h0 - g2.hp, g2.dmg.speed_factor(), g2.dmg.attack_factor()])
+	get_tree().quit()
 
 func _process(delta: float) -> void:
 	if not _autotest:
@@ -59,6 +123,8 @@ func _process(delta: float) -> void:
 	if _autotest_tick <= 0.0:
 		_autotest_tick = 5.0
 		_report()
+		if "--diag" in OS.get_cmdline_user_args():
+			_diag()
 	if _shot_path != "":
 		_shot_at -= delta / max(0.01, Engine.time_scale)
 		if _shot_at <= 0.0:
@@ -76,6 +142,22 @@ func _process(delta: float) -> void:
 			print("[autotest] время вышло, матч не закончился")
 		_report()
 		get_tree().quit()
+
+## Диагностика: кто где стоит и движется ли вообще.
+func _diag() -> void:
+	var lines: Array = []
+	for a in Game.living():
+		if a.role == Data.Role.GUEST and lines.size() > 2:
+			continue
+		var brain: Node = a.get_node_or_null("Brain")
+		var agent_ok := "-"
+		if brain != null and "agent" in brain and brain.agent != null:
+			agent_ok = "fin" if brain.agent.is_navigation_finished() else "идёт"
+			if not brain.agent.is_target_reachable():
+				agent_ok += "/НЕДОСТУПНО"
+		lines.append("%s@%.0f,%.0f v=%.1f %s" % [a.display_name, a.global_position.x,
+			a.global_position.z, Vector2(a.velocity.x, a.velocity.z).length(), agent_ok])
+	print("[diag] ", " | ".join(lines))
 
 func _report() -> void:
 	var humans := Game.living_survivors()
@@ -190,11 +272,22 @@ func _spawn_roster() -> void:
 			else:
 				_attach_brain(a, preload("res://scripts/ai/lich_brain.gd"))
 
-	# толпа
+	# толпа: разные лица из пула гражданских, ровно одна Мария — она звезда,
+	# и её лицо стоит того, чтобы за ним охотиться
+	var civ_pool: Array = Data.CIVILIANS.duplicate()
+	var maria_placed := false
 	for i in range(Game.guest_count):
 		var base: Vector3 = world.wander_points[i % world.wander_points.size()]
 		var jitter := Vector3(randf_range(-2.5, 2.5), 0, randf_range(-2.5, 2.5))
-		var g := _spawn("guest", base + jitter, false)
+		var id: String = civ_pool[randi() % civ_pool.size()]
+		if id == "civ_maria":
+			if maria_placed:
+				id = "civ_medea"
+			else:
+				maria_placed = true
+				base = Vector3(0, 0, -13)          # за пультом
+				jitter = Vector3.ZERO
+		var g := _spawn(id, base + jitter, false)
 		_attach_brain(g, preload("res://scripts/ai/guest_brain.gd"))
 
 func _spawn(id: String, pos: Vector3, controlled: bool) -> Actor:

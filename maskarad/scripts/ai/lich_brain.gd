@@ -25,7 +25,11 @@ func think(delta: float) -> void:
 		PROWL:
 			if agent.is_navigation_finished() or mode_time <= 0.0:
 				mode_time = randf_range(4.0, 8.0)
-				if world:
+				# сначала нюхаем кровь: подранок далеко не уйдёт
+				var spot: Dictionary = Game.freshest_blood(actor.global_position, 45.0)
+				if not spot.is_empty():
+					go_to(spot["pos"])
+				elif world:
 					go_to(world.random_wander_point())
 		CHASE:
 			if prey == null or not is_instance_valid(prey) or not prey.alive:
@@ -50,7 +54,7 @@ func think(delta: float) -> void:
 				actor.look_dir = (prey.global_position - actor.global_position).normalized()
 				actor.try_attack()
 
-			if mode_time <= 0.0 and d > 20.0:
+			if mode_time <= 0.0 and d > 45.0:
 				mode = PROWL
 		INVESTIGATE:
 			go_to(alarm_pos)
@@ -66,11 +70,11 @@ func _pick_prey() -> Actor:
 	var best_score := INF
 	for a: Actor in Game.living(Data.Side.HUMAN):
 		var d := distance_to(a)
-		if d > 34.0:
+		if d > 80.0:
 			continue
-		if not actor.has_line_of_sight(a) and d > 12.0:
+		if not actor.has_line_of_sight(a) and d > 30.0:
 			continue
-		var score := d * (0.55 if a.role == Data.Role.HUMAN else 1.0)
+		var score := d * (0.8 if a.role == Data.Role.HUMAN else 1.0)
 		if score < best_score:
 			best_score = score
 			best = a

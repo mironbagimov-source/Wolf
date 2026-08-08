@@ -22,13 +22,21 @@ var end_reason: String = ""
 ## Выбор в лобби
 var chosen_character: String = "chiara"
 var undead_count: int = 2
-var guest_count: int = 16
+var guest_count: int = 22
+
+## Кровавый след: где и когда накапало. Нечисть идёт по свежим каплям, так
+## что раненому выгоднее зажать рану, чем бежать дальше.
+var blood_spots: Array = []
+const BLOOD_MEMORY := 45.0
+const BLOOD_MAX := 60
 
 func reset() -> void:
 	actors.clear()
 	player = null
 	braziers_lit = 0
 	braziers_total = 0
+	blood_spots.clear()
+	exposed.clear()
 	winner_side = -1
 	end_reason = ""
 	time_left = Data.TUNE["night_seconds"]
@@ -98,6 +106,41 @@ func light_brazier() -> void:
 
 func raise_alarm(pos: Vector3, radius: float, kind: String) -> void:
 	alarm_raised.emit(pos, radius, kind)
+
+## Кого видели за работой. Засвеченный монстр перестаёт быть частью толпы:
+## от него бегут, едва увидев, и подойти он больше ни к кому не может.
+var exposed: Dictionary = {}
+
+func mark_exposed(a: Node) -> void:
+	if a == null or exposed.has(a):
+		return
+	exposed[a] = true
+	notice.emit("%s — теперь эту тварь узнают в лицо" % a.display_name, true)
+
+func is_exposed(a: Node) -> bool:
+	return exposed.has(a)
+
+func drop_blood(pos: Vector3, side: int) -> void:
+	if side != Data.Side.HUMAN:
+		return                       # нечисть не кровоточит так, чтобы за ней шли
+	blood_spots.append({"pos": pos, "t": time_left})
+	while blood_spots.size() > BLOOD_MAX:
+		blood_spots.pop_front()
+
+## Самая свежая капля рядом — ею пользуются мозги нечисти.
+func freshest_blood(near: Vector3, radius: float) -> Dictionary:
+	var best: Dictionary = {}
+	var best_age := INF
+	for b in blood_spots:
+		var age: float = b["t"] - time_left
+		if age > BLOOD_MEMORY:
+			continue
+		if near.distance_to(b["pos"]) > radius:
+			continue
+		if age < best_age:
+			best_age = age
+			best = b
+	return best
 
 func say(text: String, bad: bool = false) -> void:
 	notice.emit(text, bad)

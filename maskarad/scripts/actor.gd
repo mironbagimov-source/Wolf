@@ -58,6 +58,8 @@ var channel_target: Node = null
 ## Кого вампир позвал — тот стоит и ждёт.
 var summoned_by: Actor = null
 var summon_hold: float = 0.0
+## Куда его позвали идти самому (гримёрка). Пустой вектор — никуда.
+var lure_to: Vector3 = Vector3.INF
 
 var _body_root: Node3D
 var _parts: Body.Parts = null
@@ -68,6 +70,10 @@ var _weapon_mesh: Node3D
 var _walk_phase := 0.0
 var _breathe := 0.0
 var _attack_anim := 0.0
+## Анимация скелета для моделей с Mixamo (клипов внутри нет — гнём кости сами).
+var rig: RigAnim = null
+## Повреждения по частям тела: ноги, руки, голова считаются отдельно.
+var dmg: Damage = Damage.new()
 ## Зерно внешности: гости получают разные наряды, иначе зал выглядит
 ## как склад манекенов, а вампиру негде затеряться.
 var appearance_seed: int = 0
@@ -108,7 +114,7 @@ func _build_name_tag() -> void:
 	_name_tag = Label3D.new()
 	_name_tag.position = Vector3(0, 2.3, 0)
 	_name_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_name_tag.no_depth_test = true
+	_name_tag.no_depth_test = false   # сквозь стену имён не видно
 	_name_tag.font_size = 44
 	# постоянный размер на экране: иначе имя гостя в двух шагах закрывает пол-HUD
 	_name_tag.fixed_size = true
@@ -164,15 +170,19 @@ func _rebuild_body() -> void:
 			_external_model = packed.instantiate() if packed is PackedScene else null
 			if _external_model != null:
 				holder.add_child(_external_model)
+				rig = RigAnim.new()
+				if not rig.bind(_external_model):
+					rig = null
 				_fit_external_model(look)
-				_anim = _external_model.find_child("AnimationPlayer", true, false) as AnimationPlayer
 				_build_weapon(holder)
+				_apply_self_visibility()
 				return
 
 	_parts = Body.build(holder, look, monstrous)
 	if appearance_seed != 0 and role == Data.Role.GUEST:
 		_vary_appearance()
 	_build_weapon(holder)
+	_apply_self_visibility()
 
 ## Разброс нарядов толпы: цвет платья, оттенок кожи, рост в пределах пары
 ## сантиметров. Считается от зерна, поэтому один и тот же гость всегда
@@ -202,17 +212,24 @@ func _vary_appearance() -> void:
 	if _parts.root:
 		_parts.root.scale = Vector3.ONE * rng.randf_range(0.95, 1.05)
 
-## Чужая модель может прийти в любом масштабе и смотреть куда угодно.
-## Приводим её к росту из `build` и разворачиваем лицом по -Z.
+## Чужая модель приходит в своём масштабе и смотрит по +Z. Приводим её
+## к росту из `build` и разворачиваем лицом вперёд.
+##
+## Рост меряем по кости макушки, а не по коробке меша: у половины моделей
+## коробка врёт вдвое, и Лара выходила ростом с табуретку.
 func _fit_external_model(look: Dictionary) -> void:
 	var plan: Dictionary = look.get("build", {})
 	var want_h: float = plan.get("height", 1.78)
-	var aabb := _model_aabb(_external_model)
-	if aabb.size.y > 0.01:
-		var k := want_h / aabb.size.y
-		_external_model.scale = Vector3.ONE * k
-		_external_model.position.y = -aabb.position.y * k
-	_external_model.rotation.y = float(look.get("model_yaw", 0.0))
+	var have_h := 0.0
+	if rig != null and rig.ok:
+		have_h = rig.rest_height
+	else:
+		var aabb := _model_aabb(_external_model)
+		have_h = aabb.size.y
+	if have_h > 0.2:
+		_external_model.scale = Vector3.ONE * (want_h / have_h)
+	_external_model.position.y = 0.0
+	_external_model.rotation.y = float(look.get("model_yaw", Data.MODEL_YAW))
 
 func _model_aabb(node: Node) -> AABB:
 	var out := AABB()
@@ -228,6 +245,15 @@ func _model_aabb(node: Node) -> AABB:
 		else:
 			out = out.merge(box)
 	return out
+
+## Своё тело от первого лица не показываем, но тень от него остаётся —
+## по ней видно, что ты не бесплотный, и она же выдаёт тебя на свету.
+func _apply_self_visibility() -> void:
+	if not is_player or _body_root == null:
+		return
+	for m in _body_root.find_children("*", "GeometryInstance3D", true, false):
+		var gi := m as GeometryInstance3D
+		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 
 func _build_weapon(body_holder: Node3D) -> void:
 	var w: Dictionary = Data.weapon_of(char_id)
@@ -325,8 +351,11 @@ func _physics_process(delta: float) -> void:
 		summon_hold -= delta
 		if summon_hold <= 0.0:
 			summoned_by = null
+			lure_to = Vector3.INF
+			remove_meta("lured_by") if has_meta("lured_by") else null
 
 	_tick_role(delta)
+	_tick_bleeding(delta)
 	_tick_channel(delta)
 	_tick_attack(delta)
 	_tick_move(delta)
@@ -376,7 +405,19 @@ func _tick_move(delta: float) -> void:
 
 	var speed: float = stats["speed"]
 	var can_move := stun_time <= 0.0 and channel_kind == "" and summoned_by == null
-	if summoned_by != null and is_instance_valid(summoned_by):
+	# позванный в гримёрку идёт туда сам — и это единственный раз, когда
+	# человек уходит из толпы по своей воле
+	if lure_to != Vector3.INF and not is_player:
+		var to_room: Vector3 = lure_to - global_position
+		to_room.y = 0.0
+		if to_room.length() > 1.5:
+			move_input = to_room.normalized()
+			look_dir = move_input
+			can_move = true
+		else:
+			move_input = Vector3.ZERO
+			lure_to = Vector3.INF
+	elif summoned_by != null and is_instance_valid(summoned_by):
 		# позванный сам идёт к вампиру — отказаться может только игрок
 		var to_caller: Vector3 = summoned_by.global_position - global_position
 		to_caller.y = 0.0
@@ -400,6 +441,7 @@ func _tick_move(delta: float) -> void:
 	if berserk_time > 0.0:
 		speed *= Data.TUNE["berserk_speed"]
 	speed *= _terror_multiplier()
+	speed *= dmg.speed_factor()          # перебитая нога — это не полоска, а хромота
 	if hp < hp_max * 0.3:
 		speed *= 0.9
 
@@ -416,7 +458,9 @@ func _tick_move(delta: float) -> void:
 	var face := look_dir
 	face.y = 0.0
 	if face.length() > 0.05:
-		var want := atan2(face.x, face.z)
+		# вперёд в Godot — это -Z, поэтому оба знака обязательны:
+		# без них модель разворачивается ровно на 180° и идёт спиной
+		var want := atan2(-face.x, -face.z)
 		rotation.y = lerp_angle(rotation.y, want, clampf(Data.TUNE["turn_speed"] * delta, 0.0, 1.0))
 
 ## Мягкое расталкивание вместо жёсткого столкновения тел: толпа остаётся
@@ -444,43 +488,17 @@ func _terror_multiplier() -> float:
 				return Data.TUNE["terror_slow"]
 	return 1.0
 
-## Походка считается кодом: конечности собраны на пивотах, поэтому им хватает
-## синуса по фазе, а фаза набегает от пройденного пути — на месте ноги стоят.
+## Походка считается кодом. Для моделей с Mixamo гнутся кости (клипов внутри
+## нет), для тел из примитивов крутятся пивоты — снаружи разницы никакой.
 func _tick_visuals(delta: float) -> void:
 	var speed2d := Vector2(velocity.x, velocity.z).length()
 	_breathe += delta
 	_attack_anim = max(0.0, _attack_anim - delta * 3.2)
 
-	if _anim != null:
-		_drive_external_anim(speed2d)
+	if rig != null and rig.ok:
+		_drive_rig(delta, speed2d)
 	elif _parts != null:
-		_walk_phase += speed2d * delta * 3.4
-		var gait: float = clampf(speed2d / 4.2, 0.0, 1.3)
-		var swing: float = gait * 0.62
-		var s := sin(_walk_phase)
-		var c := cos(_walk_phase * 2.0)
-
-		if _parts.arm_l:
-			_parts.arm_l.rotation.x = s * swing
-		if _parts.arm_r:
-			# рука с оружием отводится назад для замаха и рубит вперёд
-			_parts.arm_r.rotation.x = -s * swing - _attack_anim * 1.9
-		if not _parts.skirt:
-			if _parts.leg_l:
-				_parts.leg_l.rotation.x = -s * swing * 1.15
-			if _parts.leg_r:
-				_parts.leg_r.rotation.x = s * swing * 1.15
-		if _parts.hips:
-			_parts.hips.position.y = _parts.hips.position.y  # база задана в Body
-			_parts.hips.rotation.y = s * gait * 0.10
-		if _parts.chest:
-			_parts.chest.rotation.y = -s * gait * 0.16
-			# дыхание: еле заметное, но неподвижная фигура выглядит мёртвой
-			var breath := 1.0 + sin(_breathe * 1.9) * 0.012
-			_parts.chest.scale = Vector3(breath, 1.0, breath)
-		if _body_root:
-			_body_root.position.y = absf(c) * 0.02 * gait
-			_body_root.rotation.z = s * 0.025 * gait
+		_drive_primitives(delta, speed2d)
 
 	if _name_tag:
 		var show_tag := false
@@ -492,17 +510,46 @@ func _tick_visuals(delta: float) -> void:
 		if show_tag:
 			_refresh_name_tag()
 
-## Если подложена своя модель с анимациями — играем их по имени.
-func _drive_external_anim(speed2d: float) -> void:
-	var want := "Idle"
-	if speed2d > 3.6:
-		want = "Run"
-	elif speed2d > 0.4:
-		want = "Walk"
-	if not _anim.has_animation(want):
-		return
-	if _anim.current_animation != want:
-		_anim.play(want, 0.2)
+## Кости: походка плюс наложенные действия — замах, кормление, захват,
+## хромота от перебитой ноги.
+func _drive_rig(delta: float, speed2d: float) -> void:
+	rig.attack = _attack_anim
+	rig.drink = 1.0 if channel_kind == "drain" else 0.0
+	rig.grab = 1.0 if (channel_kind == "invite" or channel_kind == "talk") else 0.0
+	rig.flinch = clampf(invulnerable * 2.0, 0.0, 1.0)
+	rig.limp_l = dmg.limp_left()
+	rig.limp_r = dmg.limp_right()
+	rig.arm_hurt_l = dmg.arm_hurt_left()
+	rig.arm_hurt_r = dmg.arm_hurt_right()
+	if not alive:
+		rig.dead = minf(1.0, rig.dead + delta * 2.2)
+	rig.update(delta, speed2d, want_sprint)
+
+func _drive_primitives(delta: float, speed2d: float) -> void:
+	_walk_phase += speed2d * delta * 3.4
+	var gait: float = clampf(speed2d / 4.2, 0.0, 1.3)
+	var swing: float = gait * 0.62
+	var s := sin(_walk_phase)
+	var c := cos(_walk_phase * 2.0)
+
+	if _parts.arm_l:
+		_parts.arm_l.rotation.x = s * swing
+	if _parts.arm_r:
+		_parts.arm_r.rotation.x = -s * swing - _attack_anim * 1.9
+	if not _parts.skirt:
+		if _parts.leg_l:
+			_parts.leg_l.rotation.x = -s * swing * 1.15
+		if _parts.leg_r:
+			_parts.leg_r.rotation.x = s * swing * 1.15
+	if _parts.hips:
+		_parts.hips.rotation.y = s * gait * 0.10
+	if _parts.chest:
+		_parts.chest.rotation.y = -s * gait * 0.16
+		var breath := 1.0 + sin(_breathe * 1.9) * 0.012
+		_parts.chest.scale = Vector3(breath, 1.0, breath)
+	if _body_root:
+		_body_root.position.y = absf(c) * 0.02 * gait
+		_body_root.rotation.z = s * 0.025 * gait
 
 ## Что написано над головой. Пока вампир не вскрыт и не надел чужое лицо, он
 ## для всех просто гость — иначе имя выдавало бы его с порога и вся игра в
@@ -546,9 +593,10 @@ func _land_attack() -> void:
 	var w: Dictionary = Data.weapon_of(char_id)
 	if w.is_empty():
 		return
-	var dmg: float = w["damage"] * (Data.TUNE["berserk_damage"] if berserk_time > 0.0 else 1.0)
+	var hit: float = w["damage"] * (Data.TUNE["berserk_damage"] if berserk_time > 0.0 else 1.0)
+	hit *= dmg.attack_factor()
 	if w["kind"] == "ranged":
-		_fire_harpoon(w, dmg)
+		_fire_harpoon(w, hit)
 		return
 	var forward := -global_transform.basis.z
 	for a: Actor in Game.living():
@@ -561,12 +609,12 @@ func _land_attack() -> void:
 			continue
 		if forward.angle_to(to.normalized()) > float(w["arc"]):
 			continue
-		a.take_damage(dmg, self)
+		a.take_damage(hit, self, a.global_position + Vector3(0, 1.2, 0))
 		if w["kind"] == "thrust":
 			break                         # выпад бьёт одного, замах — всех в дуге
 	Game.raise_alarm(global_position, 10.0, "attack")
 
-func _fire_harpoon(w: Dictionary, dmg: float) -> void:
+func _fire_harpoon(w: Dictionary, hit: float) -> void:
 	var forward := -global_transform.basis.z
 	var best: Actor = null
 	var best_d := INF
@@ -586,7 +634,7 @@ func _fire_harpoon(w: Dictionary, dmg: float) -> void:
 	Game.raise_alarm(global_position, 16.0, "shot")
 	if best == null:
 		return
-	best.take_damage(dmg, self)
+	best.take_damage(hit, self, best.global_position + Vector3(0, 1.3, 0))
 	if best.alive:
 		# гарпун тащит: убежать мало, надо разорвать линию
 		var pull := (global_position - best.global_position)
@@ -674,17 +722,43 @@ func _complete_channel() -> void:
 	match kind:
 		"invite":
 			if target is Actor:
-				var t: Actor = target
-				t.summoned_by = self
-				t.summon_hold = 4.5
-				if t.is_player:
-					Game.say("%s зовёт тебя поговорить — уходи!" % appearance_name, true)
+				_finish_invite(target)
 		"drain":
 			if target is Actor:
 				_finish_drain(target)
 		"brazier":
 			if target != null and target.has_method("light_up"):
 				target.call("light_up")
+
+## Заговорить с жертвой. В облике звезды открывается второй вариант: увести
+## в гримёрку — человек идёт туда сам, через полклуба, и там нет свидетелей.
+func _finish_invite(t: Actor) -> void:
+	var chance: float = Dialogue.acceptance(self, t)
+	Game.say(Dialogue.line_for(self))
+	if randf() > chance:
+		Game.say("%s отказывается идти" % t.appearance_name, true)
+		return
+
+	if Dialogue.can_lure(self):
+		var room: Vector3 = _dressing_room()
+		t.lure_to = room
+		t.set_meta("lured_by", self)
+		t.summon_hold = 22.0
+		if t.is_player:
+			Game.say("Тебя зовут в гримёрку. Идёшь?", true)
+		else:
+			Game.say("%s идёт в гримёрку" % t.appearance_name)
+	else:
+		t.summoned_by = self
+		t.summon_hold = 4.5
+		if t.is_player:
+			Game.say("%s зовёт тебя поговорить — уходи!" % appearance_name, true)
+
+func _dressing_room() -> Vector3:
+	for w in get_tree().get_nodes_in_group("world"):
+		if w is World:
+			return w.dressing_room
+	return global_position
 
 func _finish_drain(victim: Actor) -> void:
 	if not victim.alive:
@@ -715,14 +789,54 @@ func _notice_witnesses(victim: Actor) -> void:
 			Game.say("Ты видел, как %s пьёт кровь" % appearance_name, true)
 
 # ================================================================== урон
-func take_damage(amount: float, from: Actor = null) -> void:
+## Урон приходит не «в персонажа», а в место. По точке попадания ищется
+## ближайшая кость, и от неё зависит всё: множитель, кровь и что откажет —
+## нога, рука или сознание.
+func take_damage(amount: float, from: Actor = null, at: Vector3 = Vector3.INF) -> void:
 	if not alive or invulnerable > 0.0:
 		return
-	hp -= amount
+
+	var point: Vector3 = at
+	if point == Vector3.INF:
+		point = global_position + Vector3(0, 1.2, 0)
+	var zone: int = Damage.zone_at(self, point, rig)
+	var real: float = dmg.apply(zone, amount)
+
+	hp -= real
 	invulnerable = 0.25
 	cancel_channel()
+	Fx.blood_spray(get_parent(), point, (point - global_position).normalized(), real)
+
+	if zone == Damage.Zone.HEAD and real > 20.0:
+		stun_time = maxf(stun_time, 0.6)
+	if is_player:
+		Game.say("%s — %s" % [Damage.ZONE_NAME[zone], _wound_word(real)], true)
+
 	if hp <= 0.0:
 		die(from)
+
+func _wound_word(real: float) -> String:
+	if real > 45.0:
+		return "тяжело"
+	if real > 20.0:
+		return "сильно"
+	return "задело"
+
+## Кровотечение: утекает само, ускоряет смерть и капает на пол. По каплям
+## за раненым и приходят — это главная причина не отпускать рану.
+func _tick_bleeding(delta: float) -> void:
+	if not alive:
+		return
+	dmg.pressing = is_player and Input.is_action_pressed("press_wound") and side == Data.Side.HUMAN
+	var lost := dmg.tick(delta)
+	if lost > 0.0:
+		hp -= lost
+		if hp <= 0.0:
+			die(null)
+			return
+	if dmg.should_drip(delta):
+		Game.drop_blood(global_position, side)
+		Fx.blood_drip(get_parent(), global_position)
 
 func reveal(seconds: float) -> void:
 	if role != Data.Role.VAMPIRE and role != Data.Role.THRALL:
@@ -734,13 +848,14 @@ func reveal(seconds: float) -> void:
 
 func mob_punish() -> void:
 	stun_time = max(stun_time, Data.TUNE["mob_stun"])
-	take_damage(Data.TUNE["mob_damage"])
+	take_damage(Data.TUNE["mob_damage"], null, global_position + Vector3(0, 1.1, 0))
 	Game.say("Чеснок ушёл не в того — толпа не оценила", true)
 
 func die(killer: Actor = null) -> void:
 	if not alive:
 		return
 	alive = false
+	dmg.bleed = 0.0
 	cancel_channel()
 	summoned_by = null
 	velocity = Vector3.ZERO
@@ -798,6 +913,7 @@ func _convert_to(new_id: String) -> void:
 	hp = hp_max
 	stamina_max = stats["stamina"]
 	stamina = stamina_max
+	dmg.reset()                          # обращение чинит тело: оно уже не совсем живое
 	hunger = 0.0
 	psychosis = 0.0
 	garlic_left = 0

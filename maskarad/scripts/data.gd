@@ -98,7 +98,7 @@ const CHARACTERS := {
 		"skin": Color(0.86, 0.74, 0.63), "cloth": Color(0.36, 0.28, 0.22), "hair": Color(0.75, 0.62, 0.31),
 		"accent": Color(0.62, 0.50, 0.30),
 		"build": {"height": 1.72, "bulk": 1.15, "hair": "long", "mask": true},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "res://assets/characters/helga.fbx",
 		"perk": "Двужильная",
 		"perk_desc": "Ужас лича её не берёт: в его ауре не замедляется. Дольше всех бежит и дольше всех держится.",
 	},
@@ -110,7 +110,7 @@ const CHARACTERS := {
 		"skin": Color(0.72, 0.56, 0.42), "cloth": Color(0.2, 0.24, 0.3), "hair": Color(0.15, 0.13, 0.12),
 		"accent": Color(0.42, 0.38, 0.30),
 		"build": {"height": 1.77, "bulk": 0.90, "hair": "short", "mask": true, "coat": true},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "res://assets/characters/jay.fbx",
 		"perk": "Лёгкая нога",
 		"perk_desc": "Шаги почти не слышно — нечисть не подтягивается на звук. Быстрее всех, но и ломается быстрее.",
 	},
@@ -122,7 +122,7 @@ const CHARACTERS := {
 		"skin": Color(0.8, 0.66, 0.55), "cloth": Color(0.45, 0.16, 0.2), "hair": Color(0.28, 0.16, 0.1),
 		"accent": Color(0.66, 0.52, 0.42),
 		"build": {"height": 1.68, "bulk": 0.95, "hair": "long", "mask": true, "skirt": true},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "res://assets/characters/chiara.fbx",
 		"perk": "Видит фальшь",
 		"perk_desc": "Чужой облик на вампире мерцает — издалека видно, что лицо не своё. Носит лишний чеснок.",
 	},
@@ -136,7 +136,7 @@ const CHARACTERS := {
 		"skin": Color(0.83, 0.79, 0.78), "cloth": Color(0.22, 0.1, 0.14), "hair": Color(0.1, 0.08, 0.09),
 		"accent": Color(0.12, 0.10, 0.13),
 		"build": {"height": 2.05, "bulk": 1.00, "hair": "long", "mask": true, "skirt": true, "hat": "wide", "collar": true},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "res://assets/characters/moira.fbx",
 		"perk": "Серп",
 		"perk_desc": "Широкий замах цепляет всех, кто рядом. Хороша, когда маскарад уже сорван.",
 	},
@@ -148,7 +148,7 @@ const CHARACTERS := {
 		"skin": Color(0.87, 0.84, 0.83), "cloth": Color(0.12, 0.12, 0.2), "hair": Color(0.35, 0.3, 0.26),
 		"accent": Color(0.16, 0.15, 0.22),
 		"build": {"height": 1.93, "bulk": 1.00, "hair": "short", "mask": true, "coat": true, "collar": true, "hat": "tall"},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "res://assets/characters/lucius.fbx",
 		"perk": "Шпага",
 		"perk_desc": "Длинный точный выпад достаёт раньше, чем жертва разрывает дистанцию.",
 	},
@@ -162,7 +162,7 @@ const CHARACTERS := {
 		"skin": Color(0.55, 0.58, 0.5), "cloth": Color(0.18, 0.2, 0.17), "hair": Color(0.1, 0.1, 0.1),
 		"accent": Color(0.20, 0.18, 0.16),
 		"build": {"height": 1.84, "bulk": 1.05, "hair": "long", "mask": false, "coat": true, "hat": "worn"},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "res://assets/characters/lara.fbx",
 		"perk": "Гарпунное ружьё",
 		"perk_desc": "Бьёт через весь зал и тащит жертву к себе. Убежать от Лары мало — надо разорвать линию.",
 	},
@@ -174,12 +174,16 @@ const CHARACTERS := {
 		"skin": Color(0.5, 0.5, 0.46), "cloth": Color(0.24, 0.16, 0.12), "hair": Color(0.12, 0.1, 0.08),
 		"accent": Color(0.22, 0.15, 0.11),
 		"build": {"height": 1.96, "bulk": 1.35, "hair": "short", "mask": false, "coat": true, "hat": "worn", "collar": true},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "res://assets/characters/karl.fbx",
 		"perk": "Топор и нож",
 		"perk_desc": "Топор валит с одного удара, нож добивает. Медленный замах — единственное окно, чтобы уйти.",
 	},
 
 	# --------------------------------------------------- массовка и низшие
+	# --------------------------------------------------- гражданские
+	# Толпа, в которой прячется вампир. Каждый — со своим лицом и именем:
+	# заметить, что «Мария» ходит по клубу через десять минут после смерти
+	# Марии, можно только если у неё есть имя.
 	"guest": {
 		"name": "Гость",
 		"side": Side.HUMAN, "role": Role.GUEST,
@@ -188,7 +192,63 @@ const CHARACTERS := {
 		"skin": Color(0.82, 0.7, 0.6), "cloth": Color(0.3, 0.3, 0.34), "hair": Color(0.2, 0.17, 0.14),
 		"accent": Color(0.42, 0.36, 0.30),
 		"build": {"height": 1.74, "bulk": 1.00, "hair": "short", "mask": true},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "",
+		"perk": "", "perk_desc": "",
+	},
+	"civ_maria": {
+		"name": "Мария",
+		"side": Side.HUMAN, "role": Role.GUEST,
+		"speed": 2.7, "sprint": 1.6, "stamina": 85.0, "hp": 50.0,
+		"perception": 0.8, "noise": 0.9,
+		"skin": Color(0.82, 0.7, 0.6), "cloth": Color(0.24, 0.14, 0.34), "hair": Color(0.5, 0.14, 0.3),
+		"accent": Color(0.6, 0.2, 0.5),
+		"build": {"height": 1.72, "bulk": 0.95, "hair": "long", "mask": false},
+		"model": "res://assets/characters/civ_maria.fbx",
+		"star": true,                    # звезда вечера: за её лицом идут в гримёрку
+		"perk": "Диджей", "perk_desc": "Звезда клуба. Ей открыта гримёрка, и за ней туда идут.",
+	},
+	"civ_medea": {
+		"name": "Медея",
+		"side": Side.HUMAN, "role": Role.GUEST,
+		"speed": 2.6, "sprint": 1.6, "stamina": 80.0, "hp": 45.0,
+		"perception": 0.75, "noise": 0.85,
+		"skin": Color(0.8, 0.68, 0.6), "cloth": Color(0.18, 0.16, 0.26), "hair": Color(0.15, 0.12, 0.14),
+		"accent": Color(0.44, 0.2, 0.42),
+		"build": {"height": 1.70, "bulk": 0.95, "hair": "long", "mask": true},
+		"model": "res://assets/characters/civ_medea.fbx",
+		"perk": "", "perk_desc": "",
+	},
+	"civ_boss": {
+		"name": "Толян",
+		"side": Side.HUMAN, "role": Role.GUEST,
+		"speed": 2.3, "sprint": 1.35, "stamina": 65.0, "hp": 60.0,
+		"perception": 0.6, "noise": 1.3,
+		"skin": Color(0.78, 0.62, 0.52), "cloth": Color(0.2, 0.2, 0.22), "hair": Color(0.18, 0.16, 0.14),
+		"accent": Color(0.3, 0.28, 0.26),
+		"build": {"height": 1.78, "bulk": 1.3, "hair": "short", "mask": false},
+		"model": "res://assets/characters/civ_boss.fbx",
+		"perk": "", "perk_desc": "",
+	},
+	"civ_peasant": {
+		"name": "Василиса",
+		"side": Side.HUMAN, "role": Role.GUEST,
+		"speed": 2.7, "sprint": 1.65, "stamina": 90.0, "hp": 45.0,
+		"perception": 0.85, "noise": 0.8,
+		"skin": Color(0.84, 0.72, 0.62), "cloth": Color(0.32, 0.26, 0.18), "hair": Color(0.42, 0.28, 0.12),
+		"accent": Color(0.5, 0.4, 0.24),
+		"build": {"height": 1.68, "bulk": 0.95, "hair": "long", "mask": false},
+		"model": "res://assets/characters/civ_peasant.fbx",
+		"perk": "", "perk_desc": "",
+	},
+	"civ_drunk": {
+		"name": "Гоша",
+		"side": Side.HUMAN, "role": Role.GUEST,
+		"speed": 2.1, "sprint": 1.3, "stamina": 55.0, "hp": 50.0,
+		"perception": 0.45, "noise": 1.5,     # ничего не замечает и всем мешает
+		"skin": Color(0.72, 0.64, 0.56), "cloth": Color(0.24, 0.22, 0.2), "hair": Color(0.14, 0.12, 0.1),
+		"accent": Color(0.34, 0.3, 0.24),
+		"build": {"height": 1.80, "bulk": 1.15, "hair": "short", "mask": false},
+		"model": "res://assets/characters/civ_drunk.fbx",
 		"perk": "", "perk_desc": "",
 	},
 	"thrall": {
@@ -199,7 +259,7 @@ const CHARACTERS := {
 		"skin": Color(0.72, 0.72, 0.74), "cloth": Color(0.16, 0.14, 0.18), "hair": Color(0.12, 0.1, 0.12),
 		"accent": Color(0.20, 0.17, 0.22),
 		"build": {"height": 1.76, "bulk": 1.00, "hair": "short", "mask": false},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "res://assets/characters/thrall.fbx",
 		"perk": "Обращён",
 		"perk_desc": "Ни маскарада, ни берсерка. Только когти и голод.",
 	},
@@ -211,7 +271,7 @@ const CHARACTERS := {
 		"skin": Color(0.45, 0.48, 0.42), "cloth": Color(0.2, 0.18, 0.15), "hair": Color(0.1, 0.1, 0.08),
 		"accent": Color(0.18, 0.17, 0.14),
 		"build": {"height": 1.66, "bulk": 1.22, "hair": "none", "mask": false},
-		"model": "",           # свой .glb/.fbx — см. assets/README.md
+		"model": "res://assets/characters/ghoul.fbx",
 		"perk": "Поднят",
 		"perk_desc": "Медленный, тупой и живучий. Идёт на шум и не сворачивает.",
 	},
@@ -219,6 +279,14 @@ const CHARACTERS := {
 
 const PLAYABLE_HUMANS := ["helga", "jay", "chiara"]
 const PLAYABLE_UNDEAD := ["moira", "lucius", "lara", "karl"]
+
+## Из кого набирается толпа. Разные лица — единственная причина, по которой
+## в толпе вообще можно спрятаться.
+const CIVILIANS := ["civ_maria", "civ_medea", "civ_boss", "civ_peasant", "civ_drunk"]
+
+## Модели с Mixamo смотрят по +Z, а вперёд в Godot — это -Z. Без разворота
+## все ходят спиной вперёд.
+const MODEL_YAW := PI
 
 # ----------------------------------------------------------------- оружие
 # kind: "swing" — дуга, "thrust" — выпад, "ranged" — выстрел с притягиванием.
@@ -264,6 +332,8 @@ const ACTIONS := {
 	"garlic": [KEY_Q],
 	"pause": [KEY_ESCAPE],
 	"scoreboard": [KEY_TAB],
+	"press_wound": [KEY_R],        # зажать рану: кровь останавливается, но ты стоишь
+	"look_back": [KEY_ALT, KEY_C], # оглянуться, не разворачивая тела
 }
 
 func _ready() -> void:

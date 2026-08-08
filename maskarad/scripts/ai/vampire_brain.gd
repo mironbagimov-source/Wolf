@@ -13,9 +13,13 @@ var victim: Actor = null
 func think(delta: float) -> void:
 	mode_time -= delta
 
-	# вскрыли — маскарад окончен, надо разорвать дистанцию и переждать
+	# Вскрыли чесноком — переждать, пока не спадёт.
+	# А вот засветка — навсегда: прятаться больше не в чем, и вампир
+	# переходит к прямой охоте. Иначе он до утра стоит в углу.
 	if actor.revealed_time > 0.0 and mode != RETREAT and mode != FEED:
 		_enter(RETREAT, actor.revealed_time + 1.0)
+	elif Game.is_exposed(actor) and mode != HUNT and mode != FEED and mode != RETREAT:
+		_enter(HUNT, 20.0)
 
 	match mode:
 		BLEND:
@@ -86,7 +90,9 @@ func _feed() -> void:
 		_enter(RETREAT, 4.0)
 
 func _hunt() -> void:
-	var prey := nearest_visible_enemy(30.0)
+	var prey := nearest_visible_enemy(70.0)
+	if prey == null:
+		prey = Game.nearest(actor.global_position, Game.living(Data.Side.HUMAN)) as Actor
 	if prey == null:
 		_enter(BLEND, 4.0)
 		return
@@ -96,7 +102,7 @@ func _hunt() -> void:
 		actor.look_dir = (prey.global_position - actor.global_position).normalized()
 		actor.try_attack()
 	if mode_time <= 0.0:
-		_enter(BLEND, 4.0)
+		_enter(HUNT if Game.is_exposed(actor) else BLEND, 12.0)
 
 func _retreat() -> void:
 	actor.want_sprint = actor.stamina > 20.0
@@ -130,13 +136,13 @@ func _pick_victim() -> Actor:
 	var best_score := INF
 	for a in Game.living(Data.Side.HUMAN):
 		var d := distance_to(a)
-		if d > 32.0:
+		if d > 75.0:
 			continue
 		var witnesses := _witness_count(a.global_position)
 		var lit := 0.0
 		if world and world.brazier_covering(a.global_position) != null:
 			lit = 14.0                       # в свету не кормимся
-		var score := d * 0.35 + witnesses * 9.0 + lit
+		var score := d * 0.22 + witnesses * 9.0 + lit
 		if a.role == Data.Role.HUMAN:
 			score -= 6.0                     # человек ценнее гостя
 		if score < best_score:

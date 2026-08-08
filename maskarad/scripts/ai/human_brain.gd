@@ -67,8 +67,8 @@ func think(delta: float) -> void:
 			if mode_time <= 0.0:
 				_throw_at(accuse_target)
 
-func _nearest_unlit() -> Brazier:
-	var best: Brazier = null
+func _nearest_unlit() -> Lamp:
+	var best: Lamp = null
 	var best_d := INF
 	for b in get_tree().get_nodes_in_group("braziers"):
 		if b.lit:

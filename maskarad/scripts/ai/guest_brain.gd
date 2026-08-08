@@ -64,9 +64,10 @@ func _enter(m: int, t: float) -> void:
 
 func _visible_monster() -> Actor:
 	for a in Game.living(Data.Side.UNDEAD):
-		if a.role == Data.Role.LICH or a.role == Data.Role.GHOUL or a.revealed_time > 0.0 or a.channel_kind == "drain":
-			if distance_to(a) < 18.0 and actor.has_line_of_sight(a):
-				return a
+		var obvious: bool = a.role == Data.Role.LICH or a.role == Data.Role.GHOUL \
+			or a.revealed_time > 0.0 or a.channel_kind == "drain" or Game.is_exposed(a)
+		if obvious and distance_to(a) < 20.0 and actor.has_line_of_sight(a):
+			return a
 	return null
 
 func panic(from: Vector3) -> void:
@@ -77,8 +78,21 @@ func hear(pos: Vector3, kind: String) -> void:
 	match kind:
 		"death", "attack", "berserk", "revealed", "shot":
 			panic(pos)
+			_remember_killer(pos)
 		"mob":
 			_enter(MOB, 2.5)
+
+## Резню видно издалека. Кто увидел, тот запоминает лицо и до конца ночи
+## обходит его стороной — поэтому лич, начавший поножовщину, дальше работает
+## по пустому городу.
+func _remember_killer(pos: Vector3) -> void:
+	for a in Game.living(Data.Side.UNDEAD):
+		if a.global_position.distance_to(pos) > 8.0:
+			continue
+		if not actor.has_line_of_sight(a):
+			continue
+		suspicion[a] = 10.0
+		Game.mark_exposed(a)
 
 func on_witness_feeding(vampire: Actor) -> void:
 	super.on_witness_feeding(vampire)

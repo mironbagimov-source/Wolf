@@ -29,6 +29,7 @@ var channel_bar: ProgressBar
 var role_label: Label
 var garlic_label: Label
 var brazier_label: Label
+var wound_label: Label
 var roster_panel: PanelContainer
 var roster_box: VBoxContainer
 var result_title: Label
@@ -240,6 +241,9 @@ func _build_hud() -> void:
 	garlic_label = _label("", 20, PARCH)
 	garlic_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right.add_child(garlic_label)
+	wound_label = _label("", 15, Color(0.85, 0.3, 0.3))
+	wound_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	right.add_child(wound_label)
 	brazier_label = _label("", 16, DIM)
 	brazier_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right.add_child(brazier_label)
@@ -355,7 +359,7 @@ func _process(_delta: float) -> void:
 	if not hud_root.visible:
 		return
 	timer_label.text = Data.clock(Game.time_left)
-	brazier_label.text = "Жаровни: %d из %d" % [Game.braziers_lit, Game.braziers_total]
+	brazier_label.text = "Прожекторы: %d из %d" % [Game.braziers_lit, Game.braziers_total]
 
 	var p: Actor = Game.player
 	if p == null or not is_instance_valid(p):
@@ -381,6 +385,12 @@ func _process(_delta: float) -> void:
 			power_label.visible = false
 
 	garlic_label.text = "Чеснок: %d" % p.garlic_left if p.role == Data.Role.HUMAN else ""
+	# раны и кровь: полоска здоровья не говорит, что именно перебито
+	var wounds := p.dmg.summary()
+	if p.dmg.bleed > 5.0:
+		wounds += ("\n" if wounds != "" else "") + "Кровотечение — R, зажать рану"
+	wound_label.text = wounds
+	wound_label.modulate = Color(0.85, 0.25, 0.25) if p.dmg.bleed > 5.0 else Color(0.8, 0.6, 0.35)
 	objective_label.text = _objective(p)
 
 	if p.channel_kind != "":
@@ -400,10 +410,10 @@ func _objective(p: Actor) -> String:
 	match p.role:
 		Data.Role.HUMAN:
 			if Game.braziers_lit < Game.braziers_total:
-				return "Зажги жаровни — рассвет придёт раньше. Не дай себя позвать."
-			return "Все жаровни горят. Дожить до рассвета."
+				return "Включай прожекторы — рассвет придёт раньше. Не иди, когда зовут."
+			return "Весь свет включён. Дожить до рассвета."
 		Data.Role.VAMPIRE:
-			return "Пей тех, кого никто не видит. Полный голод — чужое лицо."
+			return "Уводи тех, кого никто не хватится. В облике звезды зови в гримёрку."
 		Data.Role.LICH:
 			return "Убивай. Психоз наполнится — уходи в берсерк."
 		Data.Role.THRALL, Data.Role.GHOUL:
