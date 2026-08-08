@@ -37,6 +37,22 @@ godot --headless --path maskarad --export-release "Windows Desktop" build/window
 godot --headless --path maskarad --export-release "Linux" build/linux/Maskarad.x86_64
 ```
 
+### Почему сборка не 242 МБ
+
+Модели пришли с текстурами 4096×4096 на каждого персонажа — это 140 МБ
+пикселей, которых на ночной улице не видно. Готовые сборки собраны с
+уменьшенными до 512:
+
+```bash
+python3 tools/shrink_textures.py         # 4096 -> 512
+rm -rf maskarad/.godot
+godot --headless --path maskarad --editor --quit
+```
+
+Скрипт правит только PNG, распакованные импортёром; сами FBX не трогает,
+так что полное разрешение всегда возвращается удалением PNG и `.godot`.
+Итог: 4096 → 242 МБ, 1024 → 146 МБ, 512 → 103 МБ.
+
 ## Управление
 
 | | |
