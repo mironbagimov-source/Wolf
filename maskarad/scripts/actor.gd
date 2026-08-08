@@ -11,6 +11,8 @@ signal channel_changed(kind: String, progress: float)
 
 const LAYER_WORLD := 1
 const LAYER_ACTOR := 2
+## Сколько длится сама проводка удара — от заноса до конца дуги.
+const STRIKE_TIME := 0.14
 
 # ------------------------------------------------------------- личность
 var char_id: String = "guest"
@@ -67,9 +69,21 @@ var _external_model: Node3D = null
 var _anim: AnimationPlayer = null
 var _name_tag: Label3D
 var _weapon_mesh: Node3D
+var _offhand_mesh: Node3D          # нож во второй руке — только у Карла
 var _walk_phase := 0.0
 var _breathe := 0.0
-var _attack_anim := 0.0
+
+## Удар как последовательность, а не как затухающее число. Раньше рука
+## мгновенно оказывалась в конечной точке и медленно возвращалась: замаха
+## не было видно вовсе, и по чужому удару нельзя было понять, что сейчас
+## прилетит. Теперь считается время от начала: сперва замах (его длина —
+## `windup` оружия, у топора он длиннее, чем у шпаги), потом резкий удар,
+## потом возврат.
+var _attack_t: float = -1.0        # секунд с начала удара, отрицательное — покой
+var _attack_windup: float = 0.3
+var _attack_len: float = 0.8
+## Кого вампир держит зубами и кого держат — обе стороны укуса.
+var drained_by: Actor = null
 ## Анимация скелета для моделей с Mixamo (клипов внутри нет — гнём кости сами).
 var rig: RigAnim = null
 ## Повреждения по частям тела: ноги, руки, голова считаются отдельно.
@@ -154,6 +168,7 @@ func _rebuild_body() -> void:
 	_external_model = null
 	_anim = null
 	_weapon_mesh = null
+	_offhand_mesh = null
 
 	var holder := Node3D.new()
 	add_child(holder)
@@ -262,103 +277,50 @@ func _apply_self_visibility() -> void:
 		var gi := m as GeometryInstance3D
 		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 
-## Во сколько раз скелет крупнее актёра. Считаем по цепочке узлов, а не по
-## `global_transform`: тело собирается до того, как актёр окажется в дереве.
-func _skeleton_scale() -> float:
-	var s := 1.0
-	var n: Node = rig.skeleton
-	while n != null and n != self:
-		if n is Node3D:
-			s *= (n as Node3D).scale.x
-		n = n.get_parent()
-	return s
-
 func _build_weapon(body_holder: Node3D) -> void:
 	var w: Dictionary = Data.weapon_of(char_id)
 	if w.is_empty():
 		return
+	var holder := _hand_holder(body_holder, true)
+	_weapon_mesh = holder
+	if not WeaponMesh.build(holder, char_id):
+		holder.queue_free()
+		_weapon_mesh = null
+		return
+	# у Карла топор и нож — нож во вторую руку, иначе «и нож» существует
+	# только в описании персонажа
+	var off := _hand_holder(body_holder, false)
+	if WeaponMesh.build_offhand(off, char_id):
+		_offhand_mesh = off
+	else:
+		off.queue_free()
+
+## Узел в ладони. У тел из примитивов есть готовый пивот, у моделей оружие
+## вешается на кость через BoneAttachment3D — иначе оно висит рядом с бедром
+## и живёт своей жизнью, пока рука машет отдельно.
+func _hand_holder(body_holder: Node3D, right: bool) -> Node3D:
 	var holder := Node3D.new()
-	# в кисть правой руки: у тел из кода — в пивот, у моделей — в кость
-	if _parts != null and _parts.weapon_mount != null:
+	if _parts != null and _parts.weapon_mount != null and right:
 		_parts.weapon_mount.add_child(holder)
 		holder.position = Vector3(0, -0.34 * (_parts.height / 1.78), 0)
 		holder.rotation = Vector3(-1.4, 0, 0)
-	elif rig != null and rig.ok and rig.hand_bone() >= 0:
+		return holder
+	var bone: int = rig.hand_bone() if (rig != null and rig.ok) else -1
+	if not right and rig != null and rig.ok:
+		bone = rig.idx.get("hand_l", -1)
+	if bone >= 0:
 		var att := BoneAttachment3D.new()
-		att.bone_idx = rig.hand_bone()
+		att.bone_idx = bone
 		rig.skeleton.add_child(att)
 		att.add_child(holder)
-		# оружие смоделировано в метрах, а скелет приезжает в своём масштабе
-		# (у части моделей это сантиметры) — иначе серп выходит с трамвай
-		holder.scale = Vector3.ONE / maxf(0.001, _skeleton_scale())
-		holder.rotation = Vector3(-1.4, 0, 0)
-	else:
-		body_holder.add_child(holder)
-		holder.position = Vector3(0.36, 1.0, -0.15)
-	_weapon_mesh = holder
-
-	var steel := StandardMaterial3D.new()
-	steel.albedo_color = Color(0.72, 0.74, 0.78)
-	steel.metallic = 0.85
-	steel.roughness = 0.28
-	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color(0.28, 0.18, 0.12)
-	wood.roughness = 0.8
-
-	match char_id:
-		"moira":                                     # серп
-			var handle := MeshInstance3D.new()
-			var hm := CylinderMesh.new()
-			hm.top_radius = 0.03; hm.bottom_radius = 0.03; hm.height = 0.6
-			handle.mesh = hm; handle.material_override = wood
-			holder.add_child(handle)
-			var blade := MeshInstance3D.new()
-			var bm := TorusMesh.new()
-			bm.inner_radius = 0.3; bm.outer_radius = 0.38
-			blade.mesh = bm; blade.material_override = steel
-			blade.position = Vector3(0, 0.42, 0)
-			blade.rotation = Vector3(PI / 2, 0, 0)
-			holder.add_child(blade)
-		"lucius":                                    # шпага
-			var bl := MeshInstance3D.new()
-			var blm := BoxMesh.new()
-			blm.size = Vector3(0.035, 0.035, 1.15)
-			bl.mesh = blm; bl.material_override = steel
-			bl.position = Vector3(0, 0, -0.5)
-			holder.add_child(bl)
-			var guard := MeshInstance3D.new()
-			var gm := SphereMesh.new()
-			gm.radius = 0.09; gm.height = 0.12
-			guard.mesh = gm; guard.material_override = steel
-			holder.add_child(guard)
-		"lara":                                      # гарпунное ружьё
-			var stock := MeshInstance3D.new()
-			var sm := BoxMesh.new()
-			sm.size = Vector3(0.1, 0.16, 0.7)
-			stock.mesh = sm; stock.material_override = wood
-			holder.add_child(stock)
-			var spear := MeshInstance3D.new()
-			var spm := CylinderMesh.new()
-			spm.top_radius = 0.02; spm.bottom_radius = 0.02; spm.height = 1.1
-			spear.mesh = spm; spear.material_override = steel
-			spear.rotation = Vector3(PI / 2, 0, 0)
-			spear.position = Vector3(0, 0.05, -0.5)
-			holder.add_child(spear)
-		"karl":                                      # топор
-			var haft := MeshInstance3D.new()
-			var hfm := CylinderMesh.new()
-			hfm.top_radius = 0.035; hfm.bottom_radius = 0.035; hfm.height = 0.85
-			haft.mesh = hfm; haft.material_override = wood
-			holder.add_child(haft)
-			var head := MeshInstance3D.new()
-			var hm2 := BoxMesh.new()
-			hm2.size = Vector3(0.1, 0.3, 0.34)
-			head.mesh = hm2; head.material_override = steel
-			head.position = Vector3(0, 0.42, -0.06)
-			holder.add_child(head)
-		_:
-			holder.queue_free()
-			_weapon_mesh = null
+		# Поворот не задаём: он ставится каждый кадр в `_aim_weapon`, в мировых
+		# осях. Подобрать его углом в системе кости нельзя — у кисти Mixamo
+		# +Y идёт вдоль пальцев, а её X и Z смотрят у каждой модели по-своему,
+		# и любая константа даёт клинок торчком вбок.
+		return holder
+	body_holder.add_child(holder)
+	holder.position = Vector3(0.36 if right else -0.36, 1.0, -0.15)
+	return holder
 
 # ================================================================== кадр
 func _physics_process(delta: float) -> void:
@@ -520,10 +482,15 @@ func _terror_multiplier() -> float:
 func _tick_visuals(delta: float) -> void:
 	var speed2d := Vector2(velocity.x, velocity.z).length()
 	_breathe += delta
-	_attack_anim = max(0.0, _attack_anim - delta * 3.2)
+	if _attack_t >= 0.0:
+		_attack_t += delta
+		if _attack_t > _attack_len:
+			_attack_t = -1.0
 
 	if rig != null and rig.ok:
 		_drive_rig(delta, speed2d)
+		_aim_weapon(_weapon_mesh, true)
+		_aim_weapon(_offhand_mesh, false)
 	elif _parts != null:
 		_drive_primitives(delta, speed2d)
 
@@ -537,11 +504,56 @@ func _tick_visuals(delta: float) -> void:
 		if show_tag:
 			_refresh_name_tag()
 
+## Оружие наводится в мировых осях, а не подвешивается под углом к кости.
+##
+## Кисть даёт точку — где кулак; направление клинка задаётся отсюда: вверх от
+## кулака и слегка вперёд в покое, за плечо на замахе, вниз через дугу на
+## проводке. Так удар читается со стороны — а именно по чужому замаху человек
+## и решает, успеет он отбежать или нет.
+func _aim_weapon(holder: Node3D, main_hand: bool) -> void:
+	if holder == null or not is_instance_valid(holder):
+		return
+	var att := holder.get_parent() as Node3D
+	if att == null:
+		return
+
+	var c := attack_curve()
+	var arc: float = WeaponMesh.swing_factor(char_id) if main_hand else 0.5
+	var tilt: float = WeaponMesh.rest_tilt(char_id) + c * arc
+	var right: Vector3 = global_transform.basis.x
+	var b := Basis(right, tilt)
+
+	var hand := att.global_transform.basis.orthonormalized()
+	# кулак сжат не на запястье, а на ладонь дальше
+	holder.global_position = att.global_position + hand.y * 0.07
+	holder.global_basis = b
+
+## Где сейчас рука в ударе: +1 — оружие занесено за спину, −1 — прошло по
+## дуге до конца, 0 — покой.
+##
+## Три отрезка. Замах занимает `windup` оружия и тянется с ускорением к
+## концу — по нему и читается, что сейчас ударят: у топора это почти треть
+## секунды, у шпаги едва заметный тычок. Сам удар короткий и линейный,
+## `STRIKE_TIME` на всё. Возврат — плавный, с него можно сбиться на шаг.
+func attack_curve() -> float:
+	if _attack_t < 0.0:
+		return 0.0
+	var w: float = maxf(0.05, _attack_windup)
+	if _attack_t < w:
+		return sin(_attack_t / w * PI * 0.5)                 # занос назад
+	var t := _attack_t - w
+	if t < STRIKE_TIME:
+		return lerp(1.0, -1.0, t / STRIKE_TIME)              # проводка
+	var back: float = clampf((t - STRIKE_TIME) / maxf(0.05, _attack_len - w - STRIKE_TIME), 0.0, 1.0)
+	return -1.0 + back                                       # возврат в стойку
+
 ## Кости: походка плюс наложенные действия — замах, кормление, захват,
 ## хромота от перебитой ноги.
 func _drive_rig(delta: float, speed2d: float) -> void:
-	rig.attack = _attack_anim
+	rig.strike = attack_curve()
 	rig.drink = 1.0 if channel_kind == "drain" else 0.0
+	rig.drink_pull = channel_time                 # ритм глотков
+	rig.bitten = 1.0 if drained_by != null else 0.0
 	rig.grab = 1.0 if (channel_kind == "invite" or channel_kind == "talk") else 0.0
 	rig.flinch = clampf(invulnerable * 2.0, 0.0, 1.0)
 	rig.limp_l = dmg.limp_left()
@@ -562,7 +574,7 @@ func _drive_primitives(delta: float, speed2d: float) -> void:
 	if _parts.arm_l:
 		_parts.arm_l.rotation.x = s * swing
 	if _parts.arm_r:
-		_parts.arm_r.rotation.x = -s * swing - _attack_anim * 1.9
+		_parts.arm_r.rotation.x = -s * swing + attack_curve() * 1.7
 	if not _parts.skirt:
 		if _parts.leg_l:
 			_parts.leg_l.rotation.x = -s * swing * 1.15
@@ -611,9 +623,11 @@ func try_attack() -> bool:
 		return false
 	cancel_channel()
 	pending_attack = true
-	_attack_anim = 1.0
 	windup_time = w["windup"]
 	attack_cd = w["cooldown"]
+	_attack_t = 0.0
+	_attack_windup = w["windup"]
+	_attack_len = float(w["windup"]) + STRIKE_TIME + 0.34
 	return true
 
 func _land_attack() -> void:
@@ -688,6 +702,7 @@ func try_drain(target: Actor) -> bool:
 	if global_position.distance_to(target.global_position) > Data.TUNE["drain_range"]:
 		return false
 	_start_channel("drain", Data.TUNE["drain_time"], target)
+	target.drained_by = self               # жертве тоже надо во что-то играть
 	set_appearance(appearance_id)          # пока пьёт — истинная форма
 	return true
 
@@ -732,6 +747,10 @@ func cancel_channel() -> void:
 	if channel_kind == "":
 		return
 	var was := channel_kind
+	if was == "drain" and channel_target is Actor:
+		var t: Actor = channel_target
+		if is_instance_valid(t) and t.drained_by == self:
+			t.drained_by = null
 	channel_kind = ""
 	channel_target = null
 	channel_time = 0.0
@@ -742,6 +761,10 @@ func cancel_channel() -> void:
 func _complete_channel() -> void:
 	var kind := channel_kind
 	var target := channel_target
+	if kind == "drain" and target is Actor:
+		var t: Actor = target
+		if is_instance_valid(t) and t.drained_by == self:
+			t.drained_by = null
 	channel_kind = ""
 	channel_target = null
 	channel_changed.emit("", 0.0)

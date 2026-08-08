@@ -56,9 +56,21 @@ func _maybe_autotest() -> void:
 		_model_check()
 		get_tree().quit()
 		return
+	if "--inputcheck" in args:
+		_input_check()
+		get_tree().quit()
+		return
+	if _shot_path != "" and "--weaponcheck" in args:
+		_weapon_bench()
+		return
+	if _shot_path != "" and "--posecheck" in args:
+		_pose_bench()
+		return
 	start_match.call_deferred()
 	if "--combattest" in args:
 		_combat_test.call_deferred()
+	if "--animtest" in args:
+		_anim_test.call_deferred()
 
 ## Проверка боя и повреждений в отрыве от навигации: ставим лича вплотную
 ## к гостю и смотрим, доходит ли удар и что он ломает.
@@ -160,6 +172,227 @@ func _process(delta: float) -> void:
 			print("[autotest] время вышло, матч не закончился")
 		_report()
 		get_tree().quit()
+
+## Стенд с оружием: все клинки в ряд, при свете, без города вокруг. Ночной
+## клуб — плохое место, чтобы разглядывать геометрию: на снимке из зала видно
+## тёмное пятно у пояса и всё.
+func _weapon_bench() -> void:
+	var stage := _bench_stage(Vector3(0, 1.05, 3.4))
+
+	var i := 0
+	for id in ["moira", "lucius", "lara", "karl"]:
+		var slot := Node3D.new()
+		slot.position = Vector3(-2.15 + i * 1.35, 0.30, 0)
+		stage.add_child(slot)
+		WeaponMesh.build(slot, id)
+		var off := Node3D.new()
+		off.position = Vector3(-2.15 + i * 1.35 + 0.5, 0.30, 0)
+		stage.add_child(off)
+		if not WeaponMesh.build_offhand(off, id):
+			off.queue_free()
+		var tag := Label3D.new()
+		tag.text = Data.character(id)["name"]
+		tag.font_size = 48
+		tag.pixel_size = 0.0016
+		tag.position = Vector3(-2.15 + i * 1.35, 0.05, 0.2)
+		stage.add_child(tag)
+		i += 1
+
+	await _bench_shot("оружие")
+
+## Освещённая пустая сцена под съёмку: фон, свет, пол и камера.
+func _bench_stage(cam_pos: Vector3) -> Node3D:
+	ui.visible = false                       # меню поверх стенда мешает смотреть
+	var stage := Node3D.new()
+	add_child(stage)
+
+	# ровный свет вместо ночного: на стенде смотрят форму, а не настроение
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_COLOR
+	e.background_color = Color(0.06, 0.06, 0.08)
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.55, 0.56, 0.60)
+	e.ambient_light_energy = 1.4
+	e.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.environment = e
+	stage.add_child(env)
+
+	var back := MeshInstance3D.new()
+	var plane := BoxMesh.new()
+	plane.size = Vector3(14, 6, 0.2)
+	back.mesh = plane
+	var bm := StandardMaterial3D.new()
+	bm.albedo_color = Color(0.10, 0.10, 0.12)
+	back.material_override = bm
+	back.position = Vector3(0, 1.6, -1.6)
+	stage.add_child(back)
+
+	# пол, иначе актёры на стенде проваливаются под гравитацией
+	var ground := StaticBody3D.new()
+	ground.collision_layer = Actor.LAYER_WORLD
+	var cs := CollisionShape3D.new()
+	var bs := BoxShape3D.new()
+	bs.size = Vector3(20, 0.4, 20)
+	cs.shape = bs
+	ground.add_child(cs)
+	ground.position = Vector3(0, -0.2, 0)
+	stage.add_child(ground)
+
+	for l in [Vector3(-2.5, 3.0, 2.6), Vector3(2.5, 2.4, 2.2), Vector3(0, 0.6, 2.0)]:
+		var lamp := OmniLight3D.new()
+		lamp.position = l
+		lamp.light_energy = 6.0
+		lamp.omni_range = 16.0
+		stage.add_child(lamp)
+
+	var cam := Camera3D.new()
+	cam.position = cam_pos
+	cam.fov = 52.0
+	cam.current = true
+	stage.add_child(cam)
+	return stage
+
+func _bench_shot(tag: String) -> void:
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(_shot_path)
+	print("[%s] снимок: %s" % [tag, _shot_path])
+	get_tree().quit()
+
+## Стенд с позами: нечисть с оружием в руках, пойманная на проводке удара, и
+## вампир на жертве. Ровно то, что нельзя проверить числами, — как оружие
+## лежит в ладони и куда смотрит клинок в момент удара.
+func _pose_bench() -> void:
+	var stage := _bench_stage(Vector3(0, 1.15, 4.6))
+	var made: Array[Actor] = []
+	var i := 0
+	for id in ["moira", "lucius", "lara", "karl"]:
+		var a := Actor.new()
+		stage.add_child(a)
+		a.setup(id, false)
+		a.global_position = Vector3(-2.4 + i * 1.6, 0.05, 0.4)
+		a.rotation.y = PI                     # лицом к камере
+		a.look_dir = Vector3(0, 0, 1)
+		made.append(a)
+		var tag := Label3D.new()
+		tag.text = Data.character(id)["name"]
+		tag.font_size = 44
+		tag.pixel_size = 0.0016
+		tag.position = Vector3(-2.4 + i * 1.6, 0.06, 0.9)
+		stage.add_child(tag)
+		i += 1
+
+	await get_tree().physics_frame
+	for a in made:
+		a.try_attack()
+	# У каждого оружия свой замах — от 0.22 у шпаги до 0.55 у топора, — так
+	# что «подождать N кадров» ловит четверых в разных фазах. Ставим всех на
+	# середину проводки вручную, иначе стенд сравнивает несравнимое.
+	for _f in 3:
+		for a in made:
+			a.move_input = Vector3.ZERO
+			a.look_dir = Vector3(0, 0, 1)
+		await get_tree().physics_frame
+	for a in made:
+		a.set("_attack_t", a.get("_attack_windup") + Actor.STRIKE_TIME * 0.5)
+	await get_tree().physics_frame
+	var phases: Array = []
+	for a in made:
+		phases.append("%s %+.2f" % [a.char_id, a.attack_curve()])
+	print("[позы] фаза удара: ", ", ".join(phases))
+	await _bench_shot("позы")
+
+## Анимации действий: доходят ли они до костей. Проверяются три вещи, каждую
+## из которых легко «сделать» и не заметить, что она ни на что не влияет:
+## проходит ли удар весь путь замах → проводка → возврат, уезжает ли кисть
+## по дуге, и встаёт ли обеим сторонам укуса своя поза.
+func _anim_test() -> void:
+	for i in 90:
+		await get_tree().physics_frame
+
+	var lich: Actor = null
+	var vampire: Actor = null
+	var victim: Actor = null
+	for a in Game.living():
+		if a.role == Data.Role.LICH and lich == null:
+			lich = a
+		elif a.role == Data.Role.VAMPIRE and vampire == null:
+			vampire = a
+		elif a.role == Data.Role.GUEST and victim == null:
+			victim = a
+	for who in [lich, vampire, victim]:
+		if who == null:
+			print("[аним] некого проверять"); get_tree().quit(); return
+		var b: Node = who.get_node_or_null("Brain")
+		if b:
+			b.set_process(false)
+			b.set_physics_process(false)
+		who.move_input = Vector3.ZERO
+
+	# ---- удар: снимаем кривую и путь кисти
+	lich.try_attack()
+	var lo := INF
+	var hi := -INF
+	var wrist_lo := INF
+	var wrist_hi := -INF
+	var trace: Array = []
+	for i in 70:
+		lich.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+		var c: float = lich.attack_curve()
+		lo = minf(lo, c); hi = maxf(hi, c)
+		if lich.rig != null and lich.rig.ok and lich.rig.idx.has("hand_r"):
+			var sk: Skeleton3D = lich.rig.skeleton
+			var z: float = sk.get_bone_global_pose(lich.rig.idx["hand_r"]).origin.z
+			wrist_lo = minf(wrist_lo, z); wrist_hi = maxf(wrist_hi, z)
+		if i % 10 == 0:
+			trace.append("%.2f" % c)
+	print("[аним] удар: замах %+.2f, проводка %+.2f, кисть прошла %.2f м | %s" % [
+		hi, lo, wrist_hi - wrist_lo, " ".join(trace)])
+
+	# Куда смотрят оси кисти в мире. Оружие вешается в эту систему, и угол
+	# «на глаз» здесь не работает: у кости Mixamo +Y идёт вдоль пальцев, а
+	# что такое её X и Z — зависит от модели. Актёр стоит лицом на -Z.
+	if lich.rig != null and lich.rig.ok and lich.rig.idx.has("hand_r"):
+		var sk3: Skeleton3D = lich.rig.skeleton
+		lich.rotation.y = 0.0
+		await get_tree().physics_frame
+		var b: Basis = (sk3.global_transform * sk3.get_bone_global_pose(lich.rig.idx["hand_r"])).basis.orthonormalized()
+		print("[кисть] X=%s Y=%s Z=%s" % [b.x.snappedf(0.01), b.y.snappedf(0.01), b.z.snappedf(0.01)])
+
+	# ---- укус: обе стороны
+	victim.global_position = vampire.global_position + Vector3(0, 0, -1.0)
+	await get_tree().physics_frame
+	var started := vampire.try_drain(victim)
+	for i in 20:
+		vampire.move_input = Vector3.ZERO
+		victim.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+	print("[аним] укус начат=%s | вампир пьёт=%.1f | жертву пьют=%.1f (%s)" % [
+		started, vampire.rig.drink if vampire.rig else -1.0,
+		victim.rig.bitten if victim.rig else -1.0,
+		"да" if victim.drained_by == vampire else "НЕТ"])
+	if victim.rig != null and victim.rig.ok and victim.rig.idx.has("head"):
+		var sk2: Skeleton3D = victim.rig.skeleton
+		print("[аним] голова жертвы отклонена на %.2f рад" % \
+			sk2.get_bone_pose_rotation(victim.rig.idx["head"]).get_euler().length())
+	get_tree().quit()
+
+## Что на самом деле лежит в InputMap. Привязку легко «сделать» и не заметить,
+## что действие осталось пустым, — а проверить её в игре можно только руками.
+func _input_check() -> void:
+	for action_name in Data.ACTIONS:
+		var parts: Array = []
+		for ev in InputMap.action_get_events(action_name):
+			if ev is InputEventKey:
+				parts.append(OS.get_keycode_string((ev as InputEventKey).physical_keycode))
+			elif ev is InputEventMouseButton:
+				var b: int = (ev as InputEventMouseButton).button_index
+				parts.append({MOUSE_BUTTON_LEFT: "ЛКМ", MOUSE_BUTTON_RIGHT: "ПКМ",
+					MOUSE_BUTTON_MIDDLE: "СКМ"}.get(b, "мышь%d" % b))
+		print("[ввод] %-14s %s" % [action_name, ", ".join(parts) if parts else "НИЧЕГО"])
 
 ## Все модели разом: какой рост меряется по скелету и во сколько раз модель
 ## придётся ужать. Модели пришли из разных источников и в разных единицах —

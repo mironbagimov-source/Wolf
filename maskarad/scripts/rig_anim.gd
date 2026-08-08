@@ -45,8 +45,14 @@ var breathe: float = 0.0
 var lean: float = 0.0                     # наклон корпуса вперёд (бег, кормление)
 
 # накладываемые действия, каждое 0..1
-var attack: float = 0.0
+## Удар: +1 — оружие занесено, −1 — дуга пройдена до конца. Единственное
+## поле со знаком, и знак здесь и есть анимация.
+var strike: float = 0.0
 var drink: float = 0.0
+## Время внутри кормления: по нему считается ритм глотков.
+var drink_pull: float = 0.0
+## Тебя пьют. Отдельно от `drink`: у жертвы своя роль в этой сцене.
+var bitten: float = 0.0
 var grab: float = 0.0
 var flinch: float = 0.0
 var limp_l: float = 0.0
@@ -156,27 +162,42 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	phase += dt * (2.2 + speed * 2.2)
 	var s := sin(phase)
 
-	var want_lean: float = gait * 0.16 + drink * 0.30 + grab * 0.12
+	# глоток: кормление идёт толчками, а не ровной струёй
+	var pull: float = 0.0
+	if drink > 0.0:
+		pull = maxf(0.0, sin(drink_pull * 5.5)) * drink
+
+	var want_lean: float = gait * 0.16 + drink * 0.42 + grab * 0.12 - bitten * 0.12
 	lean = lerp(lean, want_lean, clampf(dt * 6.0, 0.0, 1.0))
 
 	var swing: float = gait * 0.62
 	var knee: float = gait * 0.75
 
-	# ---- корпус: наклон вперёд и лёгкое скручивание в такт шагу
-	_spin("hips", AY, s * gait * 0.09)
-	_spin("spine", AX, lean * 0.28)
-	_spin("spine1", AX, lean * 0.18 + sin(breathe * 1.8) * 0.015)
+	# ---- корпус: наклон вперёд, скручивание в такт шагу и разворот плеч
+	# под удар — без него замах выглядит как «дёрнул рукой»
+	_spin("hips", AY, s * gait * 0.09 + strike * 0.14)
+	_spin("spine", AX, lean * 0.28 - bitten * 0.22)
+	_spin("spine1", AX, lean * 0.18 + sin(breathe * 1.8) * 0.015 + pull * 0.06)
+	_spin("spine1", AY, -strike * 0.34)
 	_spin("spine2", AX, -flinch * 0.3)
-	_spin("neck", AX, -lean * 0.3 + drink * 0.3)
-	_spin("head", AY, sin(breathe * 0.5) * 0.10)
+	_spin("spine2", AY, -strike * 0.20)
 
-	# ---- ноги: бедро махает, колено подгибается только на задней ноге
-	var l: float = s * swing - limp_l * 0.35
+	# ---- голова. Вампир кладёт её на шею жертвы: вперёд и вбок, иначе
+	# клыки оказываются в воздухе. Жертва отворачивает — в другую сторону.
+	_spin("neck", AX, -lean * 0.3 + drink * 0.62 + pull * 0.10 - bitten * 0.48)
+	_spin("neck", AZ, drink * 0.30 - bitten * 0.26)
+	_spin("head", AX, drink * 0.26 - bitten * 0.22)
+	_spin("head", AZ, drink * 0.42 - bitten * 0.55)
+	_spin("head", AY, sin(breathe * 0.5) * 0.10 * (1.0 - drink) + bitten * sin(breathe * 9.0) * 0.03)
+
+	# ---- ноги: бедро махает, колено подгибается только на задней ноге.
+	# В укусе вампир делает выпад, а у жертвы подкашиваются колени.
+	var l: float = s * swing - limp_l * 0.35 - drink * 0.22
 	var r: float = -s * swing - limp_r * 0.35
 	_spin("upleg_l", AX, l)
 	_spin("upleg_r", AX, r)
-	_spin("leg_l", AX, -maxf(0.0, -l) * knee - limp_l * 0.55)
-	_spin("leg_r", AX, -maxf(0.0, -r) * knee - limp_r * 0.55)
+	_spin("leg_l", AX, -maxf(0.0, -l) * knee - limp_l * 0.55 - bitten * 0.38)
+	_spin("leg_r", AX, -maxf(0.0, -r) * knee - limp_r * 0.55 - bitten * 0.30)
 
 	# ---- руки. В покое они разведены в стороны (T-поза), поэтому сначала
 	# опускаем их вдоль тела, и только потом качаем на ходу.
@@ -188,14 +209,20 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	var reach: float = maxf(grab, drink)
 	var drop: float = 1.32 * (1.0 - reach * 0.7)
 	var arm_swing: float = gait * 0.55            # в противоход ногам
-	_spin("arm_l", AZ, -drop + arm_hurt_l * 0.35)
-	_spin("arm_r", AZ, drop - arm_hurt_r * 0.35)
-	_spin("arm_l", AX, -s * arm_swing + reach * 1.25)
-	_spin("arm_r", AX, s * arm_swing + reach * 1.25 - attack * 1.9)
+	# на замахе оружие уходит вверх и вбок, на проводке — вниз через грудь
+	var lift: float = maxf(0.0, strike) * 0.75
+	# у жертвы руки повисают: она уже не держится за них
+	var limp_arms: float = bitten * 0.18
+
+	_spin("arm_l", AZ, -drop + arm_hurt_l * 0.35 - limp_arms)
+	_spin("arm_r", AZ, drop - arm_hurt_r * 0.35 + limp_arms - lift)
+	_spin("arm_l", AX, -s * arm_swing * (1.0 - bitten) + reach * 1.25 - strike * 0.42)
+	_spin("arm_r", AX, s * arm_swing * (1.0 - bitten) + reach * 1.25 + strike * 1.55)
+	# локоть сложен в замахе и распрямляется в момент удара
 	_spin("fore_l", AX, -0.25 - reach * 1.0 - arm_hurt_l * 0.6)
-	_spin("fore_r", AX, -0.25 - reach * 1.0 - arm_hurt_r * 0.6 - attack * 1.1)
+	_spin("fore_r", AX, -0.25 - reach * 1.0 - arm_hurt_r * 0.6 - maxf(0.0, strike) * 1.15)
 	_spin("shoulder_l", AX, -s * swing * 0.18 - reach * 0.4)
-	_spin("shoulder_r", AX, s * swing * 0.18 - reach * 0.4 - attack * 0.5)
+	_spin("shoulder_r", AX, s * swing * 0.18 - reach * 0.4 + strike * 0.35)
 
 ## Мёртвое тело складывается вперёд и заваливается — ragdoll здесь избыточен.
 func _pose_dead() -> void:

@@ -30,6 +30,8 @@ var role_label: Label
 var garlic_label: Label
 var brazier_label: Label
 var wound_label: Label
+var keys_label: Label
+var _keys_left: float = 0.0            # сколько ещё показывать шпаргалку
 var roster_panel: PanelContainer
 var roster_box: VBoxContainer
 var result_title: Label
@@ -274,6 +276,14 @@ func _build_hud() -> void:
 	dot.offset_left = -2; dot.offset_top = -2; dot.offset_right = 2; dot.offset_bottom = 2
 	hud_root.add_child(dot)
 
+	# Шпаргалка на первые секунды ночи. Оглядывание в такой игре — половина
+	# игры, но кнопку, о которой не сказали, не нажимают.
+	keys_label = _label("", 15, DIM)
+	keys_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	keys_label.offset_left = -420; keys_label.offset_right = 420; keys_label.offset_top = -60
+	keys_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hud_root.add_child(keys_label)
+
 	roster_panel = _panel(Color(0.05, 0.05, 0.07, 0.9))
 	roster_panel.set_anchors_preset(Control.PRESET_CENTER)
 	roster_panel.offset_left = -180; roster_panel.offset_right = 180
@@ -343,6 +353,7 @@ func show_hud() -> void:
 	lobby_root.visible = false
 	hud_root.visible = true
 	result_root.visible = false
+	_keys_left = 22.0
 
 func show_result(winner: int, reason: String) -> void:
 	hud_root.visible = false
@@ -358,6 +369,14 @@ func show_result(winner: int, reason: String) -> void:
 func _process(_delta: float) -> void:
 	if not hud_root.visible:
 		return
+
+	if _keys_left > 0.0:
+		_keys_left -= _delta
+		keys_label.text = "ПКМ — оглянуться, не разворачиваясь   ·   E — действие   ·   R — зажать рану"
+		keys_label.modulate.a = clampf(_keys_left / 4.0, 0.0, 1.0)
+	elif keys_label.text != "":
+		keys_label.text = ""
+
 	timer_label.text = Data.clock(Game.time_left)
 	brazier_label.text = "Прожекторы: %d из %d" % [Game.braziers_lit, Game.braziers_total]
 
