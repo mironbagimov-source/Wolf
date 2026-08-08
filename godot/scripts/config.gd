@@ -266,6 +266,13 @@ const CIV_IMPLANT_CUT := {
 const CIV_CUT_R := 0.135        # базовый радиус разреза
 
 
+## Гражданские предупреждают друг друга.
+const CIV_ALARM_RANGE := 14.0     # на сколько метров слышен крик
+const CIV_ALARM_TIME := 5.0       # сколько бежишь по чужому крику
+const CIV_SEE_RANGE := 11.0       # с какой дистанции сам замечаешь тварь
+const CIV_THREAT_SCAN := 16.0     # в каком радиусе считаем облаву целиком
+
+
 const IMPLANT_NOISE := 18.0        # операция гремит — психи идут на звук
 const IMPLANT_DMG_TAKEN_MUL := 1.5 # на кушетке ты беспомощен
 const DERMAL_HOLD := 2.8           # сколько убийца висит приклеенным

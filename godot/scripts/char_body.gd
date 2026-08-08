@@ -135,6 +135,8 @@ var unstick_t := 0.0
 var unstick_side := 1.0
 var circle_dir := 1.0      # в какую сторону обходить цель между ударами
 var investigate_t := 0.0   # психи бегут проверять источник шума
+var alarm_t := 0.0         # гражданскому крикнули «бежим» — он бежит, ещё не видя угрозы
+var alarm_from := Vector3.ZERO   # откуда крикнули: бежать надо ОТ этого места
 var investigate_pos := Vector3.ZERO
 var exhausted := false     # гражданский выдохся — спринт закрыт, пока не отдышится
 

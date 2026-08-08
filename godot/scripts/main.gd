@@ -2005,6 +2005,16 @@ var _nav_paths := {}   # entity instance id -> {"points": PackedVector3Array, "i
 func _tick_call_system(delta: float) -> void:
 	if mode != "playing":
 		return
+	# ЗВОНАРЬ СМЕНЯЕТСЯ. Раньше его выбирали один раз при расстановке: убей
+	# его первым — и полицию не вызовет уже никто, сколько бы гражданских ни
+	# осталось. Теперь место занимает следующий живой.
+	if _caller == null or not is_instance_valid(_caller) or _caller.is_dead or _caller.downed:
+		_caller = null
+		for cv: WolfChar in entities:
+			if cv.faction == "survivor" and not cv.is_dead and not cv.is_player \
+					and not cv.downed and not cv.is_bait:
+				_caller = cv
+				break
 	if call_state == 1 or call_state == 4:
 		call_timer -= delta
 		if call_timer <= 0.0:
@@ -2188,6 +2198,106 @@ func _update_bot(e: WolfChar, delta: float) -> void:
 	_bot_open_or_break_door(e)
 
 
+## Все угрозы в радиусе, а не только ближайшая.
+func _threats_near(pos: Vector3, radius: float) -> Array:
+	var out: Array = []
+	for t: WolfChar in entities:
+		if t.is_dead or t.faction not in ["cannibal", "killer", "ghoul"]:
+			continue
+		var dp := t.global_position - pos
+		if absf(dp.y) > WolfCfg.SAME_FLOOR_DY:
+			continue
+		var d := Vector2(dp.x, dp.z).length()
+		if d <= radius:
+			out.append({"who": t, "d": d})
+	return out
+
+
+## Куда бежать от ОБЛАВЫ, а не от одного преследователя.
+##
+## Раньше гражданский разворачивался спиной к ближайшему психу и бежал по
+## прямой — прямо в руки второму, если тот заходил с другой стороны.
+##
+## Складывать отталкивания тоже нельзя: когда твари стоят с двух сторон,
+## векторы почти сокращаются, и остаток указывает НА ДАЛЬНЮЮ из них —
+## ровно худший выход. Поэтому перебираем направления и выбираем то, где
+## расстояние до ближайшей твари через несколько шагов будет наибольшим.
+## Заодно учитываем, куда тварь БЕЖИТ: уворачиваться надо от места встречи,
+## а не от места, где она была.
+func _flee_dir(pos: Vector3, threats: Array) -> Vector3:
+	if threats.is_empty():
+		return Vector3.ZERO
+	const STEPS := 20
+	const LOOK := 4.5      # на сколько метров вперёд смотрим
+	const LEAD := 0.9      # на сколько секунд упреждаем движение твари
+	var best := Vector3.ZERO
+	var best_score := -INF
+	for i in STEPS:
+		var a := TAU * float(i) / STEPS
+		var dir := Vector3(cos(a), 0.0, sin(a))
+		var probe := pos + dir * LOOK
+		var worst := INF
+		for th: Dictionary in threats:
+			var who: WolfChar = th["who"]
+			var future := who.global_position + who.velocity * LEAD
+			future.y = probe.y
+			worst = minf(worst, probe.distance_to(future))
+		if worst > best_score:
+			best_score = worst
+			best = dir
+	return best
+
+
+## Убежище выбираем по БЕЗОПАСНОСТИ, а не по близости.
+##
+## Ближайшая безопасная комната бесполезна, если между тобой и дверью стоит
+## псих: старый бот бежал туда и умирал на пороге. Считаем цену каждой
+## комнаты: путь плюс штраф за тварей возле неё и отдельный, тяжёлый штраф
+## за тех, кто стоит НА ПУТИ (проверяем скалярным произведением).
+func _best_safe_zone(e: WolfChar, threats: Array) -> Vector3:
+	var best := Vector3.ZERO
+	var best_cost := INF
+	for z in safe_zones:
+		var zp: Vector3 = z["pos"]
+		var to_zone := zp - e.global_position
+		to_zone.y = 0.0
+		var dist := to_zone.length()
+		if dist < 0.01:
+			return zp
+		var dir := to_zone.normalized()
+		var cost := dist
+		for th: Dictionary in threats:
+			var who: WolfChar = th["who"]
+			var to_th := who.global_position - e.global_position
+			to_th.y = 0.0
+			# Тварь возле самой комнаты — комната не убежище.
+			cost += 26.0 / maxf(1.5, who.global_position.distance_to(zp))
+			# Тварь по курсу и ближе комнаты — идти сквозь неё нельзя.
+			if to_th.length() < dist and to_th.normalized().dot(dir) > 0.55:
+				cost += 34.0
+		if cost < best_cost:
+			best_cost = cost
+			best = zp
+	return best
+
+
+## Крик: увидел тварь — предупредил соседей.
+##
+## Толпа, где каждый узнаёт об опасности только своими глазами, выглядит
+## стадом кукол: один бежит, остальные стоят рядом и ждут своей очереди.
+func _civ_alarm(e: WolfChar, from: Vector3) -> void:
+	for t: WolfChar in entities:
+		if t == e or t.faction != "survivor" or t.is_dead or t.downed or t.is_bait:
+			continue
+		if t.global_position.distance_to(e.global_position) > WolfCfg.CIV_ALARM_RANGE:
+			continue
+		if absf(t.global_position.y - e.global_position.y) > WolfCfg.SAME_FLOOR_DY:
+			continue
+		if t.alarm_t < WolfCfg.CIV_ALARM_TIME * 0.5:
+			t.alarm_t = WolfCfg.CIV_ALARM_TIME
+			t.alarm_from = from
+
+
 func _bot_civilian(e: WolfChar, delta: float) -> void:
 	e.interact_held = false
 	e.sprinting = false
@@ -2257,23 +2367,35 @@ func _bot_civilian(e: WolfChar, delta: float) -> void:
 			_bot_goto(e, best_cp, delta)
 			return
 
-	# Псих вплотную — сначала рвём дистанцию ОТ него, а не сквозь него.
+	# Облава целиком, а не ближайший преследователь.
+	var threats := _threats_near(e.global_position, WolfCfg.CIV_THREAT_SCAN)
+
+	# Увидел тварь близко — крикнул своим. Остальные побегут, ещё не видя её.
+	if threat[0] != null and threat[1] < WolfCfg.CIV_SEE_RANGE:
+		_civ_alarm(e, (threat[0] as WolfChar).global_position)
+
+	# Бежим и по чужому крику: сосед заорал — уходим от того места, даже
+	# если сами пока никого не видим.
+	if e.alarm_t > 0.0:
+		e.alarm_t = maxf(0.0, e.alarm_t - delta)
+		if threats.is_empty():
+			var away_alarm := e.global_position - e.alarm_from
+			away_alarm.y = 0.0
+			if away_alarm.length() > 0.05:
+				e.sprinting = true
+				_bot_goto(e, e.global_position + away_alarm.normalized() * 8.0, delta)
+				return
+
+	# Тварь вплотную — рвём дистанцию ОТ ВСЕХ сразу, а не от одной.
 	if threat[0] != null and threat[1] < 7.0:
-		var away: Vector3 = e.global_position - (threat[0] as WolfChar).global_position
-		away.y = 0.0
+		var away := _flee_dir(e.global_position, threats)
 		if away.length() > 0.05:
 			e.sprinting = true
-			_bot_goto(e, e.global_position + away.normalized() * 9.0, delta)
+			_bot_goto(e, e.global_position + away * 9.0, delta)
 			return
 
-	# Head for the nearest safe room; sprint when hunted.
-	var best_zone := Vector3.ZERO
-	var best_d := INF
-	for z in safe_zones:
-		var d: float = (z["pos"] as Vector3).distance_to(e.global_position)
-		if d < best_d:
-			best_d = d
-			best_zone = z["pos"]
+	# В убежище — по безопасности маршрута, а не по близости двери.
+	var best_zone := _best_safe_zone(e, threats)
 	e.sprinting = threat[0] != null and threat[1] < WolfCfg.FLEE_RADIUS
 	_bot_goto(e, best_zone, delta)
 
@@ -5983,6 +6105,8 @@ func _run_test(delta: float) -> void:
 			_test_nostun(delta)
 		"corpse":
 			_test_corpse(delta)
+		"civsmart":
+			_test_civsmart(delta)
 		"charged":
 			_test_charged(delta)
 		"meet":
@@ -6096,6 +6220,52 @@ func _test_duel(_delta: float) -> void:
 		var loss := player.max_hp - player.hp
 		var ok := loss > 0.5 and loss < 20.0
 		print("TEST RESULT: duel block loss=%.1f (ожидание: малый, не ноль) %s" % [loss, "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+
+
+## Гражданские: выбор направления бегства и смена звонаря.
+##
+## Направление проверяем НАПРЯМУЮ у _flee_dir, а не по следу бота на полу:
+## след зависит от того, какой гражданский попался и какие вокруг стены, и
+## одинаково выглядит у наивной и у умной версии. Здесь же проверяется
+## ровно то решение, которое принимает бот.
+func _test_civsmart(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-24, 0.2, 16)
+		var mobs := entities.filter(func(e: WolfChar) -> bool:
+			return e.faction == "cannibal" and not e.is_player)
+		var mid := Vector3(0, 0.2, 0)
+		_corpse_probes = [mobs[0], mobs[1]]
+		# Клещи: ближняя слева, дальняя справа. Наивное «беги от ближней»
+		# указывает точно на дальнюю.
+		(mobs[0] as WolfChar).global_position = mid + Vector3(-3.0, 0, 0)
+		(mobs[1] as WolfChar).global_position = mid + Vector3(3.4, 0, 0)
+		(mobs[0] as WolfChar).velocity = Vector3.ZERO
+		(mobs[1] as WolfChar).velocity = Vector3.ZERO
+		_psycho_probe = _caller
+		if _caller != null:
+			_damage(_caller, 99999.0, player)
+	elif _test_staged and not _test_shot_taken and _test_t > 2.4:
+		_test_shot_taken = true
+		var mid := Vector3(0, 0.2, 0)
+		var threats := _threats_near(mid, WolfCfg.CIV_THREAT_SCAN)
+		var dir := _flee_dir(mid, threats)
+		# Выход из клещей — ПОПЕРЁК их оси. Ось здесь X, значит уходить надо
+		# по Z: |z| должно перевесить |x|.
+		var perp := absf(dir.z) > absf(dir.x) * 2.0
+		# И до обеих тварей от точки прибытия должно быть дальше, чем сейчас.
+		var probe := mid + dir * 4.5
+		var d0 := probe.distance_to((_corpse_probes[0] as WolfChar).global_position)
+		var d1 := probe.distance_to((_corpse_probes[1] as WolfChar).global_position)
+		var caller_ok := _caller != null and is_instance_valid(_caller) \
+				and not _caller.is_dead and not _caller.downed
+		var replaced := _psycho_probe == null or _caller != _psycho_probe
+		var ok := perp and d0 > 3.0 and d1 > 3.4 and caller_ok and replaced
+		print("TEST RESULT: civsmart курс=(%.2f,%.2f) поперёк=%s зазор=%.1f/%.1f звонарь=%s %s" % [
+			dir.x, dir.z, str(perp), d0, d1, str(caller_ok and replaced), "OK" if ok else "FAIL"])
 		get_tree().quit(0 if ok else 1)
 
 
