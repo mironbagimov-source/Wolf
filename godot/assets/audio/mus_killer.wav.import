@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://b6grflji7d5m6"
-path="res://.godot/imported/door.wav-44917a986749810eab0efbb8873b8ccb.sample"
+uid="uid://bc3n7bgsju06s"
+path="res://.godot/imported/mus_killer.wav-6cc7a376ecc1d039c7fdeb8ca47e2efd.sample"
 
 [deps]
 
-source_file="res://assets/audio/door.wav"
-dest_files=["res://.godot/imported/door.wav-44917a986749810eab0efbb8873b8ccb.sample"]
+source_file="res://assets/audio/mus_killer.wav"
+dest_files=["res://.godot/imported/mus_killer.wav-6cc7a376ecc1d039c7fdeb8ca47e2efd.sample"]
 
 [params]
 

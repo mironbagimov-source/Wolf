@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://c4efrdqp1cx4m"
-path="res://.godot/imported/imp_slime.wav-0890fc55798f9f919843dc16f1d2cc51.sample"
+uid="uid://de6yjkr4tq78j"
+path="res://.godot/imported/mus_ghoul.wav-c42b2cc4e3936eda50edba928c18141a.sample"
 
 [deps]
 
-source_file="res://assets/audio/imp_slime.wav"
-dest_files=["res://.godot/imported/imp_slime.wav-0890fc55798f9f919843dc16f1d2cc51.sample"]
+source_file="res://assets/audio/mus_ghoul.wav"
+dest_files=["res://.godot/imported/mus_ghoul.wav-c42b2cc4e3936eda50edba928c18141a.sample"]
 
 [params]
 
