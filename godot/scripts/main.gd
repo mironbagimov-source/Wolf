@@ -27,6 +27,7 @@ const CHAR_SCENE_PATHS := {
 var _char_scenes := {}
 
 var ui: WolfUI
+var audio: WolfAudio
 var district: Node3D
 var menu_cam: Camera3D
 var player_cam: Camera3D = null
@@ -168,6 +169,9 @@ const RESULT_COPY := {
 
 
 func _ready() -> void:
+	audio = WolfAudio.new()
+	audio.name = "Audio"
+	add_child(audio)
 	randomize()
 	district = $District
 	_collect_layout()
@@ -1246,6 +1250,9 @@ func _resolve_bot_strike(e: WolfChar) -> void:
 
 
 func _deliver_strike(e: WolfChar, dmg_mul: float, charged: bool) -> void:
+	if audio != null:
+		audio.play("swing", e.global_position + Vector3(0, 1.3, 0),
+				-8.0 if charged else -11.0, WolfAudio.vary(0.15) * (0.8 if charged else 1.0))
 	var target := _acquire_melee_target(e)
 	if _test_mode != "" and e.is_player:
 		print("DBG strike: target=%s charged=%s mul=%.2f" % ["null" if target == null else target.faction, str(charged), dmg_mul])
@@ -1283,6 +1290,9 @@ func _deliver_strike(e: WolfChar, dmg_mul: float, charged: bool) -> void:
 			return
 		target.stamina -= WolfCfg.STAMINA_BLOCK_HIT_COST * target.stamina_block_mul
 		target.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
+		if audio != null:
+			audio.play("hit_block", target.global_position + Vector3(0, 1.2, 0),
+					-3.0, WolfAudio.vary(0.14))
 		if charged:
 			dmg *= WolfCfg.CRUSH_DMG_MUL
 			# Пробитие блока и сорванная стамина тоже отнимали у игрока
@@ -1499,6 +1509,9 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar, kind := "blade") ->
 	target.hp -= dmg
 	target.hit_flash = 0.15
 	target.death_cause = kind
+	if audio != null and dmg > 1.0:
+		audio.play("hit_flesh", target.global_position + Vector3(0, 1.2, 0),
+				-2.0, WolfAudio.vary(0.16))
 	# ИГРОКА ЧУЖИЕ УДАРЫ НЕ СТАНЯТ. Раньше любое попадание отнимало у него
 	# треть секунды управления: сбивало с ног отбрасыванием, блокировало
 	# рывок и срывало замах. В толпе психов это складывалось в цепочку, из
@@ -1569,6 +1582,9 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar, kind := "blade") ->
 
 
 func _kill(target: WolfChar) -> void:
+	if audio != null:
+		audio.play("death", target.global_position + Vector3(0, 1.1, 0),
+				-1.0, WolfAudio.vary(0.18))
 	target.is_dead = true
 	target.downed = false
 	target.hp = 0.0
@@ -2028,6 +2044,8 @@ func _tick_call_system(delta: float) -> void:
 
 
 func _trigger_call() -> void:
+	if audio != null:
+		audio.play_ui("alert", -4.0)
 	if call_state == 0:
 		call_state = 1
 		call_timer = police_arrive
@@ -2307,6 +2325,9 @@ func _civ_alarm(e: WolfChar, from: Vector3) -> void:
 		if t.alarm_t < WolfCfg.CIV_ALARM_TIME * 0.5:
 			t.alarm_t = WolfCfg.CIV_ALARM_TIME
 			t.alarm_from = from
+			if audio != null and randf() < 0.35:
+				audio.play("scream", t.global_position + Vector3(0, 1.5, 0),
+						-6.0, WolfAudio.vary(0.22))
 
 
 func _bot_civilian(e: WolfChar, delta: float) -> void:
@@ -2683,6 +2704,7 @@ func _apply_entity(e: WolfChar, delta: float) -> void:
 	else:
 		e.velocity.y = maxf(e.velocity.y - 20.0 * delta, -30.0)
 	e.move_and_slide()
+	_footstep(e, delta)
 	e.global_position.x = clampf(e.global_position.x, -bound.x, bound.x)
 	e.global_position.z = clampf(e.global_position.z, -bound.y, bound.y)
 
@@ -4017,6 +4039,8 @@ func _do_civ_implant(surgeon: WolfChar, t: WolfChar) -> void:
 	_blood_burst(t.global_position + Vector3(0, 0.5, 0), 12, 2.0)
 	_spark_burst(t.global_position + Vector3(0, 0.4, 0))
 	surgeon.play_oneshot("Activate")
+	if audio != null:
+		audio.play("implant_in", t.global_position + Vector3(0, 0.6, 0), -1.0)
 	# Свежая начинка ложится в режим «готов к добиванию»: тело как лежало,
 	# так и лежит, но теперь оно — ловушка.
 	# Раненый ложится ловушкой на добивание, труп добивать уже некому —
@@ -4334,6 +4358,8 @@ func _cycle_civ_mode(p: WolfChar, t: WolfChar) -> void:
 			t.move_input = Vector2.ZERO
 	t.play_oneshot("Hit")
 	t.hit_flash = 0.3
+	if audio != null:
+		audio.play("arm", t.global_position + Vector3(0, 1.0, 0), -3.0)
 	_civ_badge(t)
 	if p.is_player:
 		_vm_play("mode")
@@ -4436,6 +4462,12 @@ func _tick_civ_modes(delta: float) -> void:
 
 ## Сработала начинка одного тела (самоспуск, добивание, ручной подрыв).
 func _fire_implant(t: WolfChar, source: WolfChar) -> void:
+	# У каждой начинки СВОЙ голос: подрыв бухает, крио шипит и трещит льдом,
+	# ЭМИ бьёт разрядом и гасит гул, коллапс всасывает. По звуку из-за угла
+	# должно быть ясно, что сработало.
+	if audio != null and t.civ_implant != "":
+		audio.play("imp_%s" % t.civ_implant, t.global_position + Vector3(0, 1.0, 0), 0.0,
+				WolfAudio.vary(0.08))
 	if t.civ_implant == "":
 		return
 	var actor := source
@@ -4613,6 +4645,8 @@ func _fireball(pos: Vector3, radius: float) -> void:
 ## [G]: подрывает заряды (в приманке и в телах) и бьёт шоком по размягчённым.
 func _activate_devices(actor: WolfChar) -> void:
 	actor.play_oneshot("Activate")
+	if audio != null:
+		audio.play("ui", actor.global_position + Vector3(0, 1.3, 0), -8.0, 0.8)
 	if actor.is_player:
 		_vm_play("detonate")
 	var did := false
@@ -6171,6 +6205,8 @@ func _run_test(delta: float) -> void:
 			_test_nostun(delta)
 		"corpse":
 			_test_corpse(delta)
+		"sound":
+			_test_sound(delta)
 		"civsmart":
 			_test_civsmart(delta)
 		"fit":
@@ -6288,6 +6324,83 @@ func _test_duel(_delta: float) -> void:
 		var loss := player.max_hp - player.hp
 		var ok := loss > 0.5 and loss < 20.0
 		print("TEST RESULT: duel block loss=%.1f (ожидание: малый, не ноль) %s" % [loss, "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+
+
+## ШАГИ. Считаем по пройденному пути, а не по таймеру: тогда подошва
+## щёлкает в такт ногам и на бегу чаще, чем шагом, само собой.
+const STEP_EVERY := 1.75      # метров между шагами
+const STEP_HEAR := 26.0       # дальше уже не слышно, звук не тратим
+
+
+func _footstep(e: WolfChar, _delta: float) -> void:
+	if audio == null or e.is_dead or e.downed or not e.is_on_floor():
+		return
+	var v := e.velocity
+	v.y = 0.0
+	var sp := v.length()
+	if sp < 0.4:
+		return
+	e.step_dist += sp * _delta
+	if e.step_dist < STEP_EVERY:
+		return
+	e.step_dist = 0.0
+	if player != null and e != player:
+		if e.global_position.distance_to(player.global_position) > STEP_HEAR:
+			return
+	# Свои шаги тише чужих: они рядом с ухом и иначе забивают всё.
+	var db := -16.0 if e == player else -9.0
+	audio.play("step", e.global_position + Vector3(0, 0.1, 0), db, WolfAudio.vary(0.18))
+
+
+## Звук доходит до движка.
+##
+## Услышать его тут нельзя — в контейнере нет звуковой карты, Godot падает
+## на dummy-драйвер. Поэтому проверяем то, что проверить можно: файлы
+## читаются, менеджер их отдаёт, и на события игры звуки действительно
+## запускаются, причём у каждой начинки СВОЙ.
+func _test_sound(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		player.max_hp = 9999.0
+		player.hp = 9999.0
+		audio.played.clear()
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool:
+			return e.faction == "survivor")[0]
+		_duel_bot.global_position = player.global_position + Vector3(1.2, 0, 0)
+		_damage(_duel_bot, 30.0, player)          # удар
+		_civ_alarm(_duel_bot, player.global_position)  # крик
+		_trigger_call()                            # тревога
+		# И по звуку на каждую начинку.
+		for kind: String in WolfCfg.CIV_IMPLANTS:
+			audio.play("imp_%s" % kind, player.global_position)
+	elif _test_staged and not _test_shot_taken and _test_t > 2.4:
+		_test_shot_taken = true
+		var want := ["hit_flesh", "alert"]
+		var missing: Array[String] = []
+		for w: String in want:
+			if int(audio.played.get(w, 0)) <= 0:
+				missing.append(w)
+		# Своя дорожка у каждой из десяти начинок — не один звук на всех.
+		var per_kind := 0
+		for kind: String in WolfCfg.CIV_IMPLANTS:
+			if int(audio.played.get("imp_%s" % kind, 0)) > 0:
+				per_kind += 1
+			else:
+				missing.append("imp_%s" % kind)
+		# Файлы должны реально читаться, а не тихо отсутствовать.
+		var loaded := 0
+		for n: String in ["hit_flesh", "death", "scream", "step", "imp_bomb", "imp_cryo"]:
+			if ResourceLoader.exists("res://assets/audio/%s.wav" % n):
+				loaded += 1
+		var ok := missing.is_empty() and per_kind == WolfCfg.CIV_IMPLANTS.size() and loaded == 6
+		print("TEST RESULT: sound событий=%d начинок со своим звуком=%d/%d файлов=%d/6%s %s" % [
+			audio.played.size(), per_kind, WolfCfg.CIV_IMPLANTS.size(), loaded,
+			"" if missing.is_empty() else " нет: %s" % ", ".join(missing),
+			"OK" if ok else "FAIL"])
 		get_tree().quit(0 if ok else 1)
 
 
