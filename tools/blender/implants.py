@@ -25,8 +25,8 @@ from mathutils import Matrix, Vector  # noqa: E402
 
 from wolflib import (  # noqa: E402
     M_BONE, M_CHAR, M_FROST, M_GEL, M_GLOW, M_GUT, M_MEAT, M_PCB, M_STEEL,
-    Part, add_box, add_cone, add_cyl, add_sphere, add_torus, export_glb,
-    fbm3, orient_toward, reset_scene, roughen,
+    Part, add_box, add_cone, add_cyl, add_sphere, add_torus, add_tube,
+    export_glb, fbm3, orient_toward, reset_scene, roughen, sag_path,
 )
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -151,6 +151,50 @@ def build_rim(name: str = "Rim", radius: float = WOUND_R,
 
 
 # --- Железо ---------------------------------------------------------------
+
+def anchors(part: Part, count: int = 4, radius: float = 0.105) -> None:
+    """Крепёж в кость: штыри по кругу, вбитые в стенку полости.
+
+    Устройство не висит в мясе само по себе — его к чему-то прикрутили.
+    Без штырей вся начинка выглядит подброшенной в дыру.
+    """
+    for i in range(count):
+        a = math.tau * i / count + 0.4
+        x = math.cos(a) * radius
+        y = math.sin(a) * radius
+        # Шляпка снаружи и стержень, уходящий в кость.
+        add_cyl(part, 0.010, 0.008, at=v(x, y, MOUTH - 0.030),
+                rot=vr(math.pi / 2, 0, 0), segs=8, mat=M_STEEL)
+        add_cyl(part, 0.0055, 0.055, at=v(x, y, MOUTH - 0.060),
+                rot=vr(math.pi / 2, 0, 0), segs=6, mat=M_STEEL)
+
+
+def leads(part: Part, count: int = 3, from_out: float = 0.055) -> None:
+    """Провода от устройства в мясо: провисают и уходят под стенку."""
+    for i in range(count):
+        a = math.tau * i / count + 1.1
+        end = v(math.cos(a) * 0.115, math.sin(a) * 0.115, MOUTH - 0.075)
+        start = v(math.cos(a) * 0.035, math.sin(a) * 0.035, from_out)
+        # Кабель — резина и оплётка, а не плата: с текстурой платы труба
+        # читается цепью, а не проводом.
+        add_tube(part, sag_path(start, end, 0.012, 7), 0.0045, 7,
+                 M_GUT if i % 2 == 0 else M_STEEL)
+
+
+def indicators(part: Part, pts, radius: float = 0.006) -> None:
+    """Мелкие огоньки состояния: по ним видно, что железо ЖИВОЕ."""
+    for p in pts:
+        add_sphere(part, radius, at=p, segs=8, mat=M_GLOW)
+
+
+def lens(part: Part, at, r: float = 0.022) -> None:
+    """Стекло с ободком — окошко, за которым что-то происходит."""
+    add_torus(part, r, 0.004, at=at, rot=vr(math.pi / 2, 0, 0),
+              major_segs=16, minor_segs=6, mat=M_STEEL)
+    add_cyl(part, r * 0.85, 0.006, at=at, rot=vr(math.pi / 2, 0, 0),
+            segs=16, mat=M_GEL)
+
+
 
 def hw_bomb(part: Part) -> None:
     """Три брикета в ленте, детонатор, таймер."""
@@ -392,6 +436,12 @@ def build_civ(kind: str, out_dir: str) -> str:
     build_rim(burned=(kind == "emp"))
     part = Part("Core")
     CIV_HW[kind](part)
+    # Общая обвязка: штыри в кость, провода в мясо, огоньки состояния.
+    # Это то, что превращает «предмет в дыре» во «вживлённое устройство».
+    anchors(part)
+    leads(part)
+    indicators(part, [v(-0.052, 0.088, 0.098), v(-0.028, 0.088, 0.098),
+                      v(0.052, -0.086, 0.094)])
     part.finish()
     path = os.path.abspath(os.path.join(out_dir, "civ_%s.glb" % kind))
     export_glb(path)

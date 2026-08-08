@@ -278,6 +278,62 @@ def roughen(part: Part, faces, amount: float, scale: float = 12.0, seed: int = 1
         v.co += v.normal * (n * amount)
 
 
+def add_tube(part: Part, pts, radius: float, segs: int = 8, mat: str = M_STEEL) -> list:
+    """Труба по ломаной — кабель, шланг, жгут.
+
+    Прямой цилиндр читается как палка. Настоящая обвязка провисает и гнётся,
+    а провисание — это то, по чему глаз опознаёт кабель.
+    """
+    before = part.snapshot()
+    bm = part.bm
+    rings = []
+    for i, p in enumerate(pts):
+        p = Vector(p)
+        # Направление участка — по соседям, чтобы кольца вставали поперёк.
+        if i == 0:
+            d = Vector(pts[1]) - p
+        elif i == len(pts) - 1:
+            d = p - Vector(pts[-2])
+        else:
+            d = Vector(pts[i + 1]) - Vector(pts[i - 1])
+        if d.length < 1e-6:
+            d = Vector((0.0, 0.0, 1.0))
+        d.normalize()
+        up = Vector((0.0, 0.0, 1.0))
+        if abs(d.dot(up)) > 0.95:
+            up = Vector((1.0, 0.0, 0.0))
+        a = d.cross(up).normalized()
+        b = d.cross(a).normalized()
+        ring = []
+        for j in range(segs):
+            t = j / segs * math.tau
+            off = a * (math.cos(t) * radius) + b * (math.sin(t) * radius)
+            ring.append(bm.verts.new(p + off))
+        rings.append(ring)
+    for i in range(len(rings) - 1):
+        for j in range(segs):
+            v0 = rings[i][j]
+            v1 = rings[i][(j + 1) % segs]
+            v2 = rings[i + 1][(j + 1) % segs]
+            v3 = rings[i + 1][j]
+            bm.faces.new((v0, v1, v2, v3))
+    bm.verts.index_update()
+    return part.new_faces(before, mat)
+
+
+def sag_path(a, b, sag: float, steps: int = 7) -> list:
+    """Ломаная от a до b с провисанием посередине."""
+    a = Vector(a)
+    b = Vector(b)
+    out = []
+    for i in range(steps):
+        t = i / (steps - 1)
+        p = a.lerp(b, t)
+        p.z -= math.sin(t * math.pi) * sag
+        out.append(tuple(p))
+    return out
+
+
 def orient_toward(part: Part, faces, target) -> None:
     """Разворачивает грани лицом к точке.
 

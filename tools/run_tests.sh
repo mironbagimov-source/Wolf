@@ -14,10 +14,21 @@ PROJ="$(cd "$(dirname "$0")/.." && pwd)/godot"
 LOG="${WOLF_TEST_LOG:-/tmp/wolf-tests}"
 mkdir -p "$LOG"
 
+# Без этой проверки забытый путь к Godot выглядел как ПОЛНЫЙ ПРОВАЛ ВСЕГО
+# набора: каждый запуск падал мгновенно, строки результата не было, и сводка
+# честно рапортовала «провалено 54 из 54». Час на поиск несуществующей
+# регрессии — приятного мало.
+if ! command -v "$GODOT" >/dev/null 2>&1 && [ ! -x "$GODOT" ]; then
+	echo "Не найден Godot: '$GODOT'" >&2
+	echo "Укажи путь аргументом или в WOLF_GODOT:" >&2
+	echo "  tools/run_tests.sh /путь/к/Godot_v4.3-stable_linux.x86_64" >&2
+	exit 2
+fi
+
 MODES=(menu look merc club rooms duel charged meet lift civwin agony bomb
        stairs bait loot implant dermal ghoul hub city mode demo hands
        respawn damage eaten civbomb slime revive interrogate grab loadout
-       cast parry dash exec)
+       cast parry dash exec nostun corpse civsmart)
 # Начинки тел: у каждой свой эффект и своя сборка импланта.
 DEVS=(bomb slime softener flare cryo emp singularity holo brood puppet)
 # Клипы: те, что поставлены в Blender, и базовые из библиотеки.

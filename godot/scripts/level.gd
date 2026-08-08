@@ -57,11 +57,11 @@ static func build_environment(root: Node3D) -> void:
 
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.46, 0.47, 0.55)
-	env.ambient_light_energy = 0.55
+	env.ambient_light_energy = 0.62
 
 	# Хоррор-дымка: дешёвый экспоненциальный туман глушит дальние этажи.
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.045, 0.05, 0.075)
+	env.fog_light_color = Color(0.06, 0.065, 0.095)
 	env.fog_density = 0.011
 	env.fog_sky_affect = 0.0
 
@@ -71,6 +71,37 @@ static func build_environment(root: Node3D) -> void:
 	env.glow_intensity = 0.6
 	env.glow_bloom = 0.1
 	env.glow_hdr_threshold = 1.05
+
+	# КОНТАКТНАЯ ТЕНЬ. Без неё предметы не стоят на полу, а висят над ним:
+	# в углах и под ногами нет затемнения, и вся геометрия читается плоской
+	# вырезкой. Работает только на forward_plus — на нём игра и поставляется.
+	env.ssao_enabled = true
+	env.ssao_radius = 0.9
+	env.ssao_intensity = 1.7
+	env.ssao_power = 1.4
+	env.ssao_detail = 0.6
+	env.ssao_light_affect = 0.15   # немного гасит и прямой свет — грязь в углах
+
+	# ОБЪЁМНЫЙ ТУМАН: свет вывесок и ламп даёт видимые столбы в воздухе.
+	# Для неонового ночного квартала это половина настроения; плоский
+	# экспоненциальный туман сверху остаётся для дальних этажей.
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = 0.013
+	env.volumetric_fog_albedo = Color(0.55, 0.6, 0.8)
+	env.volumetric_fog_emission = Color(0.02, 0.02, 0.04)
+	env.volumetric_fog_length = 48.0
+	env.volumetric_fog_gi_inject = 0.6
+
+	# Тон: провалы в чистый чёрный съедали пятую часть кадра — там просто
+	# нет изображения. Поднимаем нижний край кривой и добавляем цвета, но
+	# темноту как таковую не трогаем: это хоррор, а не витрина.
+	env.adjustment_enabled = true
+	# Контраст трогаем чуть-чуть: он давит тени, а провалов в чистый чёрный
+	# и так было двадцать процентов кадра. Цвет добираем насыщенностью, а
+	# нижний край поднимаем СВЕТОМ (ambient ниже), а не кривой.
+	env.adjustment_brightness = 1.14
+	env.adjustment_contrast = 1.02
+	env.adjustment_saturation = 1.16
 
 	var we := WorldEnvironment.new()
 	we.name = "WorldEnvironment"
