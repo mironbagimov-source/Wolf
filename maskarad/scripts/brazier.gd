@@ -66,6 +66,8 @@ func _ready() -> void:
 	_light.light_color = Color(1.0, 0.72, 0.42)
 	_light.light_energy = 0.0
 	_light.omni_range = Data.TUNE["brazier_light_radius"] + 4.0
+	_light.shadow_enabled = true
+	_light.light_volumetric_fog_energy = 2.0
 	_light.position = Vector3(0, 1.4, 0)
 	add_child(_light)
 

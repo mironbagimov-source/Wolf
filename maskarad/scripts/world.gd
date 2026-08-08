@@ -62,6 +62,17 @@ func _make_environment() -> void:
 	env.glow_enabled = true
 	env.glow_intensity = 0.5
 	env.glow_bloom = 0.15
+	# лучи от свечей: именно они превращают тёмную коробку в бальный зал
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = 0.018
+	env.volumetric_fog_albedo = Color(0.7, 0.68, 0.72)
+	env.volumetric_fog_emission = Color(0.02, 0.02, 0.03)
+	env.volumetric_fog_length = 60.0
+	# мягкое затенение в углах и под мебелью
+	env.ssao_enabled = true
+	env.ssao_radius = 1.4
+	env.ssao_intensity = 1.6
+	env.ssil_enabled = false
 
 	var we := WorldEnvironment.new()
 	we.environment = env
@@ -275,8 +286,10 @@ func _chandelier(x: float, y: float, z: float) -> void:
 
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.82, 0.58)
-	light.light_energy = 2.0
-	light.omni_range = 16.0
+	light.light_energy = 2.4
+	light.omni_range = 18.0
+	light.shadow_enabled = true
+	light.light_volumetric_fog_energy = 1.6
 	light.position = Vector3(x, y - 0.2, z)
 	add_child(light)
 
@@ -299,8 +312,9 @@ func _sconce(x: float, y: float, z: float) -> void:
 
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.76, 0.5)
-	light.light_energy = 1.5
-	light.omni_range = 13.0
+	light.light_energy = 1.8
+	light.omni_range = 14.0
+	light.light_volumetric_fog_energy = 1.4
 	light.position = Vector3(x, y, z)
 	add_child(light)
 

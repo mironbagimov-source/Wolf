@@ -60,13 +60,17 @@ var summoned_by: Actor = null
 var summon_hold: float = 0.0
 
 var _body_root: Node3D
-var _mats: Array[StandardMaterial3D] = []
-var _eye_mats: Array[StandardMaterial3D] = []
-var _mask_mesh: MeshInstance3D
+var _parts: Body.Parts = null
+var _external_model: Node3D = null
+var _anim: AnimationPlayer = null
 var _name_tag: Label3D
-var _claw_meshes: Array[Node3D] = []
 var _weapon_mesh: Node3D
-var _blink := 0.0
+var _walk_phase := 0.0
+var _breathe := 0.0
+var _attack_anim := 0.0
+## Зерно внешности: гости получают разные наряды, иначе зал выглядит
+## как склад манекенов, а вампиру негде затеряться.
+var appearance_seed: int = 0
 
 # ============================================================== сборка
 func setup(id: String, controlled: bool = false) -> void:
@@ -95,46 +99,34 @@ func setup(id: String, controlled: bool = false) -> void:
 	shape.position = Vector3(0, 0.85, 0)
 	add_child(shape)
 
-	_build_body()
+	_build_name_tag()
 	set_appearance(id)
 	add_to_group("actors")
 	Game.register(self)
 
+func _build_name_tag() -> void:
+	_name_tag = Label3D.new()
+	_name_tag.position = Vector3(0, 2.3, 0)
+	_name_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_name_tag.no_depth_test = true
+	_name_tag.font_size = 44
+	# постоянный размер на экране: иначе имя гостя в двух шагах закрывает пол-HUD
+	_name_tag.fixed_size = true
+	_name_tag.pixel_size = 0.0007
+	_name_tag.modulate = Color(0.9, 0.86, 0.75)
+	_name_tag.outline_size = 12
+	_name_tag.visible = false
+	add_child(_name_tag)
+
 ## Внешность отдельно от личности: вампир надевает чужое лицо, а числа
-## остаются свои. Именно поэтому это два разных поля.
+## остаются свои. Именно поэтому это два разных поля — и поэтому облик
+## пересобирается целиком: двухметровая фигура под именем гостя выдала бы
+## себя мгновенно, так что вместе с лицом меняется и рост.
 func set_appearance(id: String) -> void:
 	appearance_id = id
 	var look: Dictionary = Data.character(id)
 	appearance_name = look["name"]
-	var monstrous := _shows_true_form()
-
-	var skin: Color = look["skin"]
-	var cloth: Color = look["cloth"]
-	var hair: Color = look["hair"]
-	if monstrous:
-		skin = skin.lerp(Color(0.78, 0.76, 0.8), 0.65)
-		cloth = cloth.darkened(0.35)
-
-	if _mats.size() >= 3:
-		_mats[0].albedo_color = skin
-		_mats[1].albedo_color = cloth
-		_mats[2].albedo_color = hair
-		_mats[0].emission_enabled = monstrous
-		_mats[0].emission = Color(0.25, 0.05, 0.07)
-		_mats[0].emission_energy_multiplier = 0.5 if monstrous else 0.0
-
-	for m in _eye_mats:
-		m.albedo_color = Color(0.05, 0.04, 0.04)
-		m.emission_enabled = monstrous
-		m.emission = Color(1.0, 0.12, 0.08)
-		m.emission_energy_multiplier = 3.0 if monstrous else 0.0
-
-	if _mask_mesh:
-		_mask_mesh.visible = not monstrous
-	for c in _claw_meshes:
-		c.visible = monstrous
-	if _weapon_mesh:
-		_weapon_mesh.visible = monstrous or role == Data.Role.LICH
+	_rebuild_body()
 	_refresh_name_tag()
 
 ## Личи не прячутся — они всегда в своём виде. Вампир показывает истинную
@@ -148,127 +140,117 @@ func _shows_true_form() -> bool:
 		_:
 			return false
 
-func _build_body() -> void:
-	_body_root = Node3D.new()
-	add_child(_body_root)
+func _rebuild_body() -> void:
+	if _body_root != null and is_instance_valid(_body_root):
+		_body_root.queue_free()
+	_body_root = null
+	_parts = null
+	_external_model = null
+	_anim = null
+	_weapon_mesh = null
 
-	var skin_mat := _make_mat(Color(0.8, 0.68, 0.58))
-	var cloth_mat := _make_mat(Color(0.3, 0.3, 0.34))
-	var hair_mat := _make_mat(Color(0.2, 0.17, 0.14))
-	_mats = [skin_mat, cloth_mat, hair_mat]
+	var holder := Node3D.new()
+	add_child(holder)
+	_body_root = holder
 
-	# торс
-	var torso := MeshInstance3D.new()
-	var torso_mesh := CapsuleMesh.new()
-	torso_mesh.radius = 0.26
-	torso_mesh.height = 1.05
-	torso.mesh = torso_mesh
-	torso.material_override = cloth_mat
-	torso.position = Vector3(0, 0.95, 0)
-	_body_root.add_child(torso)
+	var look: Dictionary = Data.character(appearance_id)
+	var monstrous := _shows_true_form()
 
-	# голова
-	var head := MeshInstance3D.new()
-	var head_mesh := SphereMesh.new()
-	head_mesh.radius = 0.2
-	head_mesh.height = 0.4
-	head.mesh = head_mesh
-	head.material_override = skin_mat
-	head.position = Vector3(0, 1.68, 0)
-	_body_root.add_child(head)
+	# своя модель, если её положили в assets/ и прописали в Data
+	var model_path: String = look.get("model", "")
+	if model_path != "" and ResourceLoader.exists(model_path):
+		var packed = load(model_path)
+		if packed != null:
+			_external_model = packed.instantiate() if packed is PackedScene else null
+			if _external_model != null:
+				holder.add_child(_external_model)
+				_fit_external_model(look)
+				_anim = _external_model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+				_build_weapon(holder)
+				return
 
-	# волосы шапочкой
-	var hair := MeshInstance3D.new()
-	var hair_mesh := SphereMesh.new()
-	hair_mesh.radius = 0.21
-	hair_mesh.height = 0.28
-	hair.mesh = hair_mesh
-	hair.material_override = hair_mat
-	hair.position = Vector3(0, 1.76, -0.02)
-	_body_root.add_child(hair)
+	_parts = Body.build(holder, look, monstrous)
+	if appearance_seed != 0 and role == Data.Role.GUEST:
+		_vary_appearance()
+	_build_weapon(holder)
 
-	# маскарадная маска — её носят все гости, и она же прячет лицо нечисти
-	_mask_mesh = MeshInstance3D.new()
-	var mask_mesh := BoxMesh.new()
-	mask_mesh.size = Vector3(0.34, 0.14, 0.06)
-	_mask_mesh.mesh = mask_mesh
-	var mask_mat := _make_mat(Color(0.85, 0.76, 0.45))
-	mask_mat.metallic = 0.5
-	mask_mat.roughness = 0.35
-	_mask_mesh.material_override = mask_mat
-	_mask_mesh.position = Vector3(0, 1.71, -0.18)
-	_body_root.add_child(_mask_mesh)
+## Разброс нарядов толпы: цвет платья, оттенок кожи, рост в пределах пары
+## сантиметров. Считается от зерна, поэтому один и тот же гость всегда
+## выглядит одинаково.
+func _vary_appearance() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = appearance_seed
+	var palette := [
+		Color(0.22, 0.20, 0.26), Color(0.30, 0.16, 0.18), Color(0.17, 0.22, 0.24),
+		Color(0.28, 0.24, 0.16), Color(0.20, 0.18, 0.30), Color(0.14, 0.20, 0.16),
+		Color(0.33, 0.28, 0.30), Color(0.12, 0.13, 0.16),
+	]
+	var cloth: Color = palette[rng.randi() % palette.size()]
+	var accent: Color = palette[rng.randi() % palette.size()].lightened(0.25)
+	if _parts.mats.has("cloth"):
+		_parts.mats["cloth"].albedo_color = cloth
+	if _parts.mats.has("accent"):
+		_parts.mats["accent"].albedo_color = accent
+	if _parts.mats.has("skin"):
+		var skin: StandardMaterial3D = _parts.mats["skin"]
+		skin.albedo_color = skin.albedo_color.lerp(
+			Color(rng.randf_range(0.5, 0.9), rng.randf_range(0.4, 0.72), rng.randf_range(0.34, 0.6)), 0.6)
+	if _parts.mats.has("hair"):
+		var hair: StandardMaterial3D = _parts.mats["hair"]
+		hair.albedo_color = hair.albedo_color.lerp(
+			Color(rng.randf_range(0.08, 0.5), rng.randf_range(0.06, 0.4), rng.randf_range(0.05, 0.3)), 0.8)
+	if _parts.root:
+		_parts.root.scale = Vector3.ONE * rng.randf_range(0.95, 1.05)
 
-	# глаза — по ним и читается, что перед тобой не человек
-	for sx in [-1.0, 1.0]:
-		var eye := MeshInstance3D.new()
-		var eye_mesh := SphereMesh.new()
-		eye_mesh.radius = 0.035
-		eye_mesh.height = 0.07
-		eye.mesh = eye_mesh
-		var em := _make_mat(Color(0.05, 0.04, 0.04))
-		_eye_mats.append(em)
-		eye.material_override = em
-		eye.position = Vector3(0.07 * sx, 1.71, -0.19)
-		_body_root.add_child(eye)
+## Чужая модель может прийти в любом масштабе и смотреть куда угодно.
+## Приводим её к росту из `build` и разворачиваем лицом по -Z.
+func _fit_external_model(look: Dictionary) -> void:
+	var plan: Dictionary = look.get("build", {})
+	var want_h: float = plan.get("height", 1.78)
+	var aabb := _model_aabb(_external_model)
+	if aabb.size.y > 0.01:
+		var k := want_h / aabb.size.y
+		_external_model.scale = Vector3.ONE * k
+		_external_model.position.y = -aabb.position.y * k
+	_external_model.rotation.y = float(look.get("model_yaw", 0.0))
 
-	# руки и ноги
-	for sx in [-1.0, 1.0]:
-		var arm := MeshInstance3D.new()
-		var arm_mesh := CapsuleMesh.new()
-		arm_mesh.radius = 0.075
-		arm_mesh.height = 0.72
-		arm.mesh = arm_mesh
-		arm.material_override = cloth_mat
-		arm.position = Vector3(0.32 * sx, 1.05, 0)
-		_body_root.add_child(arm)
+func _model_aabb(node: Node) -> AABB:
+	var out := AABB()
+	var first := true
+	for child in node.find_children("*", "MeshInstance3D", true, false):
+		var mi := child as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		var box := mi.mesh.get_aabb()
+		if first:
+			out = box
+			first = false
+		else:
+			out = out.merge(box)
+	return out
 
-		var leg := MeshInstance3D.new()
-		var leg_mesh := CapsuleMesh.new()
-		leg_mesh.radius = 0.095
-		leg_mesh.height = 0.85
-		leg.mesh = leg_mesh
-		leg.material_override = cloth_mat
-		leg.position = Vector3(0.13 * sx, 0.42, 0)
-		_body_root.add_child(leg)
-
-		# когти истинной формы
-		var claw := MeshInstance3D.new()
-		var claw_mesh := BoxMesh.new()
-		claw_mesh.size = Vector3(0.06, 0.06, 0.3)
-		claw.mesh = claw_mesh
-		claw.material_override = _make_mat(Color(0.85, 0.85, 0.88))
-		claw.position = Vector3(0.32 * sx, 0.72, -0.14)
-		claw.visible = false
-		_body_root.add_child(claw)
-		_claw_meshes.append(claw)
-
-	_build_weapon()
-
-	_name_tag = Label3D.new()
-	_name_tag.position = Vector3(0, 2.15, 0)
-	_name_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_name_tag.no_depth_test = true
-	_name_tag.font_size = 48
-	_name_tag.pixel_size = 0.0032
-	_name_tag.modulate = Color(0.9, 0.86, 0.75)
-	_name_tag.outline_size = 12
-	_name_tag.visible = false
-	add_child(_name_tag)
-
-func _build_weapon() -> void:
+func _build_weapon(body_holder: Node3D) -> void:
 	var w: Dictionary = Data.weapon_of(char_id)
 	if w.is_empty():
 		return
 	var holder := Node3D.new()
-	holder.position = Vector3(0.36, 1.0, -0.15)
-	_body_root.add_child(holder)
+	# в кисть правой руки, если тело собрано кодом; иначе просто сбоку
+	if _parts != null and _parts.weapon_mount != null:
+		_parts.weapon_mount.add_child(holder)
+		holder.position = Vector3(0, -0.34 * (_parts.height / 1.78), 0)
+		holder.rotation = Vector3(-1.4, 0, 0)
+	else:
+		body_holder.add_child(holder)
+		holder.position = Vector3(0.36, 1.0, -0.15)
 	_weapon_mesh = holder
 
-	var steel := _make_mat(Color(0.72, 0.74, 0.78))
+	var steel := StandardMaterial3D.new()
+	steel.albedo_color = Color(0.72, 0.74, 0.78)
 	steel.metallic = 0.85
 	steel.roughness = 0.28
-	var wood := _make_mat(Color(0.28, 0.18, 0.12))
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color(0.28, 0.18, 0.12)
+	wood.roughness = 0.8
 
 	match char_id:
 		"moira":                                     # серп
@@ -324,12 +306,6 @@ func _build_weapon() -> void:
 		_:
 			holder.queue_free()
 			_weapon_mesh = null
-
-func _make_mat(c: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = c
-	m.roughness = 0.85
-	return m
 
 # ================================================================== кадр
 func _physics_process(delta: float) -> void:
@@ -468,13 +444,43 @@ func _terror_multiplier() -> float:
 				return Data.TUNE["terror_slow"]
 	return 1.0
 
+## Походка считается кодом: конечности собраны на пивотах, поэтому им хватает
+## синуса по фазе, а фаза набегает от пройденного пути — на месте ноги стоят.
 func _tick_visuals(delta: float) -> void:
-	# лёгкая походка: покачивание корпуса от скорости
 	var speed2d := Vector2(velocity.x, velocity.z).length()
-	_blink += delta * (4.0 + speed2d * 2.2)
-	if _body_root:
-		_body_root.position.y = sin(_blink * 2.0) * 0.02 * clampf(speed2d / 3.0, 0.0, 1.5)
-		_body_root.rotation.z = sin(_blink) * 0.03 * clampf(speed2d / 4.0, 0.0, 1.0)
+	_breathe += delta
+	_attack_anim = max(0.0, _attack_anim - delta * 3.2)
+
+	if _anim != null:
+		_drive_external_anim(speed2d)
+	elif _parts != null:
+		_walk_phase += speed2d * delta * 3.4
+		var gait: float = clampf(speed2d / 4.2, 0.0, 1.3)
+		var swing: float = gait * 0.62
+		var s := sin(_walk_phase)
+		var c := cos(_walk_phase * 2.0)
+
+		if _parts.arm_l:
+			_parts.arm_l.rotation.x = s * swing
+		if _parts.arm_r:
+			# рука с оружием отводится назад для замаха и рубит вперёд
+			_parts.arm_r.rotation.x = -s * swing - _attack_anim * 1.9
+		if not _parts.skirt:
+			if _parts.leg_l:
+				_parts.leg_l.rotation.x = -s * swing * 1.15
+			if _parts.leg_r:
+				_parts.leg_r.rotation.x = s * swing * 1.15
+		if _parts.hips:
+			_parts.hips.position.y = _parts.hips.position.y  # база задана в Body
+			_parts.hips.rotation.y = s * gait * 0.10
+		if _parts.chest:
+			_parts.chest.rotation.y = -s * gait * 0.16
+			# дыхание: еле заметное, но неподвижная фигура выглядит мёртвой
+			var breath := 1.0 + sin(_breathe * 1.9) * 0.012
+			_parts.chest.scale = Vector3(breath, 1.0, breath)
+		if _body_root:
+			_body_root.position.y = absf(c) * 0.02 * gait
+			_body_root.rotation.z = s * 0.025 * gait
 
 	if _name_tag:
 		var show_tag := false
@@ -486,6 +492,21 @@ func _tick_visuals(delta: float) -> void:
 		if show_tag:
 			_refresh_name_tag()
 
+## Если подложена своя модель с анимациями — играем их по имени.
+func _drive_external_anim(speed2d: float) -> void:
+	var want := "Idle"
+	if speed2d > 3.6:
+		want = "Run"
+	elif speed2d > 0.4:
+		want = "Walk"
+	if not _anim.has_animation(want):
+		return
+	if _anim.current_animation != want:
+		_anim.play(want, 0.2)
+
+## Что написано над головой. Пока вампир не вскрыт и не надел чужое лицо, он
+## для всех просто гость — иначе имя выдавало бы его с порога и вся игра в
+## опознание отменялась бы табличкой.
 func _refresh_name_tag() -> void:
 	if _name_tag == null:
 		return
@@ -494,6 +515,8 @@ func _refresh_name_tag() -> void:
 	if _shows_true_form():
 		text = "%s — %s" % [display_name, Data.ROLE_NAME[role]]
 		col = Color(1.0, 0.35, 0.3)
+	elif (role == Data.Role.VAMPIRE or role == Data.Role.THRALL) and appearance_id == char_id:
+		text = Data.character("guest")["name"]
 	elif _flickers_for_chiara():
 		text = appearance_name + " ?"
 		col = Color(1.0, 0.8, 0.4)
@@ -514,6 +537,7 @@ func try_attack() -> bool:
 		return false
 	cancel_channel()
 	pending_attack = true
+	_attack_anim = 1.0
 	windup_time = w["windup"]
 	attack_cd = w["cooldown"]
 	return true

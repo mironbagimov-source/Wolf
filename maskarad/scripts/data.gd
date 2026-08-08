@@ -81,6 +81,13 @@ const TUNE := {
 # speed — базовая скорость, sprint — множитель, stamina/hp — очевидно,
 # perception — во сколько раз дальше видит подсказки, noise — как далеко
 # слышны шаги.
+#
+# build — силуэт: рост в метрах, ширина, причёска, шляпа, юбка, пальто,
+# маскарадная маска. Из него `body.gd` собирает тело. Рост тут не косметика:
+# двухметровая фигура в широкополой шляпе читается через весь зал.
+#
+# model — путь к своей модели (.glb/.fbx). Если задан, всё построенное кодом
+# игнорируется и грузится она. Как подложить свои — `assets/README.md`.
 const CHARACTERS := {
 	# ------------------------------------------------------------- люди
 	"helga": {
@@ -89,6 +96,9 @@ const CHARACTERS := {
 		"speed": 4.0, "sprint": 1.55, "stamina": 145.0, "hp": 120.0,
 		"perception": 0.9, "noise": 1.25, "garlic": 3,
 		"skin": Color(0.86, 0.74, 0.63), "cloth": Color(0.36, 0.28, 0.22), "hair": Color(0.75, 0.62, 0.31),
+		"accent": Color(0.62, 0.50, 0.30),
+		"build": {"height": 1.72, "bulk": 1.15, "hair": "long", "mask": true},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Двужильная",
 		"perk_desc": "Ужас лича её не берёт: в его ауре не замедляется. Дольше всех бежит и дольше всех держится.",
 	},
@@ -98,6 +108,9 @@ const CHARACTERS := {
 		"speed": 4.7, "sprint": 1.7, "stamina": 115.0, "hp": 85.0,
 		"perception": 1.0, "noise": 0.55, "garlic": 3,
 		"skin": Color(0.72, 0.56, 0.42), "cloth": Color(0.2, 0.24, 0.3), "hair": Color(0.15, 0.13, 0.12),
+		"accent": Color(0.42, 0.38, 0.30),
+		"build": {"height": 1.77, "bulk": 0.90, "hair": "short", "mask": true, "coat": true},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Лёгкая нога",
 		"perk_desc": "Шаги почти не слышно — нечисть не подтягивается на звук. Быстрее всех, но и ломается быстрее.",
 	},
@@ -107,6 +120,9 @@ const CHARACTERS := {
 		"speed": 4.3, "sprint": 1.6, "stamina": 105.0, "hp": 95.0,
 		"perception": 1.5, "noise": 0.85, "garlic": 5,
 		"skin": Color(0.8, 0.66, 0.55), "cloth": Color(0.45, 0.16, 0.2), "hair": Color(0.28, 0.16, 0.1),
+		"accent": Color(0.66, 0.52, 0.42),
+		"build": {"height": 1.68, "bulk": 0.95, "hair": "long", "mask": true, "skirt": true},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Видит фальшь",
 		"perk_desc": "Чужой облик на вампире мерцает — издалека видно, что лицо не своё. Носит лишний чеснок.",
 	},
@@ -118,6 +134,9 @@ const CHARACTERS := {
 		"speed": 4.6, "sprint": 1.5, "stamina": 130.0, "hp": 150.0,
 		"perception": 1.1, "noise": 0.7, "weapon": "sickle",
 		"skin": Color(0.83, 0.79, 0.78), "cloth": Color(0.22, 0.1, 0.14), "hair": Color(0.1, 0.08, 0.09),
+		"accent": Color(0.12, 0.10, 0.13),
+		"build": {"height": 2.05, "bulk": 1.00, "hair": "long", "mask": true, "skirt": true, "hat": "wide", "collar": true},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Серп",
 		"perk_desc": "Широкий замах цепляет всех, кто рядом. Хороша, когда маскарад уже сорван.",
 	},
@@ -127,6 +146,9 @@ const CHARACTERS := {
 		"speed": 4.75, "sprint": 1.55, "stamina": 140.0, "hp": 135.0,
 		"perception": 1.25, "noise": 0.6, "weapon": "rapier",
 		"skin": Color(0.87, 0.84, 0.83), "cloth": Color(0.12, 0.12, 0.2), "hair": Color(0.35, 0.3, 0.26),
+		"accent": Color(0.16, 0.15, 0.22),
+		"build": {"height": 1.93, "bulk": 1.00, "hair": "short", "mask": true, "coat": true, "collar": true, "hat": "tall"},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Шпага",
 		"perk_desc": "Длинный точный выпад достаёт раньше, чем жертва разрывает дистанцию.",
 	},
@@ -138,6 +160,9 @@ const CHARACTERS := {
 		"speed": 4.15, "sprint": 1.45, "stamina": 150.0, "hp": 200.0,
 		"perception": 1.0, "noise": 1.5, "weapon": "harpoon",
 		"skin": Color(0.55, 0.58, 0.5), "cloth": Color(0.18, 0.2, 0.17), "hair": Color(0.1, 0.1, 0.1),
+		"accent": Color(0.20, 0.18, 0.16),
+		"build": {"height": 1.90, "bulk": 1.25, "hair": "short", "mask": false, "coat": true, "hat": "worn"},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Гарпунное ружьё",
 		"perk_desc": "Бьёт через весь зал и тащит жертву к себе. Убежать от Карла мало — надо разорвать линию.",
 	},
@@ -147,6 +172,9 @@ const CHARACTERS := {
 		"speed": 4.5, "sprint": 1.5, "stamina": 140.0, "hp": 225.0,
 		"perception": 0.9, "noise": 1.6, "weapon": "axe",
 		"skin": Color(0.5, 0.5, 0.46), "cloth": Color(0.24, 0.16, 0.12), "hair": Color(0.12, 0.1, 0.08),
+		"accent": Color(0.22, 0.15, 0.11),
+		"build": {"height": 1.96, "bulk": 1.35, "hair": "short", "mask": false, "coat": true, "hat": "worn", "collar": true},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Топор и нож",
 		"perk_desc": "Топор валит с одного удара, нож добивает. Медленный замах — единственное окно, чтобы уйти.",
 	},
@@ -158,6 +186,9 @@ const CHARACTERS := {
 		"speed": 2.6, "sprint": 1.6, "stamina": 80.0, "hp": 45.0,
 		"perception": 0.7, "noise": 0.9,
 		"skin": Color(0.82, 0.7, 0.6), "cloth": Color(0.3, 0.3, 0.34), "hair": Color(0.2, 0.17, 0.14),
+		"accent": Color(0.42, 0.36, 0.30),
+		"build": {"height": 1.74, "bulk": 1.00, "hair": "short", "mask": true},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "", "perk_desc": "",
 	},
 	"thrall": {
@@ -166,6 +197,9 @@ const CHARACTERS := {
 		"speed": 4.3, "sprint": 1.4, "stamina": 90.0, "hp": 90.0,
 		"perception": 0.9, "noise": 1.0, "weapon": "claws",
 		"skin": Color(0.72, 0.72, 0.74), "cloth": Color(0.16, 0.14, 0.18), "hair": Color(0.12, 0.1, 0.12),
+		"accent": Color(0.20, 0.17, 0.22),
+		"build": {"height": 1.76, "bulk": 1.00, "hair": "short", "mask": false},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Обращён",
 		"perk_desc": "Ни маскарада, ни берсерка. Только когти и голод.",
 	},
@@ -175,6 +209,9 @@ const CHARACTERS := {
 		"speed": 3.5, "sprint": 1.3, "stamina": 70.0, "hp": 130.0,
 		"perception": 0.6, "noise": 1.4, "weapon": "claws",
 		"skin": Color(0.45, 0.48, 0.42), "cloth": Color(0.2, 0.18, 0.15), "hair": Color(0.1, 0.1, 0.08),
+		"accent": Color(0.18, 0.17, 0.14),
+		"build": {"height": 1.66, "bulk": 1.22, "hair": "none", "mask": false},
+		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Поднят",
 		"perk_desc": "Медленный, тупой и живучий. Идёт на шум и не сворачивает.",
 	},

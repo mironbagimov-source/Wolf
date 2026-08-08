@@ -196,13 +196,12 @@ func _spawn_roster() -> void:
 		var jitter := Vector3(randf_range(-2.5, 2.5), 0, randf_range(-2.5, 2.5))
 		var g := _spawn("guest", base + jitter, false)
 		_attach_brain(g, preload("res://scripts/ai/guest_brain.gd"))
-		# гости чуть разные на вид, иначе зал выглядит как склад манекенов
-		g.scale = Vector3.ONE * randf_range(0.94, 1.06)
 
 func _spawn(id: String, pos: Vector3, controlled: bool) -> Actor:
 	var a := Actor.new()
 	actors_root.add_child(a)
 	a.global_position = world.snap(pos) + Vector3(0, 0.2, 0)
+	a.appearance_seed = randi() | 1
 	a.setup(id, controlled)
 	a.rotation.y = randf_range(-PI, PI)
 	if controlled:
