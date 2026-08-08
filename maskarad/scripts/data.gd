@@ -154,20 +154,20 @@ const CHARACTERS := {
 	},
 
 	# ------------------------------------------------------------ личи
-	"karl": {
-		"name": "Карл",
+	"lara": {
+		"name": "Лара",
 		"side": Side.UNDEAD, "role": Role.LICH,
 		"speed": 4.15, "sprint": 1.45, "stamina": 150.0, "hp": 200.0,
 		"perception": 1.0, "noise": 1.5, "weapon": "harpoon",
 		"skin": Color(0.55, 0.58, 0.5), "cloth": Color(0.18, 0.2, 0.17), "hair": Color(0.1, 0.1, 0.1),
 		"accent": Color(0.20, 0.18, 0.16),
-		"build": {"height": 1.90, "bulk": 1.25, "hair": "short", "mask": false, "coat": true, "hat": "worn"},
+		"build": {"height": 1.84, "bulk": 1.05, "hair": "long", "mask": false, "coat": true, "hat": "worn"},
 		"model": "",           # свой .glb/.fbx — см. assets/README.md
 		"perk": "Гарпунное ружьё",
-		"perk_desc": "Бьёт через весь зал и тащит жертву к себе. Убежать от Карла мало — надо разорвать линию.",
+		"perk_desc": "Бьёт через весь зал и тащит жертву к себе. Убежать от Лары мало — надо разорвать линию.",
 	},
-	"jack": {
-		"name": "Джек",
+	"karl": {
+		"name": "Карл",
 		"side": Side.UNDEAD, "role": Role.LICH,
 		"speed": 4.5, "sprint": 1.5, "stamina": 140.0, "hp": 225.0,
 		"perception": 0.9, "noise": 1.6, "weapon": "axe",
@@ -218,7 +218,7 @@ const CHARACTERS := {
 }
 
 const PLAYABLE_HUMANS := ["helga", "jay", "chiara"]
-const PLAYABLE_UNDEAD := ["moira", "lucius", "karl", "jack"]
+const PLAYABLE_UNDEAD := ["moira", "lucius", "lara", "karl"]
 
 # ----------------------------------------------------------------- оружие
 # kind: "swing" — дуга, "thrust" — выпад, "ranged" — выстрел с притягиванием.

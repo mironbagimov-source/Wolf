@@ -278,7 +278,7 @@ func _build_weapon(body_holder: Node3D) -> void:
 			gm.radius = 0.09; gm.height = 0.12
 			guard.mesh = gm; guard.material_override = steel
 			holder.add_child(guard)
-		"karl":                                      # гарпунное ружьё
+		"lara":                                      # гарпунное ружьё
 			var stock := MeshInstance3D.new()
 			var sm := BoxMesh.new()
 			sm.size = Vector3(0.1, 0.16, 0.7)
@@ -291,7 +291,7 @@ func _build_weapon(body_holder: Node3D) -> void:
 			spear.rotation = Vector3(PI / 2, 0, 0)
 			spear.position = Vector3(0, 0.05, -0.5)
 			holder.add_child(spear)
-		"jack":                                      # топор
+		"karl":                                      # топор
 			var haft := MeshInstance3D.new()
 			var hfm := CylinderMesh.new()
 			hfm.top_radius = 0.035; hfm.bottom_radius = 0.035; hfm.height = 0.85
