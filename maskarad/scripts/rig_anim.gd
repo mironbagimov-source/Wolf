@@ -55,6 +55,11 @@ var arm_hurt_l: float = 0.0
 var arm_hurt_r: float = 0.0
 var dead: float = 0.0
 
+## Своя голова у игрока: камера сидит внутри черепа, и изнутри он закрывает
+## пол-экрана. Схлопываем кость головы в точку — остальное тело остаётся
+## видимым, поэтому от первого лица видно свои руки, ноги и оружие.
+var hide_head: bool = false
+
 func bind(root: Node) -> bool:
 	for c in root.find_children("*", "Skeleton3D", true, false):
 		skeleton = c as Skeleton3D
@@ -78,7 +83,13 @@ func _measure() -> void:
 		return
 	var t: Transform3D = skeleton.get_bone_global_rest(idx[top])
 	var h := t.origin.y * skeleton.scale.y
-	if h > 0.2:
+	# Порог только против нуля. Раньше он стоял на 0.2 м «на всякий случай», и
+	# Медея, чей скелет приехал в единицах в одиннадцать раз мельче прочих,
+	# не проходила проверку: рост оставался умолчанием, модель — не ужималась
+	# и не растягивалась, и по залу ходила кукла в шестнадцать сантиметров.
+	# Попадания по ней все до одного засчитывались в голову: кости лежали
+	# такой плотной кучкой, что ближайшей к любому удару была макушка.
+	if h > 0.02:
 		rest_height = h * 1.06          # макушка кости ниже макушки волос
 
 ## Поворот кости вокруг оси СКЕЛЕТА, а не вокруг её собственной.
@@ -95,14 +106,31 @@ func _measure() -> void:
 ## в системе скелета (X вправо, Y вверх, Z вперёд) и переводится в локальную
 ## через базис покоя, так что «махнуть ногой вперёд» одинаково работает для
 ## любой кости любой модели.
+##
+## Повороты НАКАПЛИВАЮТСЯ: за кадр одну кость крутят несколько раз — руку
+## сначала опускают вдоль тела, потом качают на ходу, потом заносят для
+## удара. Поэтому берём текущую позу, а не позу покоя; после
+## `reset_bone_poses()` они совпадают, так что первый вызов за кадр
+## отсчитывается от покоя.
+##
+## Ось переводится через базис РОДИТЕЛЯ, и поворот домножается слева. Это
+## не косметика: своя ось кости уезжает вместе с предыдущим поворотом. Рука
+## сначала опускается из T-позы вдоль тела — это 76° вокруг Z, — и та ось,
+## что в покое смотрела вперёд, после опускания смотрит вверх. Мах «вперёд»
+## вокруг неё превращался в скручивание плеча: руки при ходьбе шевелились
+## на семь сантиметров и выглядели примотанными к телу. Ось родителя стоит
+## на месте, поэтому «вперёд» остаётся «вперёд» после любого числа поворотов.
 func _spin(key: String, axis: Vector3, angle: float) -> void:
 	if not idx.has(key) or absf(angle) < 0.0005:
 		return
 	var i: int = idx[key]
-	var rest_q: Quaternion = skeleton.get_bone_rest(i).basis.get_rotation_quaternion()
-	var global_rest: Basis = skeleton.get_bone_global_rest(i).basis.orthonormalized()
-	var local_axis: Vector3 = global_rest.inverse() * axis
-	skeleton.set_bone_pose_rotation(i, rest_q * Quaternion(local_axis.normalized(), angle))
+	var cur: Quaternion = skeleton.get_bone_pose_rotation(i)
+	var parent: int = skeleton.get_bone_parent(i)
+	var parent_basis := Basis.IDENTITY
+	if parent >= 0:
+		parent_basis = skeleton.get_bone_global_rest(parent).basis.orthonormalized()
+	var local_axis: Vector3 = parent_basis.inverse() * axis
+	skeleton.set_bone_pose_rotation(i, Quaternion(local_axis.normalized(), angle) * cur)
 
 const AX := Vector3(1, 0, 0)      # ось «махнуть вперёд-назад»
 const AY := Vector3(0, 1, 0)      # ось «повернуть корпус»
@@ -115,6 +143,10 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	breathe += dt
 
 	skeleton.reset_bone_poses()          # вернуть всё в покой, затем накладывать
+
+	# схлопывать голову надо после сброса: он возвращает и масштаб тоже
+	if hide_head and idx.has("head"):
+		skeleton.set_bone_pose_scale(idx["head"], Vector3.ONE * 0.001)
 
 	if dead > 0.0:
 		_pose_dead()
@@ -148,14 +180,22 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 
 	# ---- руки. В покое они разведены в стороны (T-поза), поэтому сначала
 	# опускаем их вдоль тела, и только потом качаем на ходу.
+	#
+	# Мах вешается на плечевую кость (`arm_*`), а не на ключицу
+	# (`shoulder_*`). Ключица короткая: её поворот разворачивает плечо на
+	# пару сантиметров, а кисть остаётся на месте — руки висели плетями,
+	# пока ноги шагали. Ключице оставлено лёгкое подрабатывание.
 	var reach: float = maxf(grab, drink)
 	var drop: float = 1.32 * (1.0 - reach * 0.7)
+	var arm_swing: float = gait * 0.55            # в противоход ногам
 	_spin("arm_l", AZ, -drop + arm_hurt_l * 0.35)
 	_spin("arm_r", AZ, drop - arm_hurt_r * 0.35)
+	_spin("arm_l", AX, -s * arm_swing + reach * 1.25)
+	_spin("arm_r", AX, s * arm_swing + reach * 1.25 - attack * 1.9)
 	_spin("fore_l", AX, -0.25 - reach * 1.0 - arm_hurt_l * 0.6)
 	_spin("fore_r", AX, -0.25 - reach * 1.0 - arm_hurt_r * 0.6 - attack * 1.1)
-	_spin("shoulder_l", AX, -s * swing * 0.5 - reach * 0.5)
-	_spin("shoulder_r", AX, s * swing * 0.5 - reach * 0.5 - attack * 0.9)
+	_spin("shoulder_l", AX, -s * swing * 0.18 - reach * 0.4)
+	_spin("shoulder_r", AX, s * swing * 0.18 - reach * 0.4 - attack * 0.5)
 
 ## Мёртвое тело складывается вперёд и заваливается — ragdoll здесь избыточен.
 func _pose_dead() -> void:

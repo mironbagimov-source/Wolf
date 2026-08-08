@@ -333,7 +333,15 @@ const ACTIONS := {
 	"pause": [KEY_ESCAPE],
 	"scoreboard": [KEY_TAB],
 	"press_wound": [KEY_R],        # зажать рану: кровь останавливается, но ты стоишь
-	"look_back": [KEY_ALT, KEY_C], # оглянуться, не разворачивая тела
+	"look_back": [KEY_ALT, KEY_C], # оглянуться, не разворачивая тела; ещё ПКМ
+}
+
+## Мышь: удар на левую, оглядывание на правую. Правая свободна у всех —
+## люди не бьют вообще, у нечисти удар на левой, — а оглядываться удобнее
+## большим пальцем на мыши, чем мизинцем на Alt.
+const MOUSE_ACTIONS := {
+	"attack": [MOUSE_BUTTON_LEFT],
+	"look_back": [MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE],
 }
 
 func _ready() -> void:
@@ -347,9 +355,13 @@ func _install_input() -> void:
 			var ev := InputEventKey.new()
 			ev.physical_keycode = key
 			InputMap.action_add_event(action_name, ev)
-	var mb := InputEventMouseButton.new()
-	mb.button_index = MOUSE_BUTTON_LEFT
-	InputMap.action_add_event("attack", mb)
+	for action_name in MOUSE_ACTIONS:
+		if not InputMap.has_action(action_name):
+			InputMap.add_action(action_name)
+		for button in MOUSE_ACTIONS[action_name]:
+			var mb := InputEventMouseButton.new()
+			mb.button_index = button
+			InputMap.action_add_event(action_name, mb)
 
 # -------------------------------------------------------------- справочно
 func character(id: String) -> Dictionary:

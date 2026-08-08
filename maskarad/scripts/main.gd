@@ -15,6 +15,7 @@ var _autotest_left := 0.0
 var _autotest_tick := 0.0
 var _shot_path := ""
 var _shot_at := 6.0
+var _test_pitch := 0.0                    # принудительный наклон взгляда для снимка
 
 func _ready() -> void:
 	randomize()
@@ -46,9 +47,15 @@ func _maybe_autotest() -> void:
 			_shot_path = a.substr(7)
 		elif a.begins_with("--shotat="):
 			_shot_at = float(a.substr(9))
+		elif a.begins_with("--pitch="):
+			_test_pitch = deg_to_rad(float(a.substr(8)))   # опустить взгляд: видно ли своё тело
 		elif a == "--allbots":
 			Game.chosen_character = ""          # никто не игрок: чистая проверка ИИ
 	print("[autotest] персонаж: '%s'" % Game.chosen_character)
+	if "--modelcheck" in args:
+		_model_check()
+		get_tree().quit()
+		return
 	start_match.call_deferred()
 	if "--combattest" in args:
 		_combat_test.call_deferred()
@@ -101,6 +108,12 @@ func _combat_test() -> void:
 				var bp: Vector3 = g2.rig.bone_point(k)
 				report.append("%s=(%.2f,%.2f,%.2f)" % [k, bp.x - base.x, bp.y - base.y, bp.z - base.z])
 			print("[кости] ", " ".join(report))
+			var sk: Skeleton3D = g2.rig.skeleton
+			print("[кости] масштаб скелета=%s поза головы=%s рост=%.2f мировая головы=%.2f актёр=%.2f" % [
+				sk.global_transform.basis.get_scale(),
+				sk.get_bone_global_pose(g2.rig.idx["head"]).origin,
+				g2.rig.rest_height,
+				g2.rig.bone_point("head").y, g2.global_position.y])
 		else:
 			print("[кости] скелета нет — примитивы")
 		g2.hp_max = 400.0
@@ -125,6 +138,11 @@ func _process(delta: float) -> void:
 		_report()
 		if "--diag" in OS.get_cmdline_user_args():
 			_diag()
+	if _test_pitch != 0.0 and Game.player != null and is_instance_valid(Game.player):
+		var pb: Node = Game.player.get_node_or_null("Brain")
+		if pb != null and "pitch" in pb:
+			pb.pitch = _test_pitch
+
 	if _shot_path != "":
 		_shot_at -= delta / max(0.01, Engine.time_scale)
 		if _shot_at <= 0.0:
@@ -143,6 +161,34 @@ func _process(delta: float) -> void:
 		_report()
 		get_tree().quit()
 
+## Все модели разом: какой рост меряется по скелету и во сколько раз модель
+## придётся ужать. Модели пришли из разных источников и в разных единицах —
+## один промах здесь означает персонажа ростом с табуретку и все попадания
+## по нему, засчитанные в голову.
+func _model_check() -> void:
+	for id in Data.CHARACTERS:
+		var look: Dictionary = Data.CHARACTERS[id]
+		var path: String = look.get("model", "")
+		if path == "" or not ResourceLoader.exists(path):
+			continue
+		var packed = load(path)
+		if packed == null or not (packed is PackedScene):
+			continue
+		var inst: Node3D = packed.instantiate()
+		add_child(inst)
+		var r := RigAnim.new()
+		var want: float = look.get("build", {}).get("height", 1.78)
+		if r.bind(inst):
+			var head_y: float = 0.0
+			if r.idx.has("head"):
+				head_y = r.skeleton.get_bone_global_rest(r.idx["head"]).origin.y
+			print("[модель] %-12s рост=%.2f нужно=%.2f масштаб=%.4f кость_головы=%.2f скелет=%.3f" % [
+				id, r.rest_height, want, want / maxf(0.001, r.rest_height),
+				head_y, r.skeleton.scale.y])
+		else:
+			print("[модель] %-12s скелет не найден" % id)
+		inst.queue_free()
+
 ## Диагностика: кто где стоит и движется ли вообще.
 func _diag() -> void:
 	var lines: Array = []
@@ -155,9 +201,29 @@ func _diag() -> void:
 			agent_ok = "fin" if brain.agent.is_navigation_finished() else "идёт"
 			if not brain.agent.is_target_reachable():
 				agent_ok += "/НЕДОСТУПНО"
-		lines.append("%s@%.0f,%.0f v=%.1f %s" % [a.display_name, a.global_position.x,
-			a.global_position.z, Vector2(a.velocity.x, a.velocity.z).length(), agent_ok])
+		lines.append("%s@%.0f,%.0f v=%.1f %s%s" % [a.display_name, a.global_position.x,
+			a.global_position.z, Vector2(a.velocity.x, a.velocity.z).length(), agent_ok,
+			_rig_state(a)])
 	print("[diag] ", " | ".join(lines))
+
+## Двигаются ли кости на самом деле. Скелет легко «работает» на бумаге и
+## стоит столбом на экране: клип из FBX перебивает позу, привязка отвалилась,
+## меш скинится к другому скелету. Печатаем угол бедра и высоту кисти —
+## если между отчётами они не меняются, персонаж стоит.
+func _rig_state(a: Actor) -> String:
+	if a.rig == null or not a.rig.ok:
+		return " кости:нет"
+	var s: Skeleton3D = a.rig.skeleton
+	var hip: float = 0.0
+	if a.rig.idx.has("upleg_l"):
+		hip = s.get_bone_pose_rotation(a.rig.idx["upleg_l"]).get_euler().x
+	# кисть меряем вдоль Z: мах руки — маятник вперёд-назад, по высоте он
+	# почти не читается, и рука кажется неподвижной там, где она ходит
+	var hand: float = 0.0
+	if a.rig.idx.has("hand_r") and a.rig.idx.has("hips"):
+		hand = s.get_bone_global_pose(a.rig.idx["hand_r"]).origin.z \
+			- s.get_bone_global_pose(a.rig.idx["hips"]).origin.z
+	return " бедро=%.3f кисть=%.3f" % [hip, hand]
 
 func _report() -> void:
 	var humans := Game.living_survivors()

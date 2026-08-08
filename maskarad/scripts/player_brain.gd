@@ -2,12 +2,15 @@ extends Node
 class_name PlayerBrain
 ## Управление игроком и камера от первого лица.
 ##
-## Камера сидит в голове, тело своё не рисуется — но тень от него остаётся:
-## по тени видно, что ты не бесплотный, и она же выдаёт тебя на свету.
+## Камера сидит в голове. Тело своё видно — опустил взгляд, вот руки, ноги
+## и оружие; спрятана только голова, внутри которой камера. Тень тело даёт
+## обычную: она выдаёт тебя на свету.
 ##
-## Оглядывание (`Alt`) разводит взгляд и тело: голова поворачивается назад,
-## ноги продолжают нести вперёд. В игре, где главное — понять, идёт ли кто-то
-## за тобой, это не украшение, а основной инструмент.
+## Оглядывание (ПКМ, средняя кнопка или `Alt`) разводит взгляд и тело:
+## голова поворачивается назад, ноги продолжают нести вперёд. В игре, где
+## главное — понять, идёт ли кто-то за тобой, это не украшение, а основной
+## инструмент. Отпустил — взгляд возвращается вперёд сам, тело за ним не
+## доворачивает.
 
 const MOUSE_SENS := 0.0022
 const PITCH_LIMIT := deg_to_rad(85.0)
@@ -22,6 +25,7 @@ var yaw: float = 0.0                   # куда смотрит голова
 var pitch: float = 0.0
 var body_yaw: float = 0.0              # куда развёрнуто тело
 var looking_back: bool = false
+var _recenter: float = 0.0             # взгляд возвращается к телу после оглядки
 
 ## Что сейчас под прицелом действия — читает HUD.
 var target_actor: Actor = null
@@ -94,6 +98,9 @@ func _place_camera(delta: float) -> void:
 		var p: Vector3 = actor.rig.bone_point("head")
 		if p != Vector3.ZERO:
 			eye = p + Vector3(0, 0.08, 0)
+	# глаза, а не затылок: кость головы сидит в основании черепа, и без сдвига
+	# вперёд опущенный взгляд упирается в собственную грудь
+	eye += Vector3(-sin(yaw), 0.0, -cos(yaw)) * 0.10
 
 	var speed2d := Vector2(actor.velocity.x, actor.velocity.z).length()
 	_bob += delta * (4.0 + speed2d * 2.6)
@@ -113,7 +120,10 @@ func _place_camera(delta: float) -> void:
 	camera.fov = lerp(78.0, 86.0, concussion * 0.6)
 
 func _read_input(delta: float) -> void:
-	looking_back = Input.is_action_pressed("look_back")
+	var back_now := Input.is_action_pressed("look_back")
+	if looking_back and not back_now:
+		_recenter = 0.4          # отпустил — взгляд сам возвращается вперёд
+	looking_back = back_now
 
 	# движение считается от тела, а не от взгляда — иначе при оглядывании
 	# персонаж поедет туда, куда повернул голову
@@ -137,6 +147,14 @@ func _read_input(delta: float) -> void:
 		var diff := wrapf(yaw - body_yaw, -PI, PI)
 		if absf(diff) > LOOK_BACK_LIMIT:
 			yaw = body_yaw + LOOK_BACK_LIMIT * signf(diff)
+	elif _recenter > 0.0:
+		# оглянулся — и отвернулся обратно. Тело за головой не доворачивает:
+		# иначе, отпустив кнопку после взгляда назад, игрок разворачивался
+		# на месте кругом и терял направление бега.
+		_recenter = maxf(0.0, _recenter - delta)
+		yaw = lerp_angle(yaw, body_yaw, clampf(delta * 11.0, 0.0, 1.0))
+		if absf(wrapf(yaw - body_yaw, -PI, PI)) < 0.02:
+			_recenter = 0.0
 	else:
 		body_yaw = yaw
 	actor.look_dir = Vector3(-sin(body_yaw), 0.0, -cos(body_yaw))

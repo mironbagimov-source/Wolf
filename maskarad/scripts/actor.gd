@@ -246,24 +246,51 @@ func _model_aabb(node: Node) -> AABB:
 			out = out.merge(box)
 	return out
 
-## Своё тело от первого лица не показываем, но тень от него остаётся —
-## по ней видно, что ты не бесплотный, и она же выдаёт тебя на свету.
+## Своё тело от первого лица видно: опустил взгляд — руки, ноги, оружие,
+## кровь на одежде. Прячется только голова, внутри которой сидит камера.
+##
+## Раньше тело целиком уходило в SHADOWS_ONLY, и от первого лица игрок не
+## видел ни шага, ни замаха, ни того, как пьёт, — все анимации шли мимо него.
 func _apply_self_visibility() -> void:
 	if not is_player or _body_root == null:
 		return
+	if rig != null and rig.ok:
+		rig.hide_head = true
+		return
+	# тело из примитивов гнётся грубее, изнутри на него лучше не смотреть
 	for m in _body_root.find_children("*", "GeometryInstance3D", true, false):
 		var gi := m as GeometryInstance3D
 		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+
+## Во сколько раз скелет крупнее актёра. Считаем по цепочке узлов, а не по
+## `global_transform`: тело собирается до того, как актёр окажется в дереве.
+func _skeleton_scale() -> float:
+	var s := 1.0
+	var n: Node = rig.skeleton
+	while n != null and n != self:
+		if n is Node3D:
+			s *= (n as Node3D).scale.x
+		n = n.get_parent()
+	return s
 
 func _build_weapon(body_holder: Node3D) -> void:
 	var w: Dictionary = Data.weapon_of(char_id)
 	if w.is_empty():
 		return
 	var holder := Node3D.new()
-	# в кисть правой руки, если тело собрано кодом; иначе просто сбоку
+	# в кисть правой руки: у тел из кода — в пивот, у моделей — в кость
 	if _parts != null and _parts.weapon_mount != null:
 		_parts.weapon_mount.add_child(holder)
 		holder.position = Vector3(0, -0.34 * (_parts.height / 1.78), 0)
+		holder.rotation = Vector3(-1.4, 0, 0)
+	elif rig != null and rig.ok and rig.hand_bone() >= 0:
+		var att := BoneAttachment3D.new()
+		att.bone_idx = rig.hand_bone()
+		rig.skeleton.add_child(att)
+		att.add_child(holder)
+		# оружие смоделировано в метрах, а скелет приезжает в своём масштабе
+		# (у части моделей это сантиметры) — иначе серп выходит с трамвай
+		holder.scale = Vector3.ONE / maxf(0.001, _skeleton_scale())
 		holder.rotation = Vector3(-1.4, 0, 0)
 	else:
 		body_holder.add_child(holder)
