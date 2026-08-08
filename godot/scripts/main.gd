@@ -1285,12 +1285,17 @@ func _deliver_strike(e: WolfChar, dmg_mul: float, charged: bool) -> void:
 		target.stamina_delay = WolfCfg.STAMINA_REGEN_DELAY
 		if charged:
 			dmg *= WolfCfg.CRUSH_DMG_MUL
-			target.stagger_t = maxf(target.stagger_t, WolfCfg.CRUSH_STAGGER)
+			# Пробитие блока и сорванная стамина тоже отнимали у игрока
+			# управление — а это те же чужие удары. Цена блока остаётся:
+			# стамина и прошедший урон. Ботов пробитие по-прежнему шатает.
+			if not target.is_player:
+				target.stagger_t = maxf(target.stagger_t, WolfCfg.CRUSH_STAGGER)
 		else:
 			dmg *= WolfCfg.BLOCK_DMG_MUL
 		if target.stamina <= 0.0:
 			target.stamina = 0.0
-			target.stagger_t = maxf(target.stagger_t, 0.9)
+			if not target.is_player:
+				target.stagger_t = maxf(target.stagger_t, 0.9)
 
 	if _fatigued(e):
 		dmg *= WolfCfg.LOW_STAMINA_DMG_MUL
@@ -1455,6 +1460,7 @@ func _spark_burst(pos: Vector3) -> void:
 	mat.albedo_color = Color(1.0, 0.85, 0.45)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.albedo_texture = WolfLevel.particle_tex()
 	p.mesh.surface_set_material(0, mat)
 	p.position = pos
 	add_child(p)
@@ -1466,7 +1472,9 @@ func _spark_burst(pos: Vector3) -> void:
 # damage / executions
 # ---------------------------------------------------------------------------
 
-func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
+## kind — чем нанесён урон: blade / burn / frost / shock / blast / eaten / exec.
+## Запоминается на цели и определяет, как будет выглядеть труп.
+func _damage(target: WolfChar, dmg: float, source: WolfChar, kind := "blade") -> void:
 	# Только что поднялся после смерти — пара секунд, чтобы отойти от спавна.
 	if target.invuln_t > 0.0:
 		return
@@ -1490,14 +1498,24 @@ func _damage(target: WolfChar, dmg: float, source: WolfChar) -> void:
 		return
 	target.hp -= dmg
 	target.hit_flash = 0.15
-	target.stagger_t = maxf(target.stagger_t, WolfCfg.STAGGER_TIME)
-	if target.winding:
-		_cancel_windup(target)  # a clean hit interrupts a charging strike
-	if source != null:
-		var dir := target.global_position - source.global_position
-		dir.y = 0
-		if dir.length() > 0.01:
-			target.knockback = dir.normalized() * WolfCfg.STAGGER_KNOCKBACK
+	target.death_cause = kind
+	# ИГРОКА ЧУЖИЕ УДАРЫ НЕ СТАНЯТ. Раньше любое попадание отнимало у него
+	# треть секунды управления: сбивало с ног отбрасыванием, блокировало
+	# рывок и срывало замах. В толпе психов это складывалось в цепочку, из
+	# которой уже не выйти — бьют по очереди, а ты стоишь. Урон, вспышка и
+	# кровь остаются, отнимается только управление.
+	#
+	# Врагов стан по-прежнему берёт: на нём держатся парирование (оглушить
+	# атакующего) и пробитие блока — см. PARRY_STAGGER и CRUSH_STAGGER.
+	if not target.is_player:
+		target.stagger_t = maxf(target.stagger_t, WolfCfg.STAGGER_TIME)
+		if target.winding:
+			_cancel_windup(target)  # a clean hit interrupts a charging strike
+		if source != null:
+			var dir := target.global_position - source.global_position
+			dir.y = 0
+			if dir.length() > 0.01:
+				target.knockback = dir.normalized() * WolfCfg.STAGGER_KNOCKBACK
 	# Импакт: каждый ощутимый удар/выстрел брызгает кровью (добивания льют
 	# свои вёдра сами), попадание игрока подсвечивает хит-маркер на прицеле.
 	if dmg > 3.0 and dmg < 9000.0:
@@ -1567,7 +1585,144 @@ func _kill(target: WolfChar) -> void:
 		target.play_death(randf() < 0.5)
 	elif target.visual != null:
 		target.visual.rotation.x = -PI / 2.0  # запасной вариант без клипа
+	_corpse_fx(target)
 	_check_win()
+
+
+## ВИД ТРУПА ПО ПРИЧИНЕ СМЕРТИ.
+##
+## Раньше все трупы выглядели одинаково — что зарезанный, что сожжённый,
+## что промороженный. Теперь по телу видно, чем его убили: это и память о
+## бое, и разведка. Труп лежит до конца матча, поэтому и окраска, и
+## эмиттеры стойкие, а не разовая вспышка.
+func _corpse_fx(t: WolfChar) -> void:
+	if t.visual == null:
+		return
+	var pos := t.global_position
+	match t.death_cause:
+		"burn":
+			# Обуглен: чёрен, матов, в трещинах тлеют угли и тянется дым.
+			t.stain_body(Color(0.22, 0.17, 0.15), Color(1.0, 0.32, 0.05), 0.55, 0.92, 0.8)
+			_corpse_emitter(t, "smoke")
+			_cloud(pos + Vector3(0, 1.0, 0), Color(0.25, 0.22, 0.2), 18, 3.0, 0.5, 0.7, 0.12)
+			for i in 3:
+				_mark_element(t, "burn", pos + Vector3(0, 0.9 + i * 0.32, 0.16))
+		"frost":
+			# Проморожен: бел, сух, к полу стекает холодный пар.
+			# Умножение альбедо только холодит; чтобы тело ЧИТАЛОСЬ обмёрзшим,
+			# добавляем собственное бледное свечение и почти зеркальную
+			# гладкость — лёд бликует.
+			t.stain_body(Color(0.62, 0.80, 1.0), Color(0.55, 0.82, 1.0), 0.5, 0.16)
+			_corpse_emitter(t, "vapor")
+			for i in 3:
+				_mark_element(t, "frost", pos + Vector3(0, 0.95 + i * 0.3, 0.16))
+		"shock":
+			# Бит током: копоть, и по телу ещё пробегают разряды.
+			t.stain_body(Color(0.45, 0.44, 0.46), Color(0.45, 0.75, 1.0), 0.7, 0.75, 3.4)
+			_corpse_emitter(t, "arc")
+			for i in 2:
+				_mark_element(t, "shock", pos + Vector3(0, 1.05 + i * 0.35, 0.16))
+		"blast":
+			# Разорван: посечён, обожжён по краям, под ним много крови.
+			t.stain_body(Color(0.55, 0.45, 0.42), Color(0.8, 0.25, 0.05), 0.22, 0.85)
+			_blood_pool(pos)
+			_blood_pool(pos + Vector3(0.5, 0, 0.3))
+			for i in 4:
+				_add_wound_mark(t, pos + Vector3(cos(i * 1.6) * 0.2, 0.9 + i * 0.28,
+						sin(i * 1.6) * 0.2), "burn", 0.07)
+		"eaten":
+			# Съеден: вскрыт, вокруг натекло.
+			t.stain_body(Color(0.85, 0.7, 0.7), Color(0.3, 0.02, 0.02), 0.0, 0.4)
+			_blood_pool(pos)
+			_blood_pool(pos + Vector3(-0.4, 0, 0.35))
+			_corpse_emitter(t, "drip")
+			for i in 4:
+				_add_wound_mark(t, pos + Vector3(0, 1.0 + i * 0.22, 0.18), "cut", 0.075)
+		"exec":
+			# Добит: крови много, и она продолжает течь.
+			_blood_pool(pos)
+			_blood_pool(pos + Vector3(0.35, 0, -0.3))
+			_corpse_emitter(t, "drip")
+			t.bleed = maxf(t.bleed, 4.0)
+			for i in 2:
+				_add_wound_mark(t, pos + Vector3(0, 1.35 + i * 0.2, 0.18), "cut", 0.08)
+		_:
+			# Зарезан: лужа под телом и пара глубоких рассечений.
+			_blood_pool(pos)
+			t.bleed = maxf(t.bleed, 2.5)
+			for i in 2:
+				_add_wound_mark(t, pos + Vector3(0, 1.1 + i * 0.3, 0.18), "cut", 0.07)
+
+
+## Стойкий фонтанчик на трупе: дым, пар, разряды или капель.
+func _corpse_emitter(t: WolfChar, kind: String) -> void:
+	var p := CPUParticles3D.new()
+	p.name = "CorpseFx"
+	p.local_coords = false
+	p.position = Vector3(0, 0.55, 0)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.albedo_texture = WolfLevel.particle_tex()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var quad := QuadMesh.new()
+	match kind:
+		"smoke":
+			p.amount = 14
+			p.lifetime = 2.8
+			p.direction = Vector3(0, 1, 0)
+			p.spread = 18.0
+			p.initial_velocity_min = 0.25
+			p.initial_velocity_max = 0.6
+			p.gravity = Vector3(0, 0.35, 0)
+			p.scale_amount_min = 0.18
+			p.scale_amount_max = 0.42
+			quad.size = Vector2(0.4, 0.4)
+			m.albedo_color = Color(0.16, 0.15, 0.14, 0.4)
+		"vapor":
+			# Холодный пар не поднимается, а СТЕКАЕТ и стелется по полу.
+			p.amount = 16
+			p.lifetime = 2.4
+			p.direction = Vector3(0, -1, 0)
+			p.spread = 40.0
+			p.initial_velocity_min = 0.15
+			p.initial_velocity_max = 0.4
+			p.gravity = Vector3(0, -0.5, 0)
+			p.scale_amount_min = 0.14
+			p.scale_amount_max = 0.34
+			quad.size = Vector2(0.34, 0.34)
+			m.albedo_color = Color(0.75, 0.9, 1.0, 0.32)
+		"arc":
+			p.amount = 10
+			p.lifetime = 0.42
+			p.direction = Vector3(0, 1, 0)
+			p.spread = 80.0
+			p.initial_velocity_min = 1.2
+			p.initial_velocity_max = 3.0
+			p.gravity = Vector3.ZERO
+			p.scale_amount_min = 0.05
+			p.scale_amount_max = 0.12
+			quad.size = Vector2(0.16, 0.05)
+			m.albedo_color = Color(0.7, 0.92, 1.0, 0.95)
+			m.emission_enabled = true
+			m.emission = Color(0.5, 0.85, 1.0)
+			m.emission_energy_multiplier = 3.0
+		_:
+			p.amount = 8
+			p.lifetime = 1.2
+			p.direction = Vector3(0, -1, 0)
+			p.spread = 16.0
+			p.initial_velocity_min = 0.1
+			p.initial_velocity_max = 0.4
+			p.gravity = Vector3(0, -6.0, 0)
+			p.scale_amount_min = 0.03
+			p.scale_amount_max = 0.06
+			quad.size = Vector2(0.06, 0.06)
+			m.albedo_color = Color(0.42, 0.02, 0.03, 0.95)
+	quad.material = m
+	p.mesh = quad
+	p.emitting = true
+	t.add_child(p)
 
 
 func _find_execute_target(e: WolfChar) -> WolfChar:
@@ -1660,7 +1815,7 @@ func _tick_executions(delta: float) -> void:
 			_blood_burst(chest + Vector3(0, 0.4, 0), 20, 3.0)
 			_blood_pool(victim.global_position)
 			victim.being_executed = false
-			_damage(victim, 99999.0, executor)
+			_damage(victim, 99999.0, executor, "exec")
 			_executions.remove_at(i)
 
 
@@ -1706,6 +1861,7 @@ func _blood_burst(pos: Vector3, amount: int, speed: float) -> void:
 	mat.albedo_color = Color(0.55, 0.02, 0.04)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.albedo_texture = WolfLevel.particle_tex()
 	p.mesh.surface_set_material(0, mat)
 	p.position = pos
 	add_child(p)
@@ -2900,8 +3056,11 @@ func _start_feeding(e: WolfChar) -> void:
 ## Съел тело: +HP, +урон, +скорость. На пороге — мутация в вампира.
 func _devour(e: WolfChar, prey: WolfChar) -> void:
 	prey.set_meta("eaten", true)
+	prey.death_cause = "eaten"
 	if prey.downed or not prey.is_dead:
 		_kill(prey)
+	else:
+		_corpse_fx(prey)   # труп уже лежал — переписываем вид на «съеден»
 	_blood_burst(prey.global_position + Vector3(0, 0.6, 0), 26, 3.2)
 	_blood_pool(prey.global_position)
 	e.feeds += 1
@@ -3470,6 +3629,7 @@ func _blood_splat(from: Vector3, dir: Vector3) -> void:
 
 
 var _splats: Array = []
+var _corpse_probes: Array = []   # трупы под наблюдением теста
 
 
 func _bone_mount(t: WolfChar, bone_key: String) -> Node3D:
@@ -3616,6 +3776,7 @@ func _build_wound(t: WolfChar, kind: String, frac: float) -> void:
 		dmat.albedo_color = Color(0.45, 0.02, 0.03)
 		dmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		dmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		dmat.albedo_texture = WolfLevel.particle_tex()
 		drip.mesh.surface_set_material(0, dmat)
 		drip.position = Vector3(0, -0.14, 0.06)
 		host.add_child(drip)
@@ -4343,7 +4504,7 @@ func _detonate_body(t: WolfChar, source: WolfChar) -> void:
 		var flat := Vector2(dp.x, dp.z).length()
 		if absf(dp.y) > 3.2 or flat > radius:
 			continue
-		_damage(e, float(imp["dmg"]) * (1.0 - clampf(flat / (radius + 1.5), 0.0, 0.6)), source)
+		_damage(e, float(imp["dmg"]) * (1.0 - clampf(flat / (radius + 1.5), 0.0, 0.6)), source, "blast")
 	if not t.is_dead:
 		_damage(t, 99999.0, source)
 
@@ -4421,6 +4582,7 @@ func _cloud(pos: Vector3, color: Color, amount: int, speed: float, life: float,
 	mat.emission_energy_multiplier = 2.4
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.albedo_texture = WolfLevel.particle_tex()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	p.mesh.surface_set_material(0, mat)
 	p.position = pos
@@ -4577,7 +4739,7 @@ func _burst_cryo(t: WolfChar, source: WolfChar) -> void:
 		_mark_element(e, "frost", e.global_position + Vector3(0, 1.2, 0.2))
 		e.hit_flash = 0.3
 		_cloud(e.global_position + Vector3(0, 1.1, 0), col, 12, 1.6, 1.0, -1.0, 0.07)
-		_damage(e, float(imp["dmg"]), source)
+		_damage(e, float(imp["dmg"]), source, "frost")
 	if not t.is_dead:
 		_damage(t, 99999.0, source)
 
@@ -4624,7 +4786,7 @@ func _discharge_emp(t: WolfChar, source: WolfChar) -> void:
 		e.emp_t = maxf(e.emp_t, float(imp["emp_t"]))
 		_mark_element(e, "shock", e.global_position + Vector3(0, 1.3, 0.2))
 		e.hit_flash = 0.4
-		_damage(e, float(imp["dmg"]), source)
+		_damage(e, float(imp["dmg"]), source, "shock")
 	# Свет на этаже вырубает: мигнул и погас.
 	for n in _flicker_lights:
 		if not is_instance_valid(n):
@@ -4801,6 +4963,7 @@ func _hatch_brood(t: WolfChar, source: WolfChar) -> void:
 		tmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		tmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		tmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		tmat.albedo_texture = WolfLevel.particle_tex()
 		trail.mesh.surface_set_material(0, tmat)
 		trail.position = Vector3(0, 0.05, 0.1)
 		s.add_child(trail)
@@ -4953,7 +5116,7 @@ func _tick_devices(delta: float) -> void:
 				if absf(dp.y) > 3.0 or Vector2(dp.x, dp.z).length() > float(f["radius"]):
 					continue
 				_cloud(e.global_position + Vector3(0, 1.4, 0), Color(1.0, 0.7, 0.25), 8, 1.4, 0.7, 1.0, 0.06)
-				_damage(e, float(f["dps"]), f["src"])
+				_damage(e, float(f["dps"]), f["src"], "burn")
 				if randf() < 0.05:
 					_mark_element(e, "burn", e.global_position + Vector3(0, 1.2, 0.2))
 
@@ -5257,6 +5420,7 @@ func _dermal_snap(target: WolfChar, source: WolfChar) -> void:
 	mat.emission_energy_multiplier = 1.6
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.albedo_texture = WolfLevel.particle_tex()
 	p.mesh.surface_set_material(0, mat)
 	p.position = pos
 	add_child(p)
@@ -5420,8 +5584,8 @@ func _detonate_bait(source: WolfChar) -> void:
 		if absf(dp.y) > 3.2 or flat > 6.5:
 			continue
 		# Заряд вшит в грудную клетку — рвёт даже бронированных (кроме Альфы).
-		_damage(e, 430.0 * (1.0 - clampf(flat / 8.0, 0.0, 0.6)), source)
-	_damage(victim, 99999.0, source)
+		_damage(e, 430.0 * (1.0 - clampf(flat / 8.0, 0.0, 0.6)), source, "blast")
+	_damage(victim, 99999.0, source, "blast")
 
 
 # ---------------------------------------------------------------------------
@@ -5815,6 +5979,10 @@ func _run_test(delta: float) -> void:
 				_finish_test("%s ok: entities=%d floor_y=%.1f" % [_test_mode, entities.size(), player.global_position.y])
 		"duel":
 			_test_duel(delta)
+		"nostun":
+			_test_nostun(delta)
+		"corpse":
+			_test_corpse(delta)
 		"charged":
 			_test_charged(delta)
 		"meet":
@@ -5928,6 +6096,92 @@ func _test_duel(_delta: float) -> void:
 		var loss := player.max_hp - player.hp
 		var ok := loss > 0.5 and loss < 20.0
 		print("TEST RESULT: duel block loss=%.1f (ожидание: малый, не ноль) %s" % [loss, "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+
+
+## Трупы отличаются по причине смерти: у каждого своя окраска и свой эффект.
+func _test_corpse(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		var mobs := entities.filter(func(e: WolfChar) -> bool:
+			return e.faction == "cannibal" and not e.is_player)
+		# Троих кладём рядком, каждого своим способом.
+		var kinds := ["blade", "burn", "frost"]
+		_corpse_probes = []
+		for i in mini(3, mobs.size()):
+			var m: WolfChar = mobs[i]
+			m.global_position = player.global_position + Vector3(1.5 + i * 1.4, 0, 2.0)
+			_damage(m, 99999.0, player, kinds[i])
+			_corpse_probes.append(m)
+	elif _test_staged and not _test_shot_taken and _test_t > 2.6:
+		_test_shot_taken = true
+		var lines: Array[String] = []
+		var ok := _corpse_probes.size() == 3
+		for i in _corpse_probes.size():
+			var m: WolfChar = _corpse_probes[i]
+			var fx := m.get_node_or_null("CorpseFx") != null
+			lines.append("%s(свет=%.2f фонтан=%s)" % [m.death_cause, m.corpse_glow, str(fx)])
+			if not m.is_dead:
+				ok = false
+		# Отличаться должны все трое: одинаковые трупы — это и есть та беда,
+		# которую чиним.
+		if _corpse_probes.size() == 3:
+			var a: WolfChar = _corpse_probes[0]
+			var b: WolfChar = _corpse_probes[1]
+			var c: WolfChar = _corpse_probes[2]
+			if a.corpse_glow == b.corpse_glow and b.corpse_glow == c.corpse_glow:
+				ok = false
+			if b.get_node_or_null("CorpseFx") == null or c.get_node_or_null("CorpseFx") == null:
+				ok = false
+		if _test_shot != "":
+			var mid: Vector3 = (_corpse_probes[1] as WolfChar).global_position
+			player.global_position = mid + Vector3(0, 0.2, -3.4)
+			player.rotation.y = _yaw_toward(0, 3.4)
+			if player_cam != null:
+				player_cam.rotation.x = -0.42   # смотрим вниз на лежащих
+			await _save_shot()
+		print("TEST RESULT: corpse %s %s" % [" ".join(lines), "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+
+
+## Чужие удары не отнимают у игрока управление: бьют, а он идёт и рвёт дистанцию.
+func _test_nostun(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		_dev_probe_pos = player.global_position   # запоминаем, откуда пошли
+		var mobs := entities.filter(func(e: WolfChar) -> bool:
+			return e.faction == "cannibal" and not e.is_player)
+		# Три психа вплотную: ровно та ситуация, где цепочка станов запирала.
+		for i in mini(3, mobs.size()):
+			(mobs[i] as WolfChar).global_position = player.global_position \
+					+ Vector3(cos(i * 2.1) * 1.6, 0, sin(i * 2.1) * 1.6)
+		player.max_hp = 9000.0
+		player.hp = 9000.0
+	elif _test_staged and not _test_shot_taken and _test_t < 7.0:
+		# Всё это время игрок ДЕРЖИТ «вперёд» и должен ехать, а не топтаться.
+		# Жмём именно клавишу: move_input каждый кадр перетирается опросом.
+		var ev := InputEventKey.new()
+		ev.keycode = KEY_W
+		ev.physical_keycode = KEY_W
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		if player.stagger_t > 0.0:
+			_dev_probe_hp = 1.0    # засекли стан — тест провален
+	elif _test_staged and not _test_shot_taken:
+		_test_shot_taken = true
+		_release_key(KEY_W)
+		var hits := 9000.0 - player.hp
+		var moved: float = player.global_position.distance_to(_dev_probe_pos)
+		var stunned := _dev_probe_hp > 0.5
+		var ok := hits > 1.0 and not stunned and moved > 1.5
+		print("TEST RESULT: nostun получено урона=%.0f стан=%s ушёл=%.1f м %s" % [
+			hits, str(stunned), moved, "OK" if ok else "FAIL"])
 		get_tree().quit(0 if ok else 1)
 
 

@@ -92,6 +92,9 @@ var arm_t := 0.0                    # взведённое тело: отсчё�
 var invuln_t := 0.0                 # пара секунд после возрождения
 
 # --- Следы повреждений ----------------------------------------------------
+var death_cause := ""               # чем убили: blade/burn/frost/shock/blast/eaten/exec
+var corpse_glow := 0.0              # свечение трупа (тлеющие угли, разряды)
+var corpse_flicker := 0.0           # 0 — ровное, >0 — мерцает с этой частотой
 var marks := 0                      # сколько отметин уже на теле
 var bleed := 0.0                    # сила кровотечения (по числу рассечений)
 var bleed_t := 0.0                  # до следующей капли
@@ -329,6 +332,28 @@ func _collect_and_tint(node: Node) -> void:
 		_collect_and_tint(child)
 
 
+## Перекрасить тело под причину смерти.
+##
+## Труп лежит до конца матча, и по нему должно быть видно, ЧТО с ним
+## случилось: обугленный чёрен и тлеет, промороженный бел и матов, битый
+## током в копоти и потрескивает. Красим сами материалы тела — они уже
+## продублированы на каждого персонажа (см. _collect_and_tint), так что
+## соседей это не задевает.
+func stain_body(mul: Color, emis: Color, energy: float, rough: float, flicker := 0.0) -> void:
+	corpse_glow = energy
+	corpse_flicker = flicker
+	for mi: MeshInstance3D in _tint_meshes:
+		for i in mi.get_surface_override_material_count():
+			var mat := mi.get_surface_override_material(i)
+			if mat is StandardMaterial3D:
+				var m := mat as StandardMaterial3D
+				var a := m.albedo_color
+				m.albedo_color = Color(a.r * mul.r, a.g * mul.g, a.b * mul.b, a.a)
+				m.emission = emis
+				if rough >= 0.0:
+					m.roughness = rough
+
+
 ## Recolors gear pieces named "Accent*" — merc archetypes differ by accent
 ## (Клинок = red like ref #1, Броня = blue-violet like ref #2).
 func set_accent(c: Color) -> void:
@@ -443,6 +468,14 @@ func flash_materials(delta: float) -> void:
 		energy = 2.5
 	elif is_grabbed:
 		energy = 0.4 + absf(sin(Time.get_ticks_msec() / 120.0)) * 1.2
+	elif is_dead and corpse_glow > 0.0:
+		# Труп держит своё свечение до конца матча: угли дотлевают, разряды
+		# ещё пробегают. Без этой ветки вспышка попаданий каждый кадр
+		# затирала бы окраску смерти нулём.
+		energy = corpse_glow
+		if corpse_flicker > 0.0:
+			var w := sin(Time.get_ticks_msec() / (1000.0 / corpse_flicker))
+			energy *= 0.55 + absf(w) * 0.75
 	for mi in _tint_meshes:
 		for i in (mi as MeshInstance3D).get_surface_override_material_count():
 			var mat := (mi as MeshInstance3D).get_surface_override_material(i)

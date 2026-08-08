@@ -1321,6 +1321,35 @@ static func _swap_imp_mats(node: Node, tint: Color, glow: Array) -> void:
 		_swap_imp_mats(c, tint, glow)
 
 
+## Мягкая клякса для частиц.
+##
+## Все эффекты игры — кровь, дым, искры, пар, иней — рисовались голыми
+## квадратами без текстуры. Вблизи это читалось не как облако, а как стопка
+## белых кубиков: у квадрата резкий край, и чем крупнее частица, тем виднее,
+## что это квадрат. Одна общая текстура с мягким спадом к краям чинит разом
+## все фонтанчики.
+static var _dot: ImageTexture = null
+
+
+static func particle_tex() -> ImageTexture:
+	if _dot != null:
+		return _dot
+	var n := 64
+	var img := Image.create(n, n, true, Image.FORMAT_RGBA8)
+	for y in n:
+		for x in n:
+			var dx := (float(x) + 0.5) / n * 2.0 - 1.0
+			var dy := (float(y) + 0.5) / n * 2.0 - 1.0
+			var d: float = sqrt(dx * dx + dy * dy)
+			# Плотное ядро и мягкий край — в квадрате не должно остаться углов.
+			var a: float = clampf(1.0 - smoothstep(0.15, 1.0, d), 0.0, 1.0)
+			a = a * a
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	img.generate_mipmaps()
+	_dot = ImageTexture.create_from_image(img)
+	return _dot
+
+
 ## Материал по ЯРЛЫКУ из Blender.
 ##
 ## Геометрию имплантов печёт tools/blender (настоящие корпуса, платы, кабели),
