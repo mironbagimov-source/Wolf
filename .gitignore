@@ -50,3 +50,6 @@ crashlytics-build.properties
 
 # WebGL build output
 webgl-build/
+
+# готовые сборки: 84 МБ бинарника в git не нужны
+/build/

@@ -9,6 +9,11 @@
 
 ## Как запустить
 
+**Просто поиграть.** Взять готовую сборку — распаковать и запустить
+`Maskarad.exe`. Godot ставить не нужно, это один самодостаточный файл.
+
+**Открыть исходники.**
+
 1. Скачать **Godot 4.3** (или новее) — обычный редактор, без .NET:
    https://godotengine.org/download
 2. Godot → **Import** → выбрать `maskarad/project.godot` → **Import & Edit**.
@@ -16,6 +21,20 @@
 
 Первый импорт занимает секунд десять — движок сам создаёт папку `.godot`,
 её в репозитории нет и быть не должно.
+
+## Собрать сборку самому
+
+В редакторе: **Project → Export**. Пресеты `Windows Desktop` и `Linux` уже
+лежат в `export_presets.cfg`, оба собирают один файл со вшитым содержимым
+(`embed_pck`). Один раз понадобится докачать шаблоны экспорта — Godot
+предложит сам (**Editor → Manage Export Templates**).
+
+Из командной строки, без редактора:
+
+```bash
+godot --headless --path maskarad --export-release "Windows Desktop" build/windows/Maskarad.exe
+godot --headless --path maskarad --export-release "Linux" build/linux/Maskarad.x86_64
+```
 
 ## Управление
 

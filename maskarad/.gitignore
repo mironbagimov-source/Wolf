@@ -1,4 +1,3 @@
 # Godot генерирует это при импорте проекта — в репозитории не нужно
 .godot/
-export_presets.cfg
 *.translation
