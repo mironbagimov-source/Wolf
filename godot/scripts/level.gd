@@ -1381,6 +1381,37 @@ static func particle_tex() -> ImageTexture:
 	return _dot
 
 
+## Ткань: переплетение нитей, ворс, потёртость.
+static func _mat_cloth() -> StandardMaterial3D:
+	var h := func(u: float, v: float) -> float:
+		# Переплетение: две решётки нитей поперёк друг друга.
+		var warp: float = absf(fmod(u * 90.0, 1.0) - 0.5)
+		var weft: float = absf(fmod(v * 90.0, 1.0) - 0.5)
+		return (warp + weft) * 0.5 + _fbm(u, v, 40.0, 3.3, 2) * 0.2
+	var tex := _texture("dmg_cloth", IMP_RES, func(u: float, v: float) -> Color:
+		var warp: float = absf(fmod(u * 90.0, 1.0) - 0.5) * 2.0
+		var weft: float = absf(fmod(v * 90.0, 1.0) - 0.5) * 2.0
+		var g := 0.20 + (warp + weft) * 0.05 + (_fbm(u, v, 40.0, 3.3, 2) - 0.5) * 0.06
+		# Срез ткани по краю светлее — там видно необношенное волокно.
+		return Color(g * 1.05, g * 0.97, g * 0.92))
+	return _std(tex, _normal_tex("dmg_cloth", IMP_RES_N, h, 1.4), Color.WHITE,
+			0.88, 0.0, 3.0, null, true)
+
+
+## Мокрое пятно крови на ткани.
+static func _mat_blood_soak() -> StandardMaterial3D:
+	var tex := _texture("dmg_blood", IMP_RES, func(u: float, v: float) -> Color:
+		var n: float = (_fbm(u, v, 12.0, 4.7, 2) - 0.5) * 0.25
+		# Свежая кровь в середине темнее и мокрее, к краю подсыхает в бурое.
+		var dry: float = clampf(_fbm(u, v, 3.0, 8.1) * 1.4 - 0.2, 0.0, 1.0)
+		var c := Color(0.30 + n, 0.03, 0.035).lerp(Color(0.16, 0.04, 0.03), dry)
+		return c)
+	var mat := _std(tex, null, Color.WHITE, 0.22, 0.0, 3.0, null, true)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(1, 1, 1, 0.93)
+	return mat
+
+
 ## Материал по ЯРЛЫКУ из Blender.
 ##
 ## Геометрию имплантов печёт tools/blender (настоящие корпуса, платы, кабели),
@@ -1405,6 +1436,10 @@ static func imp_material(label: String, tint: Color) -> Material:
 			return _mat_imp_frost()
 		"imp_char":
 			return _mat_imp_char()
+		"dmg_cloth":
+			return _mat_cloth()
+		"dmg_blood":
+			return _mat_blood_soak()
 		"imp_glow":
 			# Ядро светится, но не выжигается в белое пятно: albedo держим
 			# тёмным, свет даёт emission, и цвет остаётся читаемым.

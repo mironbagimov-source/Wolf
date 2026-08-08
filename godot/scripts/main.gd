@@ -3662,6 +3662,8 @@ func _add_wound_mark(t: WolfChar, at: Vector3, kind: String, size: float) -> voi
 		var dir := local.normalized()
 		var up := Vector3.UP if absf(dir.dot(Vector3.UP)) < 0.95 else Vector3.RIGHT
 		disc.look_at_from_position(Vector3.ZERO, -dir, up)
+	# Одежда помнит тот же удар: прореха, прожог, иней или пропитка.
+	_add_cloth_damage(rig, kind, size, local)
 	# У рассечения — рваные края.
 	if kind == "cut":
 		for i in 3:
@@ -3674,6 +3676,59 @@ func _add_wound_mark(t: WolfChar, at: Vector3, kind: String, size: float) -> voi
 			flap.position = Vector3(0, 0, size * 0.2)
 			rig.add_child(flap)
 		t.bleed = minf(t.bleed + 1.0, 6.0)
+
+
+## КЛОЧЬЯ НА ОДЕЖДЕ.
+##
+## Тело помнило удары рассечениями, а куртка на нём оставалась целой — после
+## десятка попаданий персонаж выглядел так же опрятно, как вышел из лифта.
+## Накладки собраны в Blender (tools/blender/cloth.py) и сажаются на то же
+## место, куда легла рана, поверх неё и чуть наружу.
+const CLOTH_KIT := {
+	"cut": "tear",
+	"burn": "scorch",
+	"frost": "frost",
+	"shock": "scorch",
+}
+var _cloth_cache := {}
+
+
+func _add_cloth_damage(rig: Node3D, kind: String, size: float, dir: Vector3) -> void:
+	var which: String = CLOTH_KIT.get(kind, "tear")
+	var patch := _cloth_patch(which)
+	if patch == null:
+		return
+	rig.add_child(patch)
+	# Накладка лежит В ПЛОСКОСТИ ткани: разворачиваем её по нормали тела.
+	# Крупнее самой раны: удар рвёт ткань шире, чем режет тело.
+	patch.scale = Vector3.ONE * (size * 4.0)
+	patch.position = dir.normalized() * 0.012 if dir.length() > 0.001 else Vector3.ZERO
+	if dir.length() > 0.001:
+		var up := Vector3.UP if absf(dir.normalized().dot(Vector3.UP)) < 0.95 else Vector3.RIGHT
+		patch.look_at_from_position(patch.position, patch.position - dir.normalized(), up)
+	# Порез вдобавок пропитывает ткань кровью.
+	if kind == "cut":
+		var soak := _cloth_patch("soak")
+		if soak != null:
+			rig.add_child(soak)
+			soak.scale = Vector3.ONE * (size * 5.5)
+			soak.position = patch.position * 0.8
+			soak.rotation = patch.rotation
+
+
+func _cloth_patch(which: String) -> Node3D:
+	if not _cloth_cache.has(which):
+		var path := "res://assets/damage/cloth_%s.glb" % which
+		_cloth_cache[which] = load(path) if ResourceLoader.exists(path) else null
+	var packed: PackedScene = _cloth_cache[which]
+	if packed == null:
+		return null
+	var n := packed.instantiate() as Node3D
+	if n == null:
+		return null
+	var glow: Array = []
+	WolfLevel._swap_imp_mats(n, Color(0.5, 0.05, 0.05), glow)
+	return n
 
 
 ## Каждый кадр: раны кровят, кровь копится под ногами, кожа помнит стихию.
@@ -6975,9 +7030,16 @@ func _test_damage(_delta: float) -> void:
 		if _duel_bot.marks >= MAX_MARKS or _test_t > 16.0:
 			_test_shot_taken = true
 			if _test_shot != "":
-				player.global_position = _duel_bot.global_position + Vector3(-1.4, 0.35, -1.4)
-				player.rotation.y = _yaw_toward(1.4, 1.4)
-				_pitch = -0.1
+				# Вплотную: клочья на ткани — деталь, с трёх метров её нет.
+				var d := 0.95
+				if OS.get_environment("WOLF_CAM") != "":
+					d = maxf(0.35, float(OS.get_environment("WOLF_CAM")))
+				var off := Vector3(-1, 0, -1).normalized() * d
+				player.global_position = _duel_bot.global_position + off + Vector3(0, 0.2, 0)
+				player.rotation.y = _yaw_toward(-off.x, -off.z)
+				if player_cam != null:
+					player_cam.rotation.x = atan2(_duel_bot.global_position.y + 1.28
+							- (player.global_position.y + 1.55), maxf(0.05, d))
 				await _save_shot()
 		return
 	if _test_t < 17.5:
