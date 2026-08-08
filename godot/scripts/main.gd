@@ -4468,6 +4468,8 @@ func _fire_implant(t: WolfChar, source: WolfChar) -> void:
 	if audio != null and t.civ_implant != "":
 		audio.play("imp_%s" % t.civ_implant, t.global_position + Vector3(0, 1.0, 0), 0.0,
 				WolfAudio.vary(0.08))
+	if t.civ_implant != "":
+		_implant_scar(t.civ_implant, t.global_position)
 	if t.civ_implant == "":
 		return
 	var actor := source
@@ -6351,6 +6353,55 @@ func _footstep(e: WolfChar, _delta: float) -> void:
 	# Свои шаги тише чужих: они рядом с ухом и иначе забивают всё.
 	var db := -16.0 if e == player else -9.0
 	audio.play("step", e.global_position + Vector3(0, 0.1, 0), db, WolfAudio.vary(0.18))
+
+
+## СЛЕД НАЧИНКИ НА ПОЛУ.
+##
+## Сами по себе начинки давно разные — крио бьёт иглами льда, выводок лезет
+## наружу, коллапс стягивает. Но через секунду после срабатывания пол под
+## любой из них выглядел одинаково, и понять по месту, ЧТО здесь рвануло,
+## было нельзя. След остаётся до конца матча — как и лужи крови.
+const IMPLANT_SCAR := {
+	"bomb":        {"r": 2.6, "col": Color(0.06, 0.05, 0.05), "glow": Color(1.0, 0.35, 0.06), "e": 0.5},
+	"flare":       {"r": 2.9, "col": Color(0.09, 0.06, 0.04), "glow": Color(1.0, 0.55, 0.12), "e": 0.9},
+	"cryo":        {"r": 3.1, "col": Color(0.72, 0.86, 0.95), "glow": Color(0.4, 0.75, 1.0), "e": 0.25},
+	"emp":         {"r": 3.4, "col": Color(0.14, 0.16, 0.2),  "glow": Color(0.45, 0.8, 1.0),  "e": 0.4},
+	"singularity": {"r": 2.2, "col": Color(0.05, 0.02, 0.08), "glow": Color(0.6, 0.25, 1.0),  "e": 0.35},
+	"brood":       {"r": 2.0, "col": Color(0.22, 0.26, 0.08), "glow": Color(0.5, 0.7, 0.2),   "e": 0.2},
+	"slime":       {"r": 1.8, "col": Color(0.18, 0.3, 0.06),  "glow": Color(0.5, 1.0, 0.15),  "e": 0.3},
+	"softener":    {"r": 1.6, "col": Color(0.12, 0.14, 0.18), "glow": Color(0.3, 0.7, 1.0),   "e": 0.3},
+	"holo":        {"r": 1.5, "col": Color(0.1, 0.16, 0.2),   "glow": Color(0.2, 0.9, 1.0),   "e": 0.45},
+	"puppet":      {"r": 1.7, "col": Color(0.16, 0.06, 0.16), "glow": Color(0.6, 0.15, 0.55), "e": 0.3},
+}
+
+
+func _implant_scar(kind: String, at: Vector3) -> void:
+	var spec: Dictionary = IMPLANT_SCAR.get(kind, {})
+	if spec.is_empty():
+		return
+	var mi := MeshInstance3D.new()
+	mi.name = "Scar_%s" % kind
+	var quad := QuadMesh.new()
+	var r: float = float(spec["r"])
+	quad.size = Vector2(r * 2.0, r * 2.0)
+	mi.mesh = quad
+	var m := StandardMaterial3D.new()
+	m.albedo_color = spec["col"]
+	m.albedo_texture = WolfLevel.particle_tex()   # мягкий край, а не квадрат
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.emission_enabled = true
+	m.emission = spec["glow"]
+	m.emission_energy_multiplier = float(spec["e"])
+	m.roughness = 0.35 if kind == "cryo" else 0.9
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = m
+	add_child(mi)
+	# Кладём на пол под телом, чуть выше поверхности.
+	var floor_y := floorf(at.y / WolfCfg.FLOOR_H) * WolfCfg.FLOOR_H
+	mi.global_position = Vector3(at.x, floor_y + 0.02, at.z)
+	mi.rotate_object_local(Vector3.RIGHT, -PI / 2.0)
+	mi.rotate_object_local(Vector3.FORWARD, randf_range(0.0, TAU))
+	_splats.append(mi)
 
 
 ## Звук доходит до движка.
