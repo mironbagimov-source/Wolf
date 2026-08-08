@@ -6,15 +6,34 @@ class_name PlayerBrain
 ## и оружие; спрятана только голова, внутри которой камера. Тень тело даёт
 ## обычную: она выдаёт тебя на свету.
 ##
-## Оглядывание (ПКМ, средняя кнопка или `Alt`) разводит взгляд и тело:
-## голова поворачивается назад, ноги продолжают нести вперёд. В игре, где
-## главное — понять, идёт ли кто-то за тобой, это не украшение, а основной
-## инструмент. Отпустил — взгляд возвращается вперёд сам, тело за ним не
-## доворачивает.
+## Оглядывание — на самой мыши, без кнопок. Взгляд поворачивается сразу и
+## целиком, а тело доворачивается за ним с ограниченной скоростью: голова
+## успевает, плечи нет. Из этого само собой выходит то, ради чего оглядывание
+## и нужно.
+##
+## Стоишь — тело вообще не двигается, пока взгляд не ушёл дальше, чем
+## поворачивается шея: можно осмотреть половину зала, не переступая ногами и
+## не поворачиваясь к кому-то спиной.
+##
+## Бежишь и дёрнул мышью назад — смотришь назад немедленно, а ноги ещё
+## полсекунды несут туда же, куда несли. Именно это и значит «оглянуться на
+## бегу»: успеть увидеть, кто за тобой, не сбившись с шага. Задержишь взгляд —
+## тело развернётся следом, и ты побежишь туда.
+##
+## Кнопка (`ПКМ`, средняя, `Alt`) осталась, но теперь она нужна редко: она
+## держит тело намертво, когда надо смотреть по сторонам и при этом не
+## менять направления вовсе.
 
 const MOUSE_SENS := 0.0022
 const PITCH_LIMIT := deg_to_rad(85.0)
-const LOOK_BACK_LIMIT := deg_to_rad(155.0)
+## Дальше шея не поворачивается — тело обязано пойти следом.
+const NECK_LIMIT := deg_to_rad(150.0)
+## Пока взгляд ушёл меньше, чем на столько, стоящее тело не трогается с места.
+const NECK_FREE := deg_to_rad(52.0)
+## Скорость доворота корпуса: стоя, на ходу и на бегу.
+const TURN_STILL := deg_to_rad(210.0)
+const TURN_MOVE := deg_to_rad(430.0)
+const TURN_SPRINT := deg_to_rad(250.0)
 const HEAD_HEIGHT := 1.62
 
 var actor: Actor
@@ -24,8 +43,7 @@ var head: Node3D                       # держатель камеры, жив
 var yaw: float = 0.0                   # куда смотрит голова
 var pitch: float = 0.0
 var body_yaw: float = 0.0              # куда развёрнуто тело
-var looking_back: bool = false
-var _recenter: float = 0.0             # взгляд возвращается к телу после оглядки
+var looking_back: bool = false         # держат кнопку: тело замерло совсем
 
 ## Что сейчас под прицелом действия — читает HUD.
 var target_actor: Actor = null
@@ -120,10 +138,7 @@ func _place_camera(delta: float) -> void:
 	camera.fov = lerp(78.0, 86.0, concussion * 0.6)
 
 func _read_input(delta: float) -> void:
-	var back_now := Input.is_action_pressed("look_back")
-	if looking_back and not back_now:
-		_recenter = 0.4          # отпустил — взгляд сам возвращается вперёд
-	looking_back = back_now
+	looking_back = Input.is_action_pressed("look_back")
 
 	# движение считается от тела, а не от взгляда — иначе при оглядывании
 	# персонаж поедет туда, куда повернул голову
@@ -142,22 +157,43 @@ func _read_input(delta: float) -> void:
 	actor.move_input = dir.normalized() if dir.length() > 0.01 else Vector3.ZERO
 	actor.want_sprint = Input.is_action_pressed("sprint") and not looking_back
 
-	if looking_back:
-		# тело идёт как шло, голова свободна в пределах разворота шеи
-		var diff := wrapf(yaw - body_yaw, -PI, PI)
-		if absf(diff) > LOOK_BACK_LIMIT:
-			yaw = body_yaw + LOOK_BACK_LIMIT * signf(diff)
-	elif _recenter > 0.0:
-		# оглянулся — и отвернулся обратно. Тело за головой не доворачивает:
-		# иначе, отпустив кнопку после взгляда назад, игрок разворачивался
-		# на месте кругом и терял направление бега.
-		_recenter = maxf(0.0, _recenter - delta)
-		yaw = lerp_angle(yaw, body_yaw, clampf(delta * 11.0, 0.0, 1.0))
-		if absf(wrapf(yaw - body_yaw, -PI, PI)) < 0.02:
-			_recenter = 0.0
-	else:
-		body_yaw = yaw
+	_settle_body(delta)
 	actor.look_dir = Vector3(-sin(body_yaw), 0.0, -cos(body_yaw))
+	# на сколько голова повёрнута относительно плеч — по этому rig скручивает
+	# шею, и со стороны видно, куда человек смотрит на самом деле
+	actor.head_turn = wrapf(yaw - body_yaw, -PI, PI)
+
+## Тело догоняет взгляд, а не следует за ним намертво. Вся разница между
+## «повернулся» и «оглянулся» — в скорости этого доворота.
+func _settle_body(delta: float) -> void:
+	var diff := wrapf(yaw - body_yaw, -PI, PI)
+	var moving: bool = actor.move_input.length() > 0.1
+
+	var rate: float
+	if looking_back:
+		rate = 0.0                       # кнопка: стоять как вкопанный
+	elif not moving:
+		# Стоя тело не дёргается за каждым движением мыши: осмотреться можно,
+		# не переступая ногами. Дальше свободного хода шеи — начинает
+		# доворачиваться.
+		rate = 0.0 if absf(diff) < NECK_FREE else TURN_STILL
+	elif actor.want_sprint:
+		rate = TURN_SPRINT               # на бегу не разворачиваются на пятке
+	else:
+		rate = TURN_MOVE
+
+	var step := rate * delta
+	if step > 0.0:
+		if absf(diff) <= step:
+			body_yaw = yaw
+		else:
+			body_yaw += signf(diff) * step
+
+	# Шея не резиновая: дальше предела тело разворачивается независимо ни от
+	# чего, иначе можно было бы смотреть себе в спину.
+	var rest := wrapf(yaw - body_yaw, -PI, PI)
+	if absf(rest) > NECK_LIMIT:
+		body_yaw = yaw - NECK_LIMIT * signf(rest)
 
 	# вырваться из «поговорим» можно только уйдя
 	if actor.summoned_by != null and actor.move_input.length() > 0.1:

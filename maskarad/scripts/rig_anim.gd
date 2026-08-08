@@ -53,6 +53,9 @@ var drink: float = 0.0
 var drink_pull: float = 0.0
 ## Тебя пьют. Отдельно от `drink`: у жертвы своя роль в этой сцене.
 var bitten: float = 0.0
+## Голова повёрнута относительно плеч, в радианах. Оглядывание видно и со
+## стороны: по вывернутой шее понятно, что человек смотрит не туда, куда идёт.
+var head_turn: float = 0.0
 var grab: float = 0.0
 var flinch: float = 0.0
 var limp_l: float = 0.0
@@ -138,6 +141,9 @@ func _spin(key: String, axis: Vector3, angle: float) -> void:
 	var local_axis: Vector3 = parent_basis.inverse() * axis
 	skeleton.set_bone_pose_rotation(i, Quaternion(local_axis.normalized(), angle) * cur)
 
+## Дальше шея не выворачивается ни при каких обстоятельствах.
+const NECK_LIMIT := 2.62          # 150°
+
 const AX := Vector3(1, 0, 0)      # ось «махнуть вперёд-назад»
 const AY := Vector3(0, 1, 0)      # ось «повернуть корпус»
 const AZ := Vector3(0, 0, 1)      # ось «развести в стороны»
@@ -188,7 +194,13 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	_spin("neck", AZ, drink * 0.30 - bitten * 0.26)
 	_spin("head", AX, drink * 0.26 - bitten * 0.22)
 	_spin("head", AZ, drink * 0.42 - bitten * 0.55)
-	_spin("head", AY, sin(breathe * 0.5) * 0.10 * (1.0 - drink) + bitten * sin(breathe * 9.0) * 0.03)
+	# оглядывание раскладывается на шею и голову: одной шеей такой поворот
+	# не берётся, а одной головой она отрывается от плеч
+	var twist: float = clampf(head_turn, -NECK_LIMIT, NECK_LIMIT)
+	_spin("neck", AY, twist * 0.42)
+	_spin("spine2", AY, twist * 0.16)
+	_spin("head", AY, twist * 0.42 + sin(breathe * 0.5) * 0.10 * (1.0 - drink) \
+		+ bitten * sin(breathe * 9.0) * 0.03)
 
 	# ---- ноги: бедро махает, колено подгибается только на задней ноге.
 	# В укусе вампир делает выпад, а у жертвы подкашиваются колени.

@@ -84,6 +84,9 @@ var _attack_windup: float = 0.3
 var _attack_len: float = 0.8
 ## Кого вампир держит зубами и кого держат — обе стороны укуса.
 var drained_by: Actor = null
+## На сколько голова повёрнута относительно плеч. Пишет мозг; по этому же
+## числу видно со стороны, что человек смотрит не туда, куда идёт.
+var head_turn: float = 0.0
 ## Анимация скелета для моделей с Mixamo (клипов внутри нет — гнём кости сами).
 var rig: RigAnim = null
 ## Повреждения по частям тела: ноги, руки, голова считаются отдельно.
@@ -241,7 +244,11 @@ func _fit_external_model(look: Dictionary) -> void:
 	else:
 		var aabb := _model_aabb(_external_model)
 		have_h = aabb.size.y
-	if have_h > 0.2:
+	# Порог только против деления на ноль. Он стоял на 0.2 м «на всякий
+	# случай» — и отбрасывал Медею, чей скелет приехал в единицах в
+	# одиннадцать раз мельче: рост у неё мерился верно, а масштаб к модели
+	# так и не применялся, и по городу ходила кукла в шестнадцать сантиметров.
+	if have_h > 0.02:
 		_external_model.scale = Vector3.ONE * (want_h / have_h)
 	_external_model.position.y = 0.0
 	_external_model.rotation.y = float(look.get("model_yaw", Data.MODEL_YAW))
@@ -554,6 +561,7 @@ func _drive_rig(delta: float, speed2d: float) -> void:
 	rig.drink = 1.0 if channel_kind == "drain" else 0.0
 	rig.drink_pull = channel_time                 # ритм глотков
 	rig.bitten = 1.0 if drained_by != null else 0.0
+	rig.head_turn = head_turn
 	rig.grab = 1.0 if (channel_kind == "invite" or channel_kind == "talk") else 0.0
 	rig.flinch = clampf(invulnerable * 2.0, 0.0, 1.0)
 	rig.limp_l = dmg.limp_left()

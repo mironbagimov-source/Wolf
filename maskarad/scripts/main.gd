@@ -71,6 +71,8 @@ func _maybe_autotest() -> void:
 		_combat_test.call_deferred()
 	if "--animtest" in args:
 		_anim_test.call_deferred()
+	if "--looktest" in args:
+		_look_test.call_deferred()
 
 ## Проверка боя и повреждений в отрыве от навигации: ставим лича вплотную
 ## к гостю и смотрим, доходит ли удар и что он ломает.
@@ -304,6 +306,52 @@ func _pose_bench() -> void:
 	print("[позы] фаза удара: ", ", ".join(phases))
 	await _bench_shot("позы")
 
+## Оглядывание мышью, без кнопок. Крутим взгляд, как это делает рука на
+## мыши, и смотрим, расходятся ли голова и плечи — и сходятся ли обратно.
+##
+## Проверять это в игре руками бесполезно: разница между «повернулся» и
+## «оглянулся» — полсекунды доворота корпуса, на глаз её не поймать.
+func _look_test() -> void:
+	for i in 60:
+		await get_tree().physics_frame
+	var p: Actor = Game.player
+	if p == null or not is_instance_valid(p):
+		print("[взгляд] игрока нет"); get_tree().quit(); return
+	var brain: Node = p.get_node_or_null("Brain")
+	if brain == null or not ("yaw" in brain):
+		print("[взгляд] мозг не игрока"); get_tree().quit(); return
+
+	# ---- стоя: рывок мышью на 45° и на 90°
+	for probe in [45.0, 90.0]:
+		brain.set("yaw", brain.get("body_yaw") + deg_to_rad(probe))
+		for i in 30:
+			p.move_input = Vector3.ZERO
+			await get_tree().physics_frame
+		print("[взгляд] стоя, мышь на %.0f°: голова разошлась с плечами на %.0f°" % [
+			probe, rad_to_deg(absf(wrapf(brain.get("yaw") - brain.get("body_yaw"), -PI, PI)))])
+		brain.set("yaw", brain.get("body_yaw"))
+		for i in 20:
+			await get_tree().physics_frame
+
+	# ---- на бегу: разворот взгляда назад, ноги должны нести как несли.
+	# Жмём настоящие действия, а не пишем move_input: мозг игрока всё равно
+	# перезапишет его с клавиатуры, и проверка бы мерила стоящего человека.
+	Input.action_press("move_forward")
+	Input.action_press("sprint")
+	var keep: float = brain.get("body_yaw")
+	brain.set("yaw", keep + deg_to_rad(150.0))
+	var after_flick := 0.0
+	for i in 60:
+		await get_tree().physics_frame
+		if i == 5:
+			after_flick = rad_to_deg(absf(wrapf(keep - brain.get("body_yaw"), -PI, PI)))
+	print("[взгляд] на бегу, рывок на 150°: через 5 кадров тело ушло на %.0f°, через 60 — на %.0f°" % [
+		after_flick, rad_to_deg(absf(wrapf(keep - brain.get("body_yaw"), -PI, PI)))])
+	Input.action_release("move_forward")
+	Input.action_release("sprint")
+	print("[взгляд] шея модели вывернута на %.0f°" % rad_to_deg(absf(p.head_turn)))
+	get_tree().quit()
+
 ## Анимации действий: доходят ли они до костей. Проверяются три вещи, каждую
 ## из которых легко «сделать» и не заметить, что она ни на что не влияет:
 ## проходит ли удар весь путь замах → проводка → возврат, уезжает ли кисть
@@ -399,28 +447,36 @@ func _input_check() -> void:
 ## один промах здесь означает персонажа ростом с табуретку и все попадания
 ## по нему, засчитанные в голову.
 func _model_check() -> void:
+	var bad := 0
 	for id in Data.CHARACTERS:
 		var look: Dictionary = Data.CHARACTERS[id]
 		var path: String = look.get("model", "")
 		if path == "" or not ResourceLoader.exists(path):
 			continue
-		var packed = load(path)
-		if packed == null or not (packed is PackedScene):
-			continue
-		var inst: Node3D = packed.instantiate()
-		add_child(inst)
-		var r := RigAnim.new()
+
+		# Персонаж собирается настоящим путём — через Actor, а не загрузкой
+		# сцены. Прошлая версия печатала МЕРЕННЫЙ рост и НУЖНЫЙ масштаб, и на
+		# этом Медея прошла проверку: измерялась она правильно, а масштаб к
+		# ней потом не применялся. Теперь меряется то, что получилось.
+		var a := Actor.new()
+		add_child(a)
+		a.setup(id, false)
+		a.global_position = Vector3(0, 0, 0)
 		var want: float = look.get("build", {}).get("height", 1.78)
-		if r.bind(inst):
-			var head_y: float = 0.0
-			if r.idx.has("head"):
-				head_y = r.skeleton.get_bone_global_rest(r.idx["head"]).origin.y
-			print("[модель] %-12s рост=%.2f нужно=%.2f масштаб=%.4f кость_головы=%.2f скелет=%.3f" % [
-				id, r.rest_height, want, want / maxf(0.001, r.rest_height),
-				head_y, r.skeleton.scale.y])
+		if a.rig != null and a.rig.ok:
+			var got: float = a.rig.bone_point("head").y - a.global_position.y
+			# кость головы сидит примерно на 0.88 роста — ниже макушки
+			var ratio := got / maxf(0.01, want)
+			var verdict := "ок" if ratio > 0.72 and ratio < 1.02 else "СЛОМАНО"
+			if verdict != "ок":
+				bad += 1
+			print("[модель] %-12s нужно=%.2f, кость головы вышла на %.2f (%.0f%% роста) — %s" % [
+				id, want, got, ratio * 100.0, verdict])
 		else:
 			print("[модель] %-12s скелет не найден" % id)
-		inst.queue_free()
+			bad += 1
+		a.queue_free()
+	print("[модель] сломанных: %d" % bad)
 
 ## Диагностика: кто где стоит и движется ли вообще.
 func _diag() -> void:
