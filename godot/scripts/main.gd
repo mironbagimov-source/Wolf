@@ -2224,24 +2224,35 @@ func _threats_near(pos: Vector3, radius: float) -> Array:
 ## расстояние до ближайшей твари через несколько шагов будет наибольшим.
 ## Заодно учитываем, куда тварь БЕЖИТ: уворачиваться надо от места встречи,
 ## а не от места, где она была.
-func _flee_dir(pos: Vector3, threats: Array) -> Vector3:
-	if threats.is_empty():
+const FLEE_STEPS := 20
+const FLEE_LOOK := 4.5   # на сколько метров вперёд смотрим
+const FLEE_LEAD := 0.9   # на сколько секунд упреждаем движение твари
+
+
+## Куда придёт тварь через FLEE_LEAD секунд.
+func _threat_marks(threats: Array) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for th: Dictionary in threats:
+		var who: WolfChar = th["who"]
+		out.append(who.global_position + who.velocity * FLEE_LEAD)
+	return out
+
+
+## Принимает УЖЕ ПОСЧИТАННЫЕ точки, а не сущности сцены: так решение можно
+## проверить точными числами, не гоняя ботов по этажу и не надеясь, что они
+## встанут в нужную позицию.
+func _flee_dir(pos: Vector3, marks: Array[Vector3]) -> Vector3:
+	if marks.is_empty():
 		return Vector3.ZERO
-	const STEPS := 20
-	const LOOK := 4.5      # на сколько метров вперёд смотрим
-	const LEAD := 0.9      # на сколько секунд упреждаем движение твари
 	var best := Vector3.ZERO
 	var best_score := -INF
-	for i in STEPS:
-		var a := TAU * float(i) / STEPS
+	for i in FLEE_STEPS:
+		var a := TAU * float(i) / FLEE_STEPS
 		var dir := Vector3(cos(a), 0.0, sin(a))
-		var probe := pos + dir * LOOK
+		var probe := pos + dir * FLEE_LOOK
 		var worst := INF
-		for th: Dictionary in threats:
-			var who: WolfChar = th["who"]
-			var future := who.global_position + who.velocity * LEAD
-			future.y = probe.y
-			worst = minf(worst, probe.distance_to(future))
+		for m: Vector3 in marks:
+			worst = minf(worst, probe.distance_to(Vector3(m.x, probe.y, m.z)))
 		if worst > best_score:
 			best_score = worst
 			best = dir
@@ -2388,7 +2399,7 @@ func _bot_civilian(e: WolfChar, delta: float) -> void:
 
 	# Тварь вплотную — рвём дистанцию ОТ ВСЕХ сразу, а не от одной.
 	if threat[0] != null and threat[1] < 7.0:
-		var away := _flee_dir(e.global_position, threats)
+		var away := _flee_dir(e.global_position, _threat_marks(threats))
 		if away.length() > 0.05:
 			e.sprinting = true
 			_bot_goto(e, e.global_position + away * 9.0, delta)
@@ -6225,47 +6236,65 @@ func _test_duel(_delta: float) -> void:
 
 ## Гражданские: выбор направления бегства и смена звонаря.
 ##
-## Направление проверяем НАПРЯМУЮ у _flee_dir, а не по следу бота на полу:
-## след зависит от того, какой гражданский попался и какие вокруг стены, и
-## одинаково выглядит у наивной и у умной версии. Здесь же проверяется
-## ровно то решение, которое принимает бот.
+## Курс проверяем на ТОЧНЫХ ЧИСЛАХ, а не по следу бота на полу. Живые твари
+## для этого не годятся: удержать их на месте нельзя — физика двигает тела
+## после присваивания позиции, — и клещи через секунду превращаются во
+## что попало. След же у наивной и у умной версии выходит похожим, так что
+## по нему тест проходил в обоих случаях и не значил ничего.
+##
+## Смену звонаря проверяем на живой сцене — там ей и место.
 func _test_civsmart(_delta: float) -> void:
 	if _test_t > 0.5 and mode == "menu":
 		_start_match("killer", 0, 0)
 	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
 		_test_staged = true
-		player.global_position = Vector3(-24, 0.2, 16)
-		var mobs := entities.filter(func(e: WolfChar) -> bool:
-			return e.faction == "cannibal" and not e.is_player)
-		var mid := Vector3(0, 0.2, 0)
-		_corpse_probes = [mobs[0], mobs[1]]
-		# Клещи: ближняя слева, дальняя справа. Наивное «беги от ближней»
-		# указывает точно на дальнюю.
-		(mobs[0] as WolfChar).global_position = mid + Vector3(-3.0, 0, 0)
-		(mobs[1] as WolfChar).global_position = mid + Vector3(3.4, 0, 0)
-		(mobs[0] as WolfChar).velocity = Vector3.ZERO
-		(mobs[1] as WolfChar).velocity = Vector3.ZERO
 		_psycho_probe = _caller
 		if _caller != null:
-			_damage(_caller, 99999.0, player)
+			_damage(_caller, 99999.0, player)   # звонаря убивают первым
 	elif _test_staged and not _test_shot_taken and _test_t > 2.4:
 		_test_shot_taken = true
-		var mid := Vector3(0, 0.2, 0)
-		var threats := _threats_near(mid, WolfCfg.CIV_THREAT_SCAN)
-		var dir := _flee_dir(mid, threats)
-		# Выход из клещей — ПОПЕРЁК их оси. Ось здесь X, значит уходить надо
-		# по Z: |z| должно перевесить |x|.
-		var perp := absf(dir.z) > absf(dir.x) * 2.0
-		# И до обеих тварей от точки прибытия должно быть дальше, чем сейчас.
-		var probe := mid + dir * 4.5
-		var d0 := probe.distance_to((_corpse_probes[0] as WolfChar).global_position)
-		var d1 := probe.distance_to((_corpse_probes[1] as WolfChar).global_position)
+		var mid := Vector3.ZERO
+		var cases: Array = [
+			# Клещи по оси X: наивное «беги от ближней» указывает на дальнюю.
+			{"имя": "клещи", "точки": [Vector3(-3.0, 0, 0), Vector3(3.4, 0, 0)]},
+			# Трое полукольцом: уходить надо в незакрытый сектор.
+			{"имя": "полукольцо", "точки": [Vector3(-3.0, 0, 1.0), Vector3(0, 0, 3.2),
+					Vector3(3.0, 0, 1.0)]},
+			# Один сбоку: тут и наивный прав, умный не должен быть хуже.
+			{"имя": "одиночка", "точки": [Vector3(-3.0, 0, 0)]},
+		]
+		var lines: Array[String] = []
+		var ok := true
+		for c: Dictionary in cases:
+			var marks: Array[Vector3] = []
+			for p: Vector3 in c["точки"]:
+				marks.append(p)
+			var dir := _flee_dir(mid, marks)
+			var probe := mid + dir * FLEE_LOOK
+			# Наивно: прочь от ближайшей.
+			var near_p: Vector3 = marks[0]
+			for m: Vector3 in marks:
+				if m.length() < near_p.length():
+					near_p = m
+			var naive_probe := mid + (mid - near_p).normalized() * FLEE_LOOK
+			var smart := INF
+			var naive := INF
+			for m: Vector3 in marks:
+				smart = minf(smart, probe.distance_to(m))
+				naive = minf(naive, naive_probe.distance_to(m))
+			# Умный обязан быть не хуже наивного НИКОГДА, а в клещах и
+			# полукольце — ощутимо лучше.
+			var need: float = 1.0 if marks.size() > 1 else -0.01
+			if smart < naive + need:
+				ok = false
+			lines.append("%s: умный=%.1f наивный=%.1f" % [c["имя"], smart, naive])
 		var caller_ok := _caller != null and is_instance_valid(_caller) \
 				and not _caller.is_dead and not _caller.downed
 		var replaced := _psycho_probe == null or _caller != _psycho_probe
-		var ok := perp and d0 > 3.0 and d1 > 3.4 and caller_ok and replaced
-		print("TEST RESULT: civsmart курс=(%.2f,%.2f) поперёк=%s зазор=%.1f/%.1f звонарь=%s %s" % [
-			dir.x, dir.z, str(perp), d0, d1, str(caller_ok and replaced), "OK" if ok else "FAIL"])
+		if not (caller_ok and replaced):
+			ok = false
+		print("TEST RESULT: civsmart %s звонарь=%s %s" % [
+			" · ".join(lines), str(caller_ok and replaced), "OK" if ok else "FAIL"])
 		get_tree().quit(0 if ok else 1)
 
 
