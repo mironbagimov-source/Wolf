@@ -28,7 +28,7 @@ fi
 MODES=(menu look merc club rooms duel charged meet lift civwin agony bomb
        stairs bait loot implant dermal ghoul hub city mode demo hands
        respawn damage eaten civbomb slime revive interrogate grab loadout
-       cast parry dash exec nostun corpse civsmart)
+       cast parry dash exec nostun corpse civsmart fit)
 # Начинки тел: у каждой свой эффект и своя сборка импланта.
 DEVS=(bomb slime softener flare cryo emp singularity holo brood puppet)
 # Клипы: те, что поставлены в Blender, и базовые из библиотеки.

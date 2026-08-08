@@ -340,69 +340,92 @@ def hw_puppet(part: Part) -> None:
 # --- Боевые импланты наёмника --------------------------------------------
 # Эти не в ране — они вживлены под кожу и торчат наружу, поэтому идут
 # отдельными сборками без полости.
+#
+# КАЖДАЯ СБОРКА РАЗБИТА НА ЧАСТИ ПО МЕСТАМ ТЕЛА. Раньше имплант был одним
+# куском, подвешенным к корню персонажа: тело шло, падало, поворачивалось —
+# а железо оставалось висеть там, где грудь была секунду назад. Замер на
+# трупе показывал 35 см в воздухе. Теперь Godot сажает каждую часть на
+# ближайшую кость, и она едет вместе с телом.
 
-def hw_dermal(part: Part) -> None:
-    """Железы-разжижители: капсулы на груди и трубки под кожу."""
+def hw_dermal_chest(part: Part) -> None:
+    """Железы-разжижители: капсулы на груди и насос между ними."""
     for s in (-1.0, 1.0):
         add_sphere(part, 0.052, at=v(0.19 * s, 0.02, 0.0), segs=18, mat=M_GEL,
                    squash=(0.92, 1.5, 0.85))
-        add_cyl(part, 0.013, 0.24, at=v(0.14 * s, -0.16, 0.03),
-                rot=vr(0, 0, math.radians(6 * s)), segs=12, mat=M_MEAT)
         add_torus(part, 0.053, 0.008, at=v(0.19 * s, 0.02, 0.0),
                   rot=vr(math.pi / 2, 0, 0), major_segs=20, minor_segs=6, mat=M_STEEL)
     add_box(part, (0.15, 0.1, 0.06), at=v(0, -0.12, 0.02), bevel=0.012, mat=M_STEEL)
     add_box(part, (0.12, 0.05, 0.012), at=v(0, -0.12, 0.055), bevel=0.003, mat=M_PCB)
+    for s in (-1.0, 1.0):
+        add_tube(part, sag_path(v(0.19 * s, -0.03, 0.0), v(0.04 * s, -0.10, 0.03),
+                                0.008, 6), 0.008, 8, M_MEAT)
 
 
-def hw_subdermal(part: Part) -> None:
-    """Сегментные пластины под кожей: торс и наручи."""
+def hw_subdermal_torso(part: Part) -> None:
+    """Сегментные пластины по торсу."""
     for i in range(3):
         w = 0.33 - i * 0.03
         add_box(part, (w, 0.092, 0.046), at=v(0, 0.12 - i * 0.125, 0.0),
                 bevel=0.012, mat=M_STEEL, segments=3)
-        # Крепёж по краям пластины.
         for s in (-1.0, 1.0):
             add_cyl(part, 0.008, 0.05, at=v(w * 0.44 * s, 0.12 - i * 0.125, 0.012),
                     rot=vr(math.pi / 2, 0, 0), segs=8, mat=M_STEEL)
-    for s in (-1.0, 1.0):
-        add_box(part, (0.095, 0.22, 0.11), at=v(0.27 * s, -0.32, 0.0),
-                rot=vr(0, 0, math.radians(4 * s)), bevel=0.016, mat=M_STEEL, segments=3)
-        add_box(part, (0.135, 0.085, 0.17), at=v(0.24 * s, 0.19, 0.0),
-                bevel=0.02, mat=M_STEEL, segments=3)
 
 
-def hw_kerenzikov(part: Part) -> None:
-    """Позвоночный бустер: порты вдоль хребта и разъёмы на шее."""
+def _bracer(part: Part) -> None:
+    add_box(part, (0.095, 0.20, 0.105), at=v(0, 0, 0), bevel=0.016,
+            mat=M_STEEL, segments=3)
+    for i in range(2):
+        add_torus(part, 0.058, 0.006, at=v(0, 0.06 - i * 0.11, 0),
+                  rot=vr(math.pi / 2, 0, 0), major_segs=18, minor_segs=6, mat=M_STEEL)
+
+
+def _pauldron(part: Part) -> None:
+    add_box(part, (0.125, 0.08, 0.155), at=v(0, 0, 0), bevel=0.02,
+            mat=M_STEEL, segments=3)
+    add_box(part, (0.10, 0.03, 0.12), at=v(0, 0.05, 0), bevel=0.01, mat=M_STEEL)
+
+
+def hw_keren_spine(part: Part) -> None:
+    """Позвоночный бустер: порты вдоль хребта."""
     for i in range(4):
-        add_box(part, (0.085, 0.062, 0.055), at=v(0, 0.17 - i * 0.105, -0.11),
+        add_box(part, (0.085, 0.062, 0.055), at=v(0, 0.17 - i * 0.105, -0.09),
                 bevel=0.008, mat=M_STEEL)
-        add_cyl(part, 0.016, 0.02, at=v(0, 0.17 - i * 0.105, -0.14),
+        add_cyl(part, 0.016, 0.02, at=v(0, 0.17 - i * 0.105, -0.12),
                 rot=vr(math.pi / 2, 0, 0), segs=12, mat=M_PCB)
-    # Светящаяся шина вдоль позвоночника.
-    add_box(part, (0.03, 0.44, 0.018), at=v(0, -0.02, -0.135), bevel=0.006, mat=M_GLOW)
+    add_box(part, (0.03, 0.44, 0.018), at=v(0, -0.02, -0.115), bevel=0.006, mat=M_GLOW)
+
+
+def hw_keren_neck(part: Part) -> None:
+    """Разъёмы на шее."""
     for s in (-1.0, 1.0):
-        add_cyl(part, 0.018, 0.075, at=v(0.07 * s, 0.26, -0.075),
+        add_cyl(part, 0.018, 0.07, at=v(0.06 * s, 0, -0.045),
                 rot=vr(math.pi / 2, 0, 0), segs=12, mat=M_STEEL, bevel=0.004)
-        add_torus(part, 0.019, 0.005, at=v(0.07 * s, 0.26, -0.042),
+        add_torus(part, 0.019, 0.005, at=v(0.06 * s, 0, -0.015),
                   rot=vr(math.pi / 2, 0, 0), major_segs=14, minor_segs=6, mat=M_GLOW)
 
 
-def hw_synthlungs(part: Part) -> None:
-    """Жабры-фильтры по рёбрам и патрубок на шее."""
+def hw_lungs_chest(part: Part) -> None:
+    """Жабры-фильтры по рёбрам и блок под ними."""
     for s in (-1.0, 1.0):
         for i in range(2):
-            add_box(part, (0.12, 0.03, 0.045), at=v(0.13 * s, 0.06 - i * 0.085, 0.095),
+            add_box(part, (0.12, 0.03, 0.045), at=v(0.13 * s, 0.06 - i * 0.085, 0.075),
                     rot=vr(0, 0, math.radians(-7 * s)), bevel=0.006, mat=M_STEEL)
-            # Прорези жабр.
             for k in range(3):
                 add_box(part, (0.1, 0.006, 0.05),
-                        at=v(0.13 * s, 0.068 - i * 0.085 - k * 0.009, 0.098),
+                        at=v(0.13 * s, 0.068 - i * 0.085 - k * 0.009, 0.078),
                         rot=vr(0, 0, math.radians(-7 * s)), mat=M_GUT)
-    add_cyl(part, 0.021, 0.13, at=v(0.05, 0.22, 0.06), rot=vr(math.radians(10), 0,
-            math.radians(6)), segs=14, mat=M_STEEL, bevel=0.004)
-    add_box(part, (0.105, 0.085, 0.055), at=v(0, -0.09, 0.1), bevel=0.012, mat=M_STEEL)
-    add_sphere(part, 0.032, at=v(0, -0.09, 0.13), segs=16, mat=M_GEL,
+    add_box(part, (0.105, 0.085, 0.055), at=v(0, -0.09, 0.08), bevel=0.012, mat=M_STEEL)
+    add_sphere(part, 0.032, at=v(0, -0.09, 0.11), segs=16, mat=M_GEL,
                squash=(1.3, 1.0, 0.7))
+
+
+def hw_lungs_neck(part: Part) -> None:
+    """Патрубок на шее."""
+    add_cyl(part, 0.021, 0.11, at=v(0.045, 0, 0.03),
+            rot=vr(math.radians(10), 0, math.radians(6)), segs=14, mat=M_STEEL, bevel=0.004)
+    add_torus(part, 0.022, 0.006, at=v(0.045, 0.05, 0.03),
+              rot=vr(math.pi / 2, 0, 0), major_segs=14, minor_segs=6, mat=M_STEEL)
 
 
 CIV_HW = {
@@ -418,11 +441,28 @@ CIV_HW = {
     "puppet": hw_puppet,
 }
 
+# Части боевых имплантов и ТОЧКИ КРЕПЛЕНИЯ на теле (в метрах от таза
+# нормализованной модели ростом 1.8 м). Godot по этой точке находит
+# ближайшую кость и сажает часть на неё.
 MERC_HW = {
-    "dermal": hw_dermal,
-    "subdermal": hw_subdermal,
-    "kerenzikov": hw_kerenzikov,
-    "synthlungs": hw_synthlungs,
+    "dermal": [
+        ("chest", hw_dermal_chest, (0.0, 1.35, 0.0)),
+    ],
+    "subdermal": [
+        ("torso", hw_subdermal_torso, (0.0, 1.35, 0.0)),
+        ("bracerL", _bracer, (-0.27, 1.03, 0.0)),
+        ("bracerR", _bracer, (0.27, 1.03, 0.0)),
+        ("pauldronL", _pauldron, (-0.24, 1.53, 0.0)),
+        ("pauldronR", _pauldron, (0.24, 1.53, 0.0)),
+    ],
+    "kerenzikov": [
+        ("spine", hw_keren_spine, (0.0, 1.35, 0.0)),
+        ("neck", hw_keren_neck, (0.0, 1.60, 0.0)),
+    ],
+    "synthlungs": [
+        ("chest", hw_lungs_chest, (0.0, 1.35, 0.0)),
+        ("neck", hw_lungs_neck, (0.0, 1.58, 0.0)),
+    ],
 }
 
 # Что в каждой начинке считается «ядром» — Godot берёт объект по имени Core и
@@ -450,9 +490,15 @@ def build_civ(kind: str, out_dir: str) -> str:
 
 def build_merc(kind: str, out_dir: str) -> str:
     reset_scene()
-    part = Part("Core")
-    MERC_HW[kind](part)
-    part.finish()
+    for name, fn, mount in MERC_HW[kind]:
+        # Точку крепления пишем В МИЛЛИМЕТРАХ ЦЕЛЫМИ: glTF-экспорт заменяет
+        # точки в именах на подчёркивания, и «1.030» приезжает как «1_030» —
+        # разбор давал 270 метров вместо 27 сантиметров.
+        part = Part("at_%d_%d_%d__%s" % (round(mount[0] * 1000),
+                                         round(mount[1] * 1000),
+                                         round(mount[2] * 1000), name))
+        fn(part)
+        part.finish()
     path = os.path.abspath(os.path.join(out_dir, "merc_%s.glb" % kind))
     export_glb(path)
     return path

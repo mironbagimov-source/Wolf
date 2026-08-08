@@ -6118,6 +6118,8 @@ func _run_test(delta: float) -> void:
 			_test_corpse(delta)
 		"civsmart":
 			_test_civsmart(delta)
+		"fit":
+			_test_fit(delta)
 		"charged":
 			_test_charged(delta)
 		"meet":
@@ -6232,6 +6234,132 @@ func _test_duel(_delta: float) -> void:
 		var ok := loss > 0.5 and loss < 20.0
 		print("TEST RESULT: duel block loss=%.1f (ожидание: малый, не ноль) %s" % [loss, "OK" if ok else "FAIL"])
 		get_tree().quit(0 if ok else 1)
+
+
+## Импланты не должны торчать из тела.
+##
+## Меряем ЧЕСТНО, по вершинам, а не по габаритной коробке: коробка вокруг
+## наклонной детали захватывает пустоту и врёт в обе стороны. Тело считаем
+## капсулой персонажа — той же, которой он сталкивается с миром.
+func _test_fit(_delta: float) -> void:
+	if _test_t > 0.5 and mode == "menu":
+		_start_match("killer", 0, 0)
+	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
+		_test_staged = true
+		player.global_position = Vector3(-18, 0.2, 12)
+		# Испытуемый — БОТ, а не игрок: у игрока анимацию каждый кадр
+		# перебивает локомоция, и до позы падения дело не доходит.
+		_duel_bot = entities.filter(func(e: WolfChar) -> bool:
+			return e.faction == "cannibal" and not e.is_player)[0]
+		_duel_bot.global_position = player.global_position + Vector3(2.0, 0, 0)
+		for id: String in WolfCfg.IMPLANTS:
+			_duel_bot.install_implant(id)
+		_dev_probe_hp = 0.0     # накопитель худшего вылета
+		_fit_worst = ""
+	elif _test_staged and not _test_shot_taken and _test_t < 7.0:
+		# Ходьба, потом падение: статично подвешенное железо остаётся
+		# висеть там, где грудь была, а тело уезжает.
+		if _test_t > 4.0 and not _duel_bot.is_dead:
+			_damage(_duel_bot, 99999.0, player)
+		# Части импланта сидят на костях, а не в одном узле, поэтому ищем
+		# их по имени, которое пришло из Blender: "at_X_Y_Z__имя".
+		var pieces: Array[MeshInstance3D] = []
+		for mi: MeshInstance3D in _all_meshes(_duel_bot):
+			if (mi.name as String).begins_with("at_"):
+				pieces.append(mi)
+		if pieces.is_empty():
+			if _fit_worst == "":
+				_fit_worst = "ЧАСТИ ИМПЛАНТОВ НЕ НАЙДЕНЫ"
+			return
+		var segs := _bone_segments(_duel_bot)
+		for mi: MeshInstance3D in pieces:
+			var out := _outside_body(segs, mi)
+			if out > _dev_probe_hp:
+				_dev_probe_hp = out
+				_fit_worst = "%s%s" % [(mi.name as String).get_slice("__", 1),
+						" (труп)" if _duel_bot.is_dead else ""]
+	elif _test_staged and not _test_shot_taken:
+		_test_shot_taken = true
+		# Порог: 8 см. Броня и есть накладка, что-то выступает всегда — но
+		# полметра в воздухе это уже не броня.
+		var ok := _dev_probe_hp <= 0.08
+		if _test_shot != "":
+			player.global_position = _duel_bot.global_position + Vector3(0, 0.2, -2.6)
+			player.rotation.y = _yaw_toward(0, 2.6)
+			if player_cam != null:
+				player_cam.rotation.x = -0.5
+			await _save_shot()
+		print("TEST RESULT: fit вылет=%.2f м (предел 0.08) худший=%s %s" % [
+			_dev_probe_hp, _fit_worst, "OK" if ok else "FAIL"])
+		get_tree().quit(0 if ok else 1)
+
+
+var _fit_worst := ""
+
+
+func _all_meshes(n: Node) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	if n is MeshInstance3D:
+		out.append(n)
+	for c in n.get_children():
+		out.append_array(_all_meshes(c))
+	return out
+
+
+## На сколько метров самая дальняя вершина меша вылезает ЗА ТЕЛО.
+##
+## Капсула столкновений для этого не годится: она вдвое-втрое шире человека,
+## и внутри неё «помещается» что угодно. Считаем по скелету — любая точка
+## внутри тела лежит близко к какой-нибудь кости. Берём отрезки кость→
+## родитель в ТЕКУЩЕЙ позе, так что замер учитывает анимацию.
+const BODY_THICK := 0.22    # столько мяса вокруг кости считаем телом
+
+
+func _bone_segments(who: WolfChar) -> Array:
+	var skel := WolfRetarget.find_skeleton(who.visual) if who.visual != null else null
+	if skel == null:
+		return []
+	var out: Array = []
+	var gx := skel.global_transform
+	for b in skel.get_bone_count():
+		var par := skel.get_bone_parent(b)
+		if par < 0:
+			continue
+		var p0: Vector3 = gx * skel.get_bone_global_pose(par).origin
+		var p1: Vector3 = gx * skel.get_bone_global_pose(b).origin
+		out.append([p0, p1])
+	return out
+
+
+func _dist_to_seg(p: Vector3, a: Vector3, b: Vector3) -> float:
+	var ab := b - a
+	var len2 := ab.length_squared()
+	if len2 < 1e-8:
+		return p.distance_to(a)
+	var t: float = clampf((p - a).dot(ab) / len2, 0.0, 1.0)
+	return p.distance_to(a + ab * t)
+
+
+func _outside_body(segs: Array, mi: MeshInstance3D) -> float:
+	if mi.mesh == null or segs.is_empty():
+		return 0.0
+	var arrays := mi.mesh.surface_get_arrays(0)
+	if arrays.is_empty():
+		return 0.0
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var xf := mi.global_transform
+	var worst := 0.0
+	for i in range(0, verts.size(), 5):     # каждая пятая — достаточно
+		var p: Vector3 = xf * verts[i]
+		var best := INF
+		for sgm: Array in segs:
+			best = minf(best, _dist_to_seg(p, sgm[0], sgm[1]))
+			if best < BODY_THICK:
+				break
+		var excess := best - BODY_THICK
+		if excess > worst:
+			worst = excess
+	return worst
 
 
 ## Гражданские: выбор направления бегства и смена звонаря.

@@ -291,9 +291,84 @@ func _build_implant_visual(id: String) -> void:
 	if rig == null:
 		return
 	rig.name = id.capitalize()
-	# Сборки смоделированы на нормализованный рост 1.8 м и крепятся к груди.
-	rig.position = Vector3(0, 1.35, 0.0)
 	parent.add_child(rig)
+	_bind_implant_to_bones(rig)
+
+
+## Сажает части импланта НА КОСТИ.
+##
+## Раньше вся сборка висела одним куском на корне визуала: тело шло, падало,
+## поворачивалось — а железо оставалось там, где грудь была секунду назад.
+## Замер на трупе давал 35 см в воздухе.
+##
+## Имя каждой части из Blender несёт точку крепления (at_X_Y_Z__имя) в
+## координатах нормализованной модели. По этой точке ищем ближайшую кость,
+## вешаем BoneAttachment3D и пересчитываем местное положение так, чтобы в
+## позе покоя деталь встала ровно туда, где её нарисовали.
+func _bind_implant_to_bones(rig: Node3D) -> void:
+	var skel := WolfRetarget.find_skeleton(visual)
+	if skel == null:
+		return
+	var pieces: Array[MeshInstance3D] = []
+	for child in rig.get_children():
+		if child is MeshInstance3D:
+			pieces.append(child)
+	# Кости Mixamo живут в своём масштабе и повороте; считать переход между
+	# системами руками — верный способ отправить деталь за горизонт (первые
+	# попытки давали триста метров). Поэтому ставим деталь на место В
+	# КООРДИНАТАХ ТЕЛА, запоминаем получившееся МИРОВОЕ положение, переносим
+	# на кость и возвращаем то же мировое. Godot сам посчитает местное.
+	skel.force_update_all_bone_transforms()
+	for mi: MeshInstance3D in pieces:
+		var at := _parse_mount(mi.name)
+		mi.position = at
+		var want := mi.global_transform
+		var bone := _nearest_bone_world(skel, mi.global_position)
+		if bone < 0:
+			continue
+		var att := BoneAttachment3D.new()
+		att.name = "Mount_%s" % mi.name
+		att.bone_name = skel.get_bone_name(bone)
+		att.bone_idx = bone
+		skel.add_child(att)
+		rig.remove_child(mi)
+		att.add_child(mi)
+		# Местное положение считаем ОТ ПОЗЫ КОСТИ, а не присваиванием
+		# global_transform: только что добавленный BoneAttachment3D свою позу
+		# ещё не знает, мировое значение записывается как местное, и кость
+		# потом домножает его второй раз — деталь уезжает на метр вверх.
+		var bone_global := skel.global_transform * skel.get_bone_global_pose(bone)
+		mi.transform = bone_global.affine_inverse() * want
+
+
+## Ближайшая кость к МИРОВОЙ точке.
+func _nearest_bone_world(skel: Skeleton3D, at: Vector3) -> int:
+	var best := -1
+	var best_d := INF
+	var gx := skel.global_transform
+	for b in skel.get_bone_count():
+		var p: Vector3 = gx * skel.get_bone_global_pose(b).origin
+		var d := p.distance_to(at)
+		if d < best_d:
+			best_d = d
+			best = b
+	return best
+
+
+## Точка крепления из имени части: "at_-270_1030_0__bracerL" (миллиметры).
+##
+## Целые и в миллиметрах не случайно: glTF-экспорт заменяет точку в имени
+## объекта на подчёркивание, и дробные координаты приезжают неразличимо
+## слипшимися — «1.030» становится «1_030» и читается как два числа.
+func _parse_mount(n: String) -> Vector3:
+	var s := n.get_slice("__", 0)
+	if not s.begins_with("at_"):
+		return Vector3(0, 1.35, 0)
+	var p := s.substr(3).split("_")
+	if p.size() < 3:
+		return Vector3(0, 1.35, 0)
+	return Vector3(float(p[0]), float(p[1]), float(p[2])) * 0.001
+
 
 
 ## Prefers the player that actually has our clips — imported models may carry
