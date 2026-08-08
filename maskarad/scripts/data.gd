@@ -1,0 +1,269 @@
+extends Node
+## Все таблицы игры: персонажи, оружие, числа баланса, ввод.
+## Автозагрузка `Data`. Здесь нет поведения — только данные и мелкие
+## справочные функции, чтобы баланс правился в одном файле.
+
+# ---------------------------------------------------------------- стороны
+enum Side { HUMAN, UNDEAD }
+enum Role { HUMAN, VAMPIRE, LICH, GUEST, THRALL, GHOUL }
+
+const SIDE_NAME := {
+	Side.HUMAN: "Люди",
+	Side.UNDEAD: "Нечисть",
+}
+
+const ROLE_NAME := {
+	Role.HUMAN: "Человек",
+	Role.VAMPIRE: "Вампир",
+	Role.LICH: "Лич",
+	Role.GUEST: "Гость",
+	Role.THRALL: "Низший вампир",
+	Role.GHOUL: "Гуль",
+}
+
+# ------------------------------------------------------------------ числа
+const TUNE := {
+	# ночь
+	"night_seconds": 420.0,
+	"brazier_bonus": 40.0,          # на столько ночь короче за каждую зажжённую жаровню
+	"brazier_light_radius": 9.0,    # в круге света вампир не прячется
+
+	# движение
+	"gravity": 18.0,
+	"turn_speed": 12.0,
+	"stamina_drain": 20.0,
+	"stamina_regen": 14.0,
+	"stamina_regen_delay": 1.0,
+
+	# вампир
+	"hunger_max": 100.0,
+	"hunger_from_guest": 34.0,
+	"hunger_from_human": 52.0,
+	"hunger_decay": 0.55,           # в секунду: голод сам растёт, стоять нельзя
+	"invite_range": 5.0,
+	"invite_time": 1.1,
+	"drain_time": 2.6,
+	"drain_range": 2.0,
+	"disguise_cost": 100.0,
+	"disguise_leftover": 55.0,      # сколько голода остаётся после превращения
+	"witness_range": 14.0,          # с какого расстояния видно, что тебя пьют
+
+	# лич
+	"psychosis_max": 100.0,
+	"psychosis_from_kill": 34.0,
+	"psychosis_decay": 0.35,
+	"berserk_time": 13.0,
+	"berserk_speed": 1.45,
+	"berserk_damage": 1.6,
+	"terror_radius": 13.0,
+	"terror_slow": 0.82,
+
+	# люди
+	"garlic_speed": 16.0,
+	"garlic_reveal_time": 9.0,
+	"garlic_damage": 12.0,
+	"mob_damage": 26.0,             # сколько снимает толпа за чеснок не по адресу
+	"mob_stun": 2.0,
+	"mob_radius": 8.0,
+	"brazier_light_time": 4.0,
+
+	# обращение
+	"thrall_chance": 0.5,           # вампир: половина на половину — смерть или низший вампир
+	"ghoul_chance": 0.4,            # лич: обратить в гуля
+	"revive_delay": 3.0,            # пауза перед тем, как обращённый встаёт
+
+	# восприятие
+	"nametag_range": 9.0,
+	"corpse_alarm_radius": 12.0,
+}
+
+# --------------------------------------------------------------- персонажи
+# speed — базовая скорость, sprint — множитель, stamina/hp — очевидно,
+# perception — во сколько раз дальше видит подсказки, noise — как далеко
+# слышны шаги.
+const CHARACTERS := {
+	# ------------------------------------------------------------- люди
+	"helga": {
+		"name": "Хельга",
+		"side": Side.HUMAN, "role": Role.HUMAN,
+		"speed": 4.0, "sprint": 1.55, "stamina": 145.0, "hp": 120.0,
+		"perception": 0.9, "noise": 1.25, "garlic": 3,
+		"skin": Color(0.86, 0.74, 0.63), "cloth": Color(0.36, 0.28, 0.22), "hair": Color(0.75, 0.62, 0.31),
+		"perk": "Двужильная",
+		"perk_desc": "Ужас лича её не берёт: в его ауре не замедляется. Дольше всех бежит и дольше всех держится.",
+	},
+	"jay": {
+		"name": "Джей",
+		"side": Side.HUMAN, "role": Role.HUMAN,
+		"speed": 4.7, "sprint": 1.7, "stamina": 115.0, "hp": 85.0,
+		"perception": 1.0, "noise": 0.55, "garlic": 3,
+		"skin": Color(0.72, 0.56, 0.42), "cloth": Color(0.2, 0.24, 0.3), "hair": Color(0.15, 0.13, 0.12),
+		"perk": "Лёгкая нога",
+		"perk_desc": "Шаги почти не слышно — нечисть не подтягивается на звук. Быстрее всех, но и ломается быстрее.",
+	},
+	"chiara": {
+		"name": "Кьяра",
+		"side": Side.HUMAN, "role": Role.HUMAN,
+		"speed": 4.3, "sprint": 1.6, "stamina": 105.0, "hp": 95.0,
+		"perception": 1.5, "noise": 0.85, "garlic": 5,
+		"skin": Color(0.8, 0.66, 0.55), "cloth": Color(0.45, 0.16, 0.2), "hair": Color(0.28, 0.16, 0.1),
+		"perk": "Видит фальшь",
+		"perk_desc": "Чужой облик на вампире мерцает — издалека видно, что лицо не своё. Носит лишний чеснок.",
+	},
+
+	# ---------------------------------------------------------- вампиры
+	"moira": {
+		"name": "Мойра",
+		"side": Side.UNDEAD, "role": Role.VAMPIRE,
+		"speed": 4.6, "sprint": 1.5, "stamina": 130.0, "hp": 150.0,
+		"perception": 1.1, "noise": 0.7, "weapon": "sickle",
+		"skin": Color(0.83, 0.79, 0.78), "cloth": Color(0.22, 0.1, 0.14), "hair": Color(0.1, 0.08, 0.09),
+		"perk": "Серп",
+		"perk_desc": "Широкий замах цепляет всех, кто рядом. Хороша, когда маскарад уже сорван.",
+	},
+	"lucius": {
+		"name": "Люциус",
+		"side": Side.UNDEAD, "role": Role.VAMPIRE,
+		"speed": 4.75, "sprint": 1.55, "stamina": 140.0, "hp": 135.0,
+		"perception": 1.25, "noise": 0.6, "weapon": "rapier",
+		"skin": Color(0.87, 0.84, 0.83), "cloth": Color(0.12, 0.12, 0.2), "hair": Color(0.35, 0.3, 0.26),
+		"perk": "Шпага",
+		"perk_desc": "Длинный точный выпад достаёт раньше, чем жертва разрывает дистанцию.",
+	},
+
+	# ------------------------------------------------------------ личи
+	"karl": {
+		"name": "Карл",
+		"side": Side.UNDEAD, "role": Role.LICH,
+		"speed": 4.15, "sprint": 1.45, "stamina": 150.0, "hp": 200.0,
+		"perception": 1.0, "noise": 1.5, "weapon": "harpoon",
+		"skin": Color(0.55, 0.58, 0.5), "cloth": Color(0.18, 0.2, 0.17), "hair": Color(0.1, 0.1, 0.1),
+		"perk": "Гарпунное ружьё",
+		"perk_desc": "Бьёт через весь зал и тащит жертву к себе. Убежать от Карла мало — надо разорвать линию.",
+	},
+	"jack": {
+		"name": "Джек",
+		"side": Side.UNDEAD, "role": Role.LICH,
+		"speed": 4.5, "sprint": 1.5, "stamina": 140.0, "hp": 225.0,
+		"perception": 0.9, "noise": 1.6, "weapon": "axe",
+		"skin": Color(0.5, 0.5, 0.46), "cloth": Color(0.24, 0.16, 0.12), "hair": Color(0.12, 0.1, 0.08),
+		"perk": "Топор и нож",
+		"perk_desc": "Топор валит с одного удара, нож добивает. Медленный замах — единственное окно, чтобы уйти.",
+	},
+
+	# --------------------------------------------------- массовка и низшие
+	"guest": {
+		"name": "Гость",
+		"side": Side.HUMAN, "role": Role.GUEST,
+		"speed": 2.6, "sprint": 1.6, "stamina": 80.0, "hp": 45.0,
+		"perception": 0.7, "noise": 0.9,
+		"skin": Color(0.82, 0.7, 0.6), "cloth": Color(0.3, 0.3, 0.34), "hair": Color(0.2, 0.17, 0.14),
+		"perk": "", "perk_desc": "",
+	},
+	"thrall": {
+		"name": "Низший вампир",
+		"side": Side.UNDEAD, "role": Role.THRALL,
+		"speed": 4.3, "sprint": 1.4, "stamina": 90.0, "hp": 90.0,
+		"perception": 0.9, "noise": 1.0, "weapon": "claws",
+		"skin": Color(0.72, 0.72, 0.74), "cloth": Color(0.16, 0.14, 0.18), "hair": Color(0.12, 0.1, 0.12),
+		"perk": "Обращён",
+		"perk_desc": "Ни маскарада, ни берсерка. Только когти и голод.",
+	},
+	"ghoul": {
+		"name": "Гуль",
+		"side": Side.UNDEAD, "role": Role.GHOUL,
+		"speed": 3.5, "sprint": 1.3, "stamina": 70.0, "hp": 130.0,
+		"perception": 0.6, "noise": 1.4, "weapon": "claws",
+		"skin": Color(0.45, 0.48, 0.42), "cloth": Color(0.2, 0.18, 0.15), "hair": Color(0.1, 0.1, 0.08),
+		"perk": "Поднят",
+		"perk_desc": "Медленный, тупой и живучий. Идёт на шум и не сворачивает.",
+	},
+}
+
+const PLAYABLE_HUMANS := ["helga", "jay", "chiara"]
+const PLAYABLE_UNDEAD := ["moira", "lucius", "karl", "jack"]
+
+# ----------------------------------------------------------------- оружие
+# kind: "swing" — дуга, "thrust" — выпад, "ranged" — выстрел с притягиванием.
+const WEAPONS := {
+	"sickle": {
+		"name": "Серп", "kind": "swing",
+		"damage": 46.0, "range": 2.4, "arc": 1.75, "cooldown": 0.8, "windup": 0.32,
+	},
+	"rapier": {
+		"name": "Шпага", "kind": "thrust",
+		"damage": 40.0, "range": 3.2, "arc": 0.45, "cooldown": 0.6, "windup": 0.22,
+	},
+	"harpoon": {
+		"name": "Гарпунное ружьё", "kind": "ranged",
+		"damage": 38.0, "range": 24.0, "arc": 0.12, "cooldown": 2.8, "windup": 0.45,
+		"pull": 11.0,
+	},
+	"axe": {
+		"name": "Топор", "kind": "swing",
+		"damage": 72.0, "range": 2.5, "arc": 1.2, "cooldown": 1.4, "windup": 0.55,
+		"secondary": "knife",
+	},
+	"knife": {
+		"name": "Нож", "kind": "thrust",
+		"damage": 26.0, "range": 1.9, "arc": 0.5, "cooldown": 0.45, "windup": 0.14,
+	},
+	"claws": {
+		"name": "Когти", "kind": "swing",
+		"damage": 30.0, "range": 2.0, "arc": 1.0, "cooldown": 0.85, "windup": 0.3,
+	},
+}
+
+# ------------------------------------------------------------------- ввод
+const ACTIONS := {
+	"move_forward": [KEY_W, KEY_UP],
+	"move_back": [KEY_S, KEY_DOWN],
+	"move_left": [KEY_A, KEY_LEFT],
+	"move_right": [KEY_D, KEY_RIGHT],
+	"sprint": [KEY_SHIFT],
+	"interact": [KEY_E],
+	"attack": [],                  # ЛКМ, вешается отдельно
+	"signature": [KEY_F],          # облик / берсерк
+	"garlic": [KEY_Q],
+	"pause": [KEY_ESCAPE],
+	"scoreboard": [KEY_TAB],
+}
+
+func _ready() -> void:
+	_install_input()
+
+func _install_input() -> void:
+	for action_name in ACTIONS:
+		if not InputMap.has_action(action_name):
+			InputMap.add_action(action_name)
+		for key in ACTIONS[action_name]:
+			var ev := InputEventKey.new()
+			ev.physical_keycode = key
+			InputMap.action_add_event(action_name, ev)
+	var mb := InputEventMouseButton.new()
+	mb.button_index = MOUSE_BUTTON_LEFT
+	InputMap.action_add_event("attack", mb)
+
+# -------------------------------------------------------------- справочно
+func character(id: String) -> Dictionary:
+	return CHARACTERS.get(id, CHARACTERS["guest"])
+
+func weapon_of(char_id: String) -> Dictionary:
+	var c: Dictionary = character(char_id)
+	if not c.has("weapon"):
+		return {}
+	return WEAPONS.get(c["weapon"], {})
+
+func side_of(char_id: String) -> int:
+	return character(char_id)["side"]
+
+func role_of(char_id: String) -> int:
+	return character(char_id)["role"]
+
+func is_undead_role(role: int) -> bool:
+	return role == Role.VAMPIRE or role == Role.LICH or role == Role.THRALL or role == Role.GHOUL
+
+## Округление секунд в «м:сс» для таймера ночи.
+func clock(seconds: float) -> String:
+	var s := int(max(0.0, seconds))
+	return "%d:%02d" % [s / 60, s % 60]
