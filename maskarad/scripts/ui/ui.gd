@@ -293,6 +293,14 @@ func _build_hud() -> void:
 	roster_box = VBoxContainer.new()
 	roster_panel.add_child(roster_box)
 
+	# Ни один элемент HUD не должен трогать мышь. По умолчанию Control ловит
+	# её на себя, и полоска или панель, оказавшаяся под курсором, съедает
+	# движение мыши до того, как его увидит игрок: камера просто перестаёт
+	# крутиться, и понять почему — нельзя. Нажимать в HUD нечего, так что
+	# отключаем это всем разом.
+	for c in hud_root.find_children("*", "Control", true, false):
+		(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+
 func _bar(col: Color) -> ProgressBar:
 	var b := ProgressBar.new()
 	b.custom_minimum_size = Vector2(280, 14)
@@ -370,9 +378,15 @@ func _process(_delta: float) -> void:
 	if not hud_root.visible:
 		return
 
-	if _keys_left > 0.0:
+	# Отпущенная мышь — единственное состояние, в котором камера не крутится.
+	# Раньше об этом нельзя было догадаться никак, и выглядело оно как
+	# сломанное управление; теперь об этом написано прямо на экране.
+	if Game.cursor_free:
+		keys_label.text = "Мышь отпущена — щёлкни в окно, чтобы вернуть управление (Esc)"
+		keys_label.modulate.a = 1.0
+	elif _keys_left > 0.0:
 		_keys_left -= _delta
-		keys_label.text = "ПКМ — оглянуться, не разворачиваясь   ·   E — действие   ·   R — зажать рану"
+		keys_label.text = "мышь — осмотреться   ·   ПКМ — оглянуться, не разворачиваясь   ·   E — действие"
 		keys_label.modulate.a = clampf(_keys_left / 4.0, 0.0, 1.0)
 	elif keys_label.text != "":
 		keys_label.text = ""

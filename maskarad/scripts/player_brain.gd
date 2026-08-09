@@ -20,7 +20,9 @@ class_name PlayerBrain
 ## `C`): пока держишь, тело стоит, а голова свободна в пределах шеи. Это
 ## отдельная кнопка для отдельного случая, а не то, как работает мышь.
 
-const MOUSE_SENS := 0.0022
+## Радиан на пиксель. Было 0.0022 — на обычной офисной мыши это полтора
+## оборота руки на разворот, и камера кажется приклеенной.
+const MOUSE_SENS := 0.0032
 const PITCH_LIMIT := deg_to_rad(85.0)
 ## Дальше шея не выворачивается — при удержании кнопки тело идёт следом.
 const NECK_LIMIT := deg_to_rad(150.0)
@@ -64,18 +66,36 @@ func _exit_tree() -> void:
 	if is_instance_valid(head):
 		head.queue_free()
 
+## Мышь читается и когда захват потерян: движение всё равно поворачивает
+## камеру. Иначе один-единственный сбой захвата — свернули окно, увёл фокус
+## антивирус, окно открылось неактивным — оставлял игру без управления
+## насовсем, и выглядело это как «камера не крутится мышью».
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		yaw -= event.relative.x * MOUSE_SENS
-		pitch = clampf(pitch - event.relative.y * MOUSE_SENS, -PITCH_LIMIT, PITCH_LIMIT)
-	elif event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-		if Game.state == Game.State.PLAYING:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	if event is InputEventMouseMotion:
+		var m := event as InputEventMouseMotion
+		yaw -= m.relative.x * MOUSE_SENS
+		pitch = clampf(pitch - m.relative.y * MOUSE_SENS, -PITCH_LIMIT, PITCH_LIMIT)
+	elif event is InputEventMouseButton and event.pressed:
+		if Game.state == Game.State.PLAYING and Game.cursor_free:
+			Game.cursor_free = false
+
+## Захват мыши чинит себя сам. Кроме случая, когда игрок сам попросил курсор
+## по `Esc`, — тогда его не отбирают.
+func _keep_mouse() -> void:
+	if Game.state != Game.State.PLAYING or Game.cursor_free:
+		return
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		_keep_mouse()
 
 func shake(amount: float) -> void:
 	_shake = minf(1.5, _shake + amount)
 
 func _physics_process(delta: float) -> void:
+	_keep_mouse()
 	if not is_instance_valid(head) or not head.is_inside_tree():
 		return
 	if not is_instance_valid(actor) or not actor.alive:

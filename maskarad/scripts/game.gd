@@ -11,6 +11,10 @@ signal match_ended(winner_side: int, reason: String)
 enum State { MENU, LOBBY, PLAYING, ENDED }
 
 var state: int = State.MENU
+
+## Игрок сам попросил курсор (`Esc`). Только в этом случае мышь отпускается
+## во время матча — всё остальное время захват восстанавливается сам.
+var cursor_free: bool = false
 var time_left: float = 0.0
 var actors: Array = []                  ## все живые и мёртвые Actor
 var player: Node = null

@@ -352,6 +352,32 @@ func _look_test() -> void:
 		var body := "влево" if p.rotation.y > 0.1 else ("вправо" if p.rotation.y < -0.1 else "не повернулся")
 		print("[взгляд] %-13s -> камера смотрит %s / %s, тело %s" % [probe["имя"], side, vert, body])
 
+	# ---- мышь без захвата: так игра оказывалась «без управления» после
+	# любого увода фокуса. Камера обязана крутиться и в этом состоянии, а
+	# захват — возвращаться сам.
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	brain.set("yaw", 0.0)
+	brain.set("body_yaw", 0.0)
+	var ev2 := InputEventMouseMotion.new()
+	ev2.relative = Vector2(-160, 0)
+	Input.parse_input_event(ev2)
+	for i in 12:
+		await get_tree().physics_frame
+	print("[взгляд] захват потерян: камера повернулась на %.0f°, захват вернулся=%s" % [
+		rad_to_deg(absf(brain.get("yaw"))),
+		Input.mouse_mode == Input.MOUSE_MODE_CAPTURED])
+
+	# ---- то же, но курсор отпустил сам игрок: отбирать нельзя
+	Game.cursor_free = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	for i in 12:
+		await get_tree().physics_frame
+	print("[взгляд] курсор отпущен по Esc: захват остался снят=%s" % [
+		Input.mouse_mode != Input.MOUSE_MODE_CAPTURED])
+	Game.cursor_free = false
+	for i in 12:
+		await get_tree().physics_frame
+
 	brain.set("yaw", 0.0)
 	brain.set("pitch", 0.0)
 	brain.set("body_yaw", 0.0)
@@ -559,7 +585,8 @@ func _guest_count() -> int:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause") and Game.state == Game.State.PLAYING:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
+		Game.cursor_free = not Game.cursor_free
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Game.cursor_free \
 			else Input.MOUSE_MODE_CAPTURED
 
 # ------------------------------------------------------------------ матч
@@ -582,6 +609,7 @@ func start_match() -> void:
 
 	ui.show_hud()
 	Game.set_state(Game.State.PLAYING)
+	Game.cursor_free = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	Game.say("Ночь началась. До рассвета %s" % Data.clock(Game.time_left))
 
