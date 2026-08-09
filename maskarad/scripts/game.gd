@@ -15,7 +15,11 @@ var state: int = State.MENU
 ## Игрок сам попросил курсор (`Esc`). Только в этом случае мышь отпускается
 ## во время матча — всё остальное время захват восстанавливается сам.
 var cursor_free: bool = false
-var time_left: float = 0.0
+## Часы матча идут ВВЕРХ и ни на что не влияют: ночь больше не кончается
+## сама. Раньше здесь тикал обратный отсчёт, и люди выигрывали просто тем,
+## что дожили — можно было забиться в нычку и ждать. Теперь у обеих сторон
+## есть работа, и матч кончается только когда одна её сделала.
+var elapsed: float = 0.0
 var actors: Array = []                  ## все живые и мёртвые Actor
 var player: Node = null
 var braziers_lit: int = 0
@@ -29,7 +33,9 @@ var chosen_character: String = "chiara"
 ## города, а разные ночи: в клубе густая толпа и громкая музыка, на верфи
 ## простор и техника, в усадьбе анфилада комнат и прислуга.
 var chosen_map: String = "club"
-var undead_count: int = 2
+## Нечисть в матче всегда одна. Число оставлено ради ясности: если однажды
+## захочется двоих, менять надо здесь и в расстановке ростера.
+var undead_count: int = 1
 var guest_count: int = 22
 
 ## Кровавый след: где и когда накапало. Нечисть идёт по свежим каплям, так
@@ -47,7 +53,7 @@ func reset() -> void:
 	exposed.clear()
 	winner_side = -1
 	end_reason = ""
-	time_left = Data.TUNE["night_seconds"]
+	elapsed = 0.0
 
 func set_state(s: int) -> void:
 	state = s
@@ -100,24 +106,24 @@ func nearest(from: Vector3, candidates: Array) -> Node:
 func _process(delta: float) -> void:
 	if state != State.PLAYING:
 		return
-	time_left -= delta
-	if time_left <= 0.0:
-		_finish(Data.Side.HUMAN, "Рассвет. Кто дожил — тот выжил.")
-		return
+	elapsed += delta
 	if living_survivors().is_empty():
 		_finish(Data.Side.UNDEAD, "Людей не осталось.")
 
+## Прожекторы и есть работа людей. Рассвет больше не приходит сам по
+## времени — его ЗАЖИГАЮТ: когда горят все, светло становится везде, и
+## прятаться нечисти негде. Это и есть победа людей.
 func light_brazier() -> void:
 	braziers_lit += 1
-	# Сколько ночи снимает один прожектор — считается от их числа, а не
-	# берётся константой. Иначе каждый новый район города молча усиливает
-	# людей: с восемью прожекторами по сорок секунд от семиминутной ночи
-	# оставалось полторы минуты, и нечисть не успевала физически.
-	# Все прожекторы вместе всегда забирают одну и ту же долю ночи.
-	var per: float = Data.TUNE["night_seconds"] * Data.TUNE["brazier_share"] \
-		/ maxf(1.0, float(braziers_total))
-	time_left = max(5.0, time_left - per)
-	notice.emit("Жаровня зажжена — до рассвета ближе", false)
+	if braziers_lit >= braziers_total and braziers_total > 0:
+		_finish(Data.Side.HUMAN, "Свет везде. Прятаться больше негде.")
+		return
+	notice.emit("Прожектор зажжён — осталось %d" % (braziers_total - braziers_lit), false)
+
+## Прожектор потушили — работа людей откатилась на шаг назад.
+func douse_brazier() -> void:
+	braziers_lit = maxi(0, braziers_lit - 1)
+	notice.emit("Прожектор погас — осталось %d" % (braziers_total - braziers_lit), true)
 
 func raise_alarm(pos: Vector3, radius: float, kind: String) -> void:
 	alarm_raised.emit(pos, radius, kind)
@@ -138,7 +144,7 @@ func is_exposed(a: Node) -> bool:
 func drop_blood(pos: Vector3, side: int) -> void:
 	if side != Data.Side.HUMAN:
 		return                       # нечисть не кровоточит так, чтобы за ней шли
-	blood_spots.append({"pos": pos, "t": time_left})
+	blood_spots.append({"pos": pos, "t": elapsed})
 	while blood_spots.size() > BLOOD_MAX:
 		blood_spots.pop_front()
 
@@ -147,7 +153,7 @@ func freshest_blood(near: Vector3, radius: float) -> Dictionary:
 	var best: Dictionary = {}
 	var best_age := INF
 	for b in blood_spots:
-		var age: float = b["t"] - time_left
+		var age: float = elapsed - b["t"]
 		if age > BLOOD_MEMORY:
 			continue
 		if near.distance_to(b["pos"]) > radius:

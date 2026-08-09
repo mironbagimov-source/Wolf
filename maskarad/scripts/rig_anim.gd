@@ -52,7 +52,12 @@ var drink: float = 0.0
 ## Время внутри кормления: по нему считается ритм глотков.
 var drink_pull: float = 0.0
 ## Тебя пьют. Отдельно от `drink`: у жертвы своя роль в этой сцене.
+## `bitten` — сам захват, он наступает сразу; `bite_sag` — то, как жертва
+## обмякает, и оно нарастает до конца. Разводить их пришлось потому, что
+## одно число давало на четверти кормления четверть захвата: вампир стоял
+## рядом с жертвой прямо, будто ждёт очереди в гардероб.
 var bitten: float = 0.0
+var bite_sag: float = 0.0
 ## Голова повёрнута относительно плеч, в радианах. Оглядывание видно и со
 ## стороны: по вывернутой шее понятно, что человек смотрит не туда, куда идёт.
 var head_turn: float = 0.0
@@ -190,7 +195,7 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	if drink > 0.0:
 		pull = maxf(0.0, sin(drink_pull * 5.5)) * drink
 
-	var want_lean: float = gait * 0.16 + drink * 0.42 + grab * 0.12 - bitten * 0.12
+	var want_lean: float = gait * 0.16 + drink * 0.78 + grab * 0.12 - bitten * 0.12
 	lean = lerp(lean, want_lean, clampf(dt * 6.0, 0.0, 1.0))
 
 	var swing: float = gait * 0.62
@@ -206,11 +211,12 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	_spin("spine2", AY, -strike * 0.20)
 
 	# ---- голова. Вампир кладёт её на шею жертвы: вперёд и вбок, иначе
-	# клыки оказываются в воздухе. Жертва отворачивает — в другую сторону.
-	_spin("neck", AX, -lean * 0.3 + drink * 0.62 + pull * 0.10 - bitten * 0.48)
-	_spin("neck", AZ, drink * 0.30 - bitten * 0.26)
-	_spin("head", AX, drink * 0.26 - bitten * 0.22)
-	_spin("head", AZ, drink * 0.42 - bitten * 0.55)
+	# клыки оказываются в воздухе. Жертва отворачивает — в другую сторону,
+	# и чем дальше зашло, тем сильнее запрокидывается.
+	_spin("neck", AX, -lean * 0.3 + drink * 0.72 + pull * 0.10 - bitten * 0.62)
+	_spin("neck", AZ, drink * 0.34 - bitten * 0.34)
+	_spin("head", AX, drink * 0.30 - bitten * 0.38)
+	_spin("head", AZ, drink * 0.48 - bitten * 0.72)
 	# оглядывание раскладывается на шею и голову: одной шеей такой поворот
 	# не берётся, а одной головой она отрывается от плеч
 	var twist: float = clampf(head_turn, -NECK_LIMIT, NECK_LIMIT)
@@ -245,8 +251,35 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 
 	_spin("arm_l", AZ, -drop + arm_hurt_l * 0.35 - limp_arms)
 	_spin("arm_r", AZ, drop - arm_hurt_r * 0.35 + limp_arms - lift)
-	_spin("arm_l", AX, -s * arm_swing * (1.0 - bitten) + reach * 1.25 - strike * 0.42)
-	_spin("arm_r", AX, s * arm_swing * (1.0 - bitten) + reach * 1.25 + strike * 1.55)
+	# знак у `reach` отрицательный: положительный поворот вокруг AX уводит
+	# кисть НАЗАД, и «потянуться к жертве» получалось пожиманием плечами
+	_spin("arm_l", AX, -s * arm_swing * (1.0 - bitten) - reach * 1.15 - strike * 0.42)
+	_spin("arm_r", AX, s * arm_swing * (1.0 - bitten) - reach * 1.15 + strike * 1.55)
+
+	# Захват. Вампир не тянется к жертве — он её ДЕРЖИТ: одна рука на
+	# затылке, другая под лопатками, и обе сведены внутрь. Без этого поза
+	# читалась как «двое стоят близко», а не как то, что происходит.
+	if drink > 0.0:
+		_spin("arm_l", AZ, -drink * 0.55)
+		_spin("arm_r", AZ, drink * 0.55)
+		_spin("fore_l", AX, -drink * 0.85)
+		_spin("fore_r", AX, -drink * 0.65)
+		_spin("shoulder_l", AZ, -drink * 0.25)
+		_spin("shoulder_r", AZ, drink * 0.25)
+
+	# Жертву держат: руки повисли вдоль тела, колени уходят, спина
+	# прогибается назад через шею. К концу она уже не стоит, а висит.
+	if bitten > 0.0:
+		var sag: float = bite_sag * bite_sag      # обмякает не сразу, а к концу
+		_spin("arm_l", AX, bitten * 0.35)
+		_spin("arm_r", AX, bitten * 0.35)
+		_spin("fore_l", AX, -bitten * 0.25)
+		_spin("fore_r", AX, -bitten * 0.25)
+		_spin("upleg_l", AX, -sag * 0.55)
+		_spin("upleg_r", AX, -sag * 0.45)
+		_spin("leg_l", AX, -sag * 0.85)
+		_spin("leg_r", AX, -sag * 0.75)
+		_spin("spine1", AZ, sag * 0.18)           # заваливается набок в руках
 	# локоть сложен в замахе и распрямляется в момент удара
 	_spin("fore_l", AX, -0.25 - reach * 1.0 - arm_hurt_l * 0.6)
 	_spin("fore_r", AX, -0.25 - reach * 1.0 - arm_hurt_r * 0.6 - maxf(0.0, strike) * 1.15)

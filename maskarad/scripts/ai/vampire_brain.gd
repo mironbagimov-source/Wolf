@@ -21,6 +21,8 @@ func think(delta: float) -> void:
 	elif Game.is_exposed(actor) and mode != HUNT and mode != FEED and mode != RETREAT:
 		_enter(HUNT, 20.0)
 
+	_use_lures()
+
 	match mode:
 		BLEND:
 			_blend(delta)
@@ -34,6 +36,45 @@ func think(delta: float) -> void:
 			_hunt()
 		RETREAT:
 			_retreat()
+
+## Приманки. Порядок не случайный: сначала убрать свидетелей, потом свет,
+## и только потом звать — звать при полном зале бессмысленно, увидят.
+func _use_lures() -> void:
+	if actor.lure_cd > 0.0 or not actor.can_fight():
+		return
+	if actor.channel_kind != "":
+		return
+
+	var near_humans := 0
+	var nearest: Actor = null
+	var nearest_d := INF
+	for a: Actor in Game.living(Data.Side.HUMAN):
+		var d := distance_to(a)
+		if d < Data.TUNE["witness_range"]:
+			near_humans += 1
+		if d < nearest_d:
+			nearest_d = d
+			best_seen = a
+			nearest = a
+
+	# слишком людно — увести всех на звон стекла в другой конец
+	if near_humans > Data.TUNE["dance_witness"] and nearest_d > 4.0:
+		var away := actor.global_position - (nearest.global_position - actor.global_position)
+		actor.try_noise_lure(away)
+		return
+
+	# горит прожектор — погасить: на свету не кормятся
+	for l in actor.get_tree().get_nodes_in_group("braziers"):
+		if l.lit and actor.global_position.distance_to(l.global_position) < Data.TUNE["douse_range"]:
+			actor.try_douse()
+			return
+
+	# никого рядом, но кто-то есть в пределах слышимости — позвать на помощь
+	if actor.hunger < Data.TUNE["hunger_max"] and nearest_d > Data.TUNE["invite_range"] \
+			and nearest_d < Data.TUNE["help_range"]:
+		actor.try_help_lure()
+
+var best_seen: Actor = null
 
 ## Ходить как все. Полный голод — повод надеть чужое лицо.
 func _blend(_delta: float) -> void:

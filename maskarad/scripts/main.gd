@@ -71,6 +71,9 @@ func _maybe_autotest() -> void:
 	if _shot_path != "" and "--posecheck" in args:
 		_pose_bench()
 		return
+	if _shot_path != "" and "--bitecheck" in args:
+		_bite_bench()
+		return
 	start_match.call_deferred()
 	if "--combattest" in args:
 		_combat_test.call_deferred()
@@ -212,7 +215,7 @@ func _weapon_bench() -> void:
 	await _bench_shot("оружие")
 
 ## Освещённая пустая сцена под съёмку: фон, свет, пол и камера.
-func _bench_stage(cam_pos: Vector3) -> Node3D:
+func _bench_stage(cam_pos: Vector3, look_at: Vector3 = Vector3.INF) -> Node3D:
 	ui.visible = false                       # меню поверх стенда мешает смотреть
 	var stage := Node3D.new()
 	add_child(stage)
@@ -262,6 +265,10 @@ func _bench_stage(cam_pos: Vector3) -> Node3D:
 	cam.fov = 52.0
 	cam.current = true
 	stage.add_child(cam)
+	# камеру надо ещё и НАВЕСТИ: по умолчанию она смотрит по -Z и на стенде,
+	# где натура стоит сбоку, снимает пустую стену
+	if look_at != Vector3.INF:
+		cam.look_at_from_position(cam_pos, look_at, Vector3.UP)
 	return stage
 
 func _bench_shot(tag: String) -> void:
@@ -715,6 +722,30 @@ func _look_test() -> void:
 		rad_to_deg(absf(p.rotation.y)), rad_to_deg(absf(p.head_turn))])
 	get_tree().quit()
 
+## Стенд укуса: вампир держит жертву, снимок в середине кормления. Позу
+## захвата в тёмном зале не разглядеть, а именно её и надо проверять.
+func _bite_bench() -> void:
+	var stage := _bench_stage(Vector3(2.4, 1.5, 2.2), Vector3(0, 1.1, -0.45))
+	var v := Actor.new()
+	stage.add_child(v)
+	v.setup("moira", false)
+	v.global_position = Vector3(0, 0.05, 0)
+	var prey := Actor.new()
+	stage.add_child(prey)
+	prey.setup("civ_peasant", false)
+	prey.global_position = Vector3(0, 0.05, -0.9)
+	await get_tree().physics_frame
+	v.rotation.y = 0.0
+	v.look_dir = Vector3(0, 0, -1)
+	v.try_drain(prey)
+	# ловим середину кормления: в начале это ещё захват, в конце — уже труп
+	for _f in 46:
+		v.move_input = Vector3.ZERO
+		prey.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+	print("[укус] канал «%s», прогресс жертвы %.2f" % [v.channel_kind, prey.bite_progress])
+	await _bench_shot("укус")
+
 ## Анимации действий: доходят ли они до костей. Проверяются три вещи, каждую
 ## из которых легко «сделать» и не заметить, что она ни на что не влияет:
 ## проходит ли удар весь путь замах → проводка → возврат, уезжает ли кисть
@@ -892,7 +923,7 @@ func _report() -> void:
 		undead.append("%s(%s%s гол/пси=%d%s)" % [u.display_name, Data.ROLE_NAME[u.role],
 			mode_txt, int(meter), ", вскрыт" if u.revealed_time > 0.0 else ""])
 	print("[autotest] %s | люди: %s | нечисть: %s | гости: %d | жаровни: %d/%d" % [
-		Data.clock(Game.time_left), str(names), str(undead), _guest_count(),
+		"%d/%d" % [Game.braziers_lit, Game.braziers_total], str(names), str(undead), _guest_count(),
 		Game.braziers_lit, Game.braziers_total])
 
 func _guest_count() -> int:
@@ -931,7 +962,7 @@ func start_match() -> void:
 	Game.set_state(Game.State.PLAYING)
 	Game.cursor_free = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	Game.say("Ночь началась. До рассвета %s" % Data.clock(Game.time_left))
+	Game.say("Ночь началась. Прожекторов: %d" % Game.braziers_total)
 
 func _clear() -> void:
 	if world != null and is_instance_valid(world):
@@ -956,42 +987,27 @@ func _spawn_roster() -> void:
 		if not controlled:
 			_attach_brain(a, preload("res://scripts/ai/human_brain.gd"))
 
-	# нечисть: игрок (если выбрал её) плюс добор до Game.undead_count
-	var undead_ids: Array = []
-	if not player_is_human:
-		undead_ids.append(chosen)
-	var pool: Array = Data.PLAYABLE_UNDEAD.duplicate()
-	pool.shuffle()
-	# держим по одному от каждой породы, пока получается: вампир и лич —
-	# принципиально разные угрозы, вместе они и создают вилку для людей
-	pool.sort_custom(func(a, b):
-		var ra: int = Data.role_of(a)
-		return ra == Data.Role.VAMPIRE and Data.role_of(b) != Data.Role.VAMPIRE)
-	for id in pool:
-		if undead_ids.size() >= Game.undead_count:
-			break
-		if id in undead_ids:
-			continue
-		if undead_ids.size() == 1 and Data.role_of(id) == Data.role_of(undead_ids[0]):
-			continue                            # второй той же породы — только если выбора нет
-		undead_ids.append(id)
-	for id in pool:
-		if undead_ids.size() >= Game.undead_count:
-			break
-		if id not in undead_ids:
-			undead_ids.append(id)
-
-	var ui_index := 0
-	for id in undead_ids:
-		var pos: Vector3 = world.undead_spawns[ui_index % world.undead_spawns.size()]
-		ui_index += 1
-		var controlled: bool = not player_is_human and id == chosen
-		var a := _spawn(id, pos, controlled)
-		if not controlled:
-			if Data.role_of(id) == Data.Role.VAMPIRE:
-				_attach_brain(a, preload("res://scripts/ai/vampire_brain.gd"))
-			else:
-				_attach_brain(a, preload("res://scripts/ai/lich_brain.gd"))
+	# Нечисть в матче ровно одна. Раньше их было две — вампир и лич разом, —
+	# и это било по обеим сторонам: люди метались между двумя разными
+	# угрозами и не успевали разобраться ни в одной, а игроку-монстру второй
+	# монстр поднимал шум и распугивал зал, в котором тот работал тихо.
+	#
+	# Кого именно — решает игрок. Взял монстра, значит он и есть тот самый
+	# один. Взял человека — злодея выбирает жребий, и людям заранее неизвестно,
+	# кто пришёл: вампир, которого надо вычислить, или лич, от которого надо
+	# бежать. Разница в поведении с первых секунд, и она — половина игры.
+	var villain: String = chosen
+	if player_is_human:
+		var pool: Array = Data.PLAYABLE_UNDEAD.duplicate()
+		pool.shuffle()
+		villain = pool[0]
+	var vpos: Vector3 = world.undead_spawns[randi() % world.undead_spawns.size()]
+	var v := _spawn(villain, vpos, not player_is_human)
+	if player_is_human:
+		if Data.role_of(villain) == Data.Role.VAMPIRE:
+			_attach_brain(v, preload("res://scripts/ai/vampire_brain.gd"))
+		else:
+			_attach_brain(v, preload("res://scripts/ai/lich_brain.gd"))
 
 	# толпа: разные лица из пула гражданских, ровно одна Мария — она звезда,
 	# и её лицо стоит того, чтобы за ним охотиться

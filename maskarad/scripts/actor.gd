@@ -84,6 +84,10 @@ var _attack_windup: float = 0.3
 var _attack_len: float = 0.8
 ## Кого вампир держит зубами и кого держат — обе стороны укуса.
 var drained_by: Actor = null
+## Насколько далеко зашло кормление, 0..1. По нему поза жертвы доходит от
+## «схватили» до «обмякла»: голова запрокидывается всё сильнее, колени
+## подгибаются, руки перестают держаться.
+var bite_progress: float = 0.0
 
 ## На лине у гарпуна. Выстрел Лары не убивает — он сажает на крюк и тянет
 ## обратно, и добивают уже вплотную. Убежать нельзя, можно только рвать
@@ -108,6 +112,10 @@ var hidden: bool = false
 
 ## Чем занят: танцует, курит, работает. Пишет мозг гостя, играет rig.
 var activity: String = ""
+
+## Общий откат на приманки: без него вампир спамил бы все три сразу и
+## подтягивал к себе полный зал одним нажатием.
+var lure_cd: float = 0.0
 
 var want_jump: bool = false
 ## На сколько голова повёрнута относительно плеч. Пишет мозг; по этому же
@@ -361,6 +369,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	attack_cd = max(0.0, attack_cd - delta)
+	lure_cd = max(0.0, lure_cd - delta)
 	invulnerable = max(0.0, invulnerable - delta)
 	stun_time = max(0.0, stun_time - delta)
 	if revealed_time > 0.0:
@@ -412,6 +421,26 @@ func _tick_channel(delta: float) -> void:
 
 	channel_time += delta
 	channel_changed.emit(channel_kind, clampf(channel_time / max(0.01, channel_total), 0.0, 1.0))
+
+	# Кормление — это захват, а не «стоят рядом». Вампир держит жертву:
+	# она подтягивается вплотную, разворачивается к нему и с этого
+	# мгновения не принадлежит себе. Так это выглядит у дочерей Димитреску:
+	# добычу не кусают на бегу, её сначала берут.
+	if channel_kind == "drain" and channel_target is Actor:
+		var v: Actor = channel_target
+		if is_instance_valid(v) and v.alive:
+			var grip := global_position - v.global_position
+			grip.y = 0.0
+			if grip.length() > 0.05:
+				var want: Vector3 = global_position - grip.normalized() * 0.85
+				v.global_position = v.global_position.lerp(want, clampf(delta * 9.0, 0.0, 1.0))
+				v.look_dir = grip.normalized()
+				v.move_input = Vector3.ZERO
+				v.velocity.x = 0.0
+				v.velocity.z = 0.0
+			look_dir = -grip.normalized()
+			v.bite_progress = clampf(channel_time / maxf(0.01, channel_total), 0.0, 1.0)
+
 	if channel_time >= channel_total:
 		_complete_channel()
 
@@ -639,9 +668,12 @@ func attack_curve() -> float:
 ## хромота от перебитой ноги.
 func _drive_rig(delta: float, speed2d: float) -> void:
 	rig.strike = attack_curve()
-	rig.drink = 1.0 if channel_kind == "drain" else 0.0
+	# Захват наступает сразу — за первую четверть секунды, — а не растёт
+	# вместе с кормлением: сперва хватают, потом пьют.
+	rig.drink = clampf(channel_time * 4.0, 0.0, 1.0) if channel_kind == "drain" else 0.0
 	rig.drink_pull = channel_time                 # ритм глотков
-	rig.bitten = 1.0 if drained_by != null else 0.0
+	rig.bitten = clampf(bite_progress * 6.0, 0.0, 1.0) if drained_by != null else 0.0
+	rig.bite_sag = bite_progress if drained_by != null else 0.0
 	rig.head_turn = head_turn
 	rig.downed = downed and alive
 	rig.activity = activity
@@ -1033,6 +1065,74 @@ func _finish_dance(t: Actor) -> void:
 	else:
 		try_drain(t)
 
+## Притвориться, что плохо. Самый дешёвый способ подозвать: люди идут на
+## помощь не думая, и подошедший наклоняется — а нагнувшийся человек не
+## смотрит по сторонам и не убежит с места. Работает один раз на жертву:
+## второй раз тому же гостю уже не поверят.
+func try_help_lure() -> bool:
+	if role != Data.Role.VAMPIRE and role != Data.Role.THRALL:
+		return false
+	if not can_fight():
+		return false
+	if lure_cd > 0.0:
+		return false
+	lure_cd = Data.TUNE["lure_cooldown"]
+	activity = "sleep"                        # оседает, будто ему дурно
+	var called := 0
+	for a: Actor in Game.living(Data.Side.HUMAN):
+		if a == self or a.has_meta("helped_once"):
+			continue
+		if global_position.distance_to(a.global_position) > Data.TUNE["help_range"]:
+			continue
+		if not has_line_of_sight(a):
+			continue
+		a.set_meta("helped_once", true)
+		a.summoned_by = self
+		a.summon_hold = 8.0
+		called += 1
+		if called >= 2:
+			break
+	Game.say("«Мне плохо… помогите»" if called > 0 else "Никто не услышал", called == 0)
+	return called > 0
+
+## Погасить ближайший свет. Кормиться на свету нельзя — увидят; в темноте
+## свидетелем становится только тот, кто стоит вплотную. Тушить умеет только
+## нечисть, и это единственный способ отыграть назад зажжённый прожектор.
+func try_douse() -> bool:
+	if side != Data.Side.UNDEAD:
+		return false
+	if lure_cd > 0.0:
+		return false
+	var best: Node = null
+	var best_d: float = Data.TUNE["douse_range"]
+	for l in get_tree().get_nodes_in_group("braziers"):
+		if not l.lit:
+			continue
+		var d: float = global_position.distance_to(l.global_position)
+		if d < best_d:
+			best_d = d
+			best = l
+	if best == null:
+		if is_player:
+			Game.say("Рядом нечего гасить", true)
+		return false
+	lure_cd = Data.TUNE["lure_cooldown"]
+	best.call("douse")
+	Game.say("Стало темнее")
+	return true
+
+## Швырнуть что-нибудь в сторону: гости идут смотреть на шум ТУДА, а не
+## сюда. Это лура наоборот — уводит свидетелей, а не подводит жертву.
+func try_noise_lure(point: Vector3) -> bool:
+	if side != Data.Side.UNDEAD or lure_cd > 0.0:
+		return false
+	lure_cd = Data.TUNE["lure_cooldown"]
+	Fx.blood_drip(get_parent(), point, 0.2)
+	Game.raise_alarm(point, Data.TUNE["noise_radius"], "mob")
+	if is_player:
+		Game.say("Звон стекла — все обернулись туда")
+	return true
+
 ## Засада из нычки. Сидя в укрытии вампир невидим, и первый удар из него
 ## валит с ног сразу: жертва не успевает ни закричать, ни развернуться.
 ## Работает один раз — из нычки после этого приходится выйти.
@@ -1128,6 +1228,7 @@ func cancel_channel() -> void:
 		var t: Actor = channel_target
 		if is_instance_valid(t) and t.drained_by == self:
 			t.drained_by = null
+			t.bite_progress = 0.0
 	channel_kind = ""
 	channel_target = null
 	channel_time = 0.0

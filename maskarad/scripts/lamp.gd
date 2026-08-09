@@ -89,6 +89,19 @@ func light_up() -> void:
 	Game.light_brazier()
 	Game.raise_alarm(global_position, 20.0, "light")
 
+## Погасить. Умеет только нечисть, и это единственный способ отыграть назад
+## уже сделанную людьми работу: без этого зажжённый прожектор был вечным, и
+## людям хватало обежать карту один раз.
+func douse() -> void:
+	if not lit:
+		return
+	lit = false
+	_light.light_energy = 0.0
+	var m: StandardMaterial3D = _glass.material_override
+	m.emission_energy_multiplier = 0.15
+	Game.douse_brazier()
+	Game.raise_alarm(global_position, 14.0, "light")
+
 func _process(delta: float) -> void:
 	if not lit:
 		return

@@ -228,10 +228,21 @@ func _read_input(delta: float) -> void:
 		if not actor.try_signature():
 			Game.say("Способность ещё не готова", true)
 	if _pressed_edge("garlic"):
-		if actor.garlic_left > 0:
+		if actor.side == Data.Side.UNDEAD:
+			# у нечисти на этой же кнопке — «мне плохо, помогите»
+			if not actor.try_help_lure():
+				Game.say("Ещё рано звать", true)
+		elif actor.garlic_left > 0:
 			actor.try_throw_garlic(_aim_dir())
 		else:
 			Game.say("Чеснок кончился", true)
+	if _pressed_edge("douse") and actor.side == Data.Side.UNDEAD:
+		actor.try_douse()
+	if _pressed_edge("noise") and actor.side == Data.Side.UNDEAD:
+		# швырнуть в точку, куда смотришь: свидетели уходят туда
+		var land := actor.global_position + _aim_dir() * 14.0
+		land.y = actor.global_position.y
+		actor.try_noise_lure(land)
 
 	_handle_interact()
 

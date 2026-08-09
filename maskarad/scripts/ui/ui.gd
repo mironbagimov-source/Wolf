@@ -246,7 +246,7 @@ func _build_hud() -> void:
 	hud_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_full(hud_root)
 
-	timer_label = _label("7:00", 40, PARCH)
+	timer_label = _label("0 / 0", 40, PARCH)
 	timer_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	timer_label.offset_left = -80; timer_label.offset_right = 80; timer_label.offset_top = 14
 	timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -468,8 +468,10 @@ func _process(_delta: float) -> void:
 	elif keys_label.text != "":
 		keys_label.text = ""
 
-	timer_label.text = Data.clock(Game.time_left)
-	brazier_label.text = "Прожекторы: %d из %d" % [Game.braziers_lit, Game.braziers_total]
+	# Вместо часов — счёт работы. Таймера в матче больше нет: ночь кончается
+	# не сама, а когда одна из сторон доделала своё.
+	timer_label.text = "%d / %d" % [Game.braziers_lit, Game.braziers_total]
+	brazier_label.text = "Прожекторов осталось: %d" % maxi(0, Game.braziers_total - Game.braziers_lit)
 
 	# карта во весь экран, пока держат M
 	var want_big := Input.is_action_pressed("map") or force_big_map
