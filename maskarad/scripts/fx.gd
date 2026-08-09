@@ -82,6 +82,87 @@ static func blood_drip(parent: Node, pos: Vector3, size: float = 0.5) -> void:
 		if is_instance_valid(old):
 			old.queue_free()
 
+## Смерть вампира: тело не падает, а расходится роем.
+##
+## Так уходят дочери Димитреску в RE8 — фигура теряет связность и обращается
+## в тучу насекомых, которая ещё секунду держит форму человека и только потом
+## распадается. Здесь то же самое двумя слоями частиц: плотное ядро на месте
+## тела и разлетающийся рой вокруг.
+##
+## Игровой смысл важнее вида: у вампира не остаётся трупа. Тело человека —
+## улика, по которой люди понимают, что среди них кто-то есть; вампир этой
+## улики не оставляет, и его смерть можно не заметить вовсе.
+static func swarm_death(parent: Node, pos: Vector3, height: float = 1.7) -> void:
+	if parent == null or not is_instance_valid(parent):
+		return
+
+	# ядро: то, что было телом, оседает вниз
+	var core := GPUParticles3D.new()
+	var core_mat := ParticleProcessMaterial.new()
+	core_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	core_mat.emission_box_extents = Vector3(0.24, height * 0.5, 0.18)
+	core_mat.direction = Vector3(0, -0.2, 0)
+	core_mat.spread = 55.0
+	core_mat.initial_velocity_min = 0.4
+	core_mat.initial_velocity_max = 1.6
+	core_mat.gravity = Vector3(0, -1.2, 0)
+	core_mat.scale_min = 0.02
+	core_mat.scale_max = 0.06
+	core_mat.color = Color(0.10, 0.05, 0.09)
+	core.process_material = core_mat
+	core.amount = 220
+	core.lifetime = 1.5
+	core.one_shot = true
+	core.explosiveness = 0.55
+	core.draw_pass_1 = QuadMesh.new()
+	(core.draw_pass_1 as QuadMesh).size = Vector2(0.05, 0.05)
+	core.position = pos + Vector3(0, height * 0.5, 0)
+	parent.add_child(core)
+	core.emitting = true
+
+	# рой: разлетается вверх и в стороны, живёт дольше ядра
+	var swarm := GPUParticles3D.new()
+	var sm := ParticleProcessMaterial.new()
+	sm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	sm.emission_sphere_radius = 0.45
+	sm.direction = Vector3(0, 1, 0)
+	sm.spread = 180.0
+	sm.initial_velocity_min = 1.8
+	sm.initial_velocity_max = 4.5
+	sm.gravity = Vector3(0, 0.6, 0)          # вверх: рой уходит, а не падает
+	sm.damping_min = 1.5
+	sm.damping_max = 3.5
+	sm.scale_min = 0.015
+	sm.scale_max = 0.04
+	sm.color = Color(0.18, 0.06, 0.12)
+	swarm.process_material = sm
+	swarm.amount = 320
+	swarm.lifetime = 2.2
+	swarm.one_shot = true
+	swarm.explosiveness = 0.25
+	swarm.draw_pass_1 = QuadMesh.new()
+	(swarm.draw_pass_1 as QuadMesh).size = Vector2(0.04, 0.04)
+	swarm.position = pos + Vector3(0, height * 0.55, 0)
+	parent.add_child(swarm)
+	swarm.emitting = true
+
+	# короткая вспышка снизу: рой на секунду подсвечен изнутри
+	var glow := OmniLight3D.new()
+	glow.light_color = Color(0.7, 0.15, 0.35)
+	glow.light_energy = 4.0
+	glow.omni_range = 7.0
+	glow.position = pos + Vector3(0, height * 0.5, 0)
+	parent.add_child(glow)
+
+	var tree := parent.get_tree()
+	if tree == null:
+		return
+	var timer := tree.create_timer(2.6)
+	timer.timeout.connect(func():
+		for n in [core, swarm, glow]:
+			if is_instance_valid(n):
+				n.queue_free())
+
 static func clear_decals() -> void:
 	for d in _decals:
 		if is_instance_valid(d):

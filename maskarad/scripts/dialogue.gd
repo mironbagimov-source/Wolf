@@ -25,6 +25,21 @@ const REFUSE := [
 	"«Позже, ладно?»",
 ]
 
+## Приглашение на танец. Второй способ подойти вплотную: не ты идёшь к
+## жертве, а она встаёт напротив и смотрит на тебя. Но танцуют на виду.
+const DANCE_TALK := [
+	"«Один танец?»",
+	"«Идём, эта вещь короткая.»",
+	"«Ты же не собираешься простоять здесь всю ночь?»",
+	"«Руку.»",
+]
+
+static func dance_line() -> String:
+	return DANCE_TALK[randi() % DANCE_TALK.size()]
+
+static func dance_prompt(target: Actor) -> String:
+	return "Shift+E — пригласить на танец: %s" % target.appearance_name
+
 ## Может ли этот вампир звать в гримёрку — то есть носит ли он лицо звезды.
 static func can_lure(vampire: Actor) -> bool:
 	if vampire == null:

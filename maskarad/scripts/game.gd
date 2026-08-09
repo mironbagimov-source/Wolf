@@ -25,6 +25,10 @@ var end_reason: String = ""
 
 ## Выбор в лобби
 var chosen_character: String = "chiara"
+## Какую карту играем. Карты отдельные и целиком разные — не куски одного
+## города, а разные ночи: в клубе густая толпа и громкая музыка, на верфи
+## простор и техника, в усадьбе анфилада комнат и прислуга.
+var chosen_map: String = "club"
 var undead_count: int = 2
 var guest_count: int = 22
 

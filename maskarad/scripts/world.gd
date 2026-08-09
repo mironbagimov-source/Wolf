@@ -55,6 +55,17 @@ func build() -> void:
 	add_child(region)
 
 	_ground()
+	# Карты не куски одного города, а разные ночи. Общее у них только
+	# земля, свет и правила — всё остальное строит своя функция.
+	match Game.chosen_map:
+		"wharf": _build_wharf()
+		"manor": _build_manor()
+		_: _build_club()
+	_points_common()
+	_bake()
+
+## КЛУБ. Толпа, музыка, гримёрка за сценой — исходная ночь.
+func _build_club() -> void:
 	_club()
 	_bar()
 	_village()
@@ -64,7 +75,6 @@ func build() -> void:
 	_parking()
 	_streets()
 	_points()
-	_bake()
 
 func _process(delta: float) -> void:
 	_t += delta
@@ -217,6 +227,18 @@ func _club() -> void:
 
 	_lamp_at(Vector3(-14, 0, 14), "клуб")
 	_neon_sign(Vector3(0, 6.0, 17.4), "КЛУБ")
+
+	# кто чем занят: диджей за пультом, танцпол, стойка, курилка у выхода
+	_add_job("dj", Vector3(0, 1.0, -13), Vector3(0, 0, 1))
+	for ix in range(4):
+		for iz in range(3):
+			_add_job("dance", Vector3(-6.0 + ix * 4.0, 0, -4.0 + iz * 4.0))
+	for i in range(5):
+		_add_job("drink", Vector3(-16.4, 0, -4.0 + i * 2.6), Vector3(-1, 0, 0))
+	for i in range(3):
+		_add_job("smoke", Vector3(-2.0 + i * 2.0, 0, 15.0), Vector3(0, 0, 1))
+	for p in [Vector3(-4, 0, -2), Vector3(5, 0, 4), Vector3(-16, 0, 2)]:
+		_add_job("talk", p)
 
 ## БАР. Тише, темнее, народу меньше — тут вампиру спокойнее работать.
 func _bar() -> void:
@@ -411,6 +433,214 @@ func _parking() -> void:
 	private_spots.append(Vector3(cx + 20, 0, cz + 13))
 	_lamp_at(Vector3(cx - 20, 0, cz + 14), "парковка")
 	zones.append({"name": "Парковка", "pos": Vector3(cx, 0, cz), "half": Vector2(23, 17), "kind": "dark"})
+
+## ВЕРФЬ. Вода, краны, штабеля и ангар. Простор и длинные линии: гарпун
+## Лары здесь достаёт через полкарты, а прятаться приходится за железом.
+func _build_wharf() -> void:
+	var water := _mat(Color(0.04, 0.07, 0.10), 0.25, 0.3)
+	_slab(0, -70, 200, 60, water)                     # гавань на севере
+
+	# причал вдоль воды
+	_slab(0, -30, 180, 26, _mat_concrete)
+	for i in range(9):
+		_box(Vector3(-80.0 + i * 20.0, 0.6, -42.0), Vector3(1.2, 1.2, 1.2), _mat_dark)  # кнехты
+	for i in range(6):
+		_street_lamp(Vector3(-70.0 + i * 28.0, 0, -34.0))
+
+	# краны: высокие, с площадками
+	for i in range(3):
+		var kx := -50.0 + i * 50.0
+		_box(Vector3(kx, 9.0, -36.0), Vector3(2.0, 18.0, 2.0), _mat(Color(0.35, 0.26, 0.10), 0.8, 0.3))
+		_box(Vector3(kx + 6.0, 17.5, -36.0), Vector3(16.0, 1.2, 2.0), _mat(Color(0.35, 0.26, 0.10), 0.8, 0.3))
+
+	# поля контейнеров: три квартала с проходами
+	var colours := [Color(0.30, 0.16, 0.14), Color(0.14, 0.24, 0.28),
+		Color(0.26, 0.24, 0.14), Color(0.16, 0.28, 0.18)]
+	var n := 0
+	for block in range(3):
+		var bx := -60.0 + block * 55.0
+		for gx in range(5):
+			for gz in range(5):
+				if (gx * 2 + gz) % 4 == 0:
+					continue
+				var x := bx - 16.0 + gx * 8.5
+				var z := 6.0 + gz * 8.5
+				var tall: int = 2 if (gx + gz) % 3 == 0 else 1
+				for level in tall:
+					_box(Vector3(x, 1.3 + level * 2.6, z), Vector3(6.0, 2.5, 5.0),
+						_mat(colours[n % colours.size()], 0.92, 0.12))
+				n += 1
+				if tall == 1:
+					hide_spots.append(Vector3(x + 4.2, 0, z))
+		zones.append({"name": "Штабеля %d" % (block + 1), "pos": Vector3(bx, 0, 24),
+			"half": Vector2(22, 22), "kind": "dark"})
+
+	# ангар: единственное большое помещение, светло и людно
+	_slab(0, 62, 60, 40, _mat_concrete)
+	_ceiling(0, 62, 60, 40, 10.0)
+	_walls(0, 62, 60, 40, 10.0, {"n": [[0.0, 6.0]], "e": [[0.0, 5.0]]})
+	for i in range(4):
+		_hanging_lamp(Vector3(-21.0 + i * 14.0, 8.4, 62), Color(0.85, 0.9, 1.0), 2.0)
+	for i in range(6):
+		_box(Vector3(-20.0 + i * 8.0, 0.5, 70.0), Vector3(4.0, 1.0, 2.4), _mat_wood)   # верстаки
+		hide_spots.append(Vector3(-20.0 + i * 8.0, 0, 72.4))
+	common_spots.append(Vector3(0, 0, 58))
+	zones.append({"name": "Ангар", "pos": Vector3(0, 0, 62), "half": Vector2(30, 20), "kind": "common"})
+
+	# конторка и бытовка — приватные
+	for p in [Vector3(-52, 0, 62), Vector3(52, 0, 62)]:
+		_slab(p.x, p.z, 14, 12, _mat_wood)
+		_ceiling(p.x, p.z, 14, 12, 3.4)
+		_walls(p.x, p.z, 14, 12, 3.4, {"e": [[0.0, 2.4]]})
+		_hanging_lamp(p + Vector3(0, 3.0, 0), Color(1.0, 0.8, 0.5), 1.1)
+		private_spots.append(p)
+		hide_spots.append(p + Vector3(4.0, 0, 3.0))
+		zones.append({"name": "Конторка", "pos": p, "half": Vector2(7, 6), "kind": "private"})
+	dressing_room = Vector3(-52, 0, 62)
+
+	for i in range(4):
+		_lamp_at(Vector3(-60.0 + i * 40.0, 0, 20.0), "верфь")
+	_neon_sign(Vector3(0, 9.0, 41.4), "ВЕРФЬ")
+
+	for p in [Vector3(0, 0, 30), Vector3(-40, 0, 26), Vector3(40, 0, 26),
+			Vector3(0, 0, 52), Vector3(-20, 0, 60), Vector3(20, 0, 60),
+			Vector3(-60, 0, 10), Vector3(60, 0, 10), Vector3(0, 0, -34),
+			Vector3(-40, 0, -32), Vector3(40, 0, -32), Vector3(-52, 0, 62), Vector3(52, 0, 62)]:
+		wander_points.append(p)
+	for p in [Vector3(0, 0, 56), Vector3(-30, 0, 28), Vector3(30, 0, 28)]:
+		chat_spots.append(p)
+
+	for i in range(6):
+		_add_job("work", Vector3(-20.0 + i * 8.0, 0, 68.0), Vector3(0, 0, 1))
+	for i in range(3):
+		_add_job("smoke", Vector3(-30.0 + i * 30.0, 0, -34.0), Vector3(0, 0, -1))
+	for i in range(3):
+		_add_job("guard", Vector3(-60.0 + i * 60.0, 0, 4.0))
+	for p in [Vector3(-30, 0, 28), Vector3(30, 0, 28), Vector3(0, 0, 56)]:
+		_add_job("talk", p)
+	for p in [Vector3(-52, 0, 62), Vector3(52, 0, 62)]:
+		_add_job("drink", p)
+	for p in [Vector3(-4, 0, 50), Vector3(0, 0, 50), Vector3(4, 0, 50)]:
+		human_spawns.append(p)
+	for p in [Vector3(-60, 0, -30), Vector3(60, 0, -30), Vector3(0, 0, 20)]:
+		undead_spawns.append(p)
+	zones.append({"name": "Причал", "pos": Vector3(0, 0, -34), "half": Vector2(88, 12), "kind": "dark"})
+
+## УСАДЬБА. Анфилада комнат и много дверей: увести человека проще всего
+## здесь, и труднее всего понять, кто именно ушёл.
+func _build_manor() -> void:
+	_slab(0, 0, 120, 100, _mat(Color(0.13, 0.12, 0.11), 0.95, 0.0))
+
+	# большой зал в центре
+	_slab(0, 0, 44, 32, _mat_wood)
+	_ceiling(0, 0, 44, 32, 8.0)
+	_walls(0, 0, 44, 32, 8.0, {"s": [[0.0, 5.0]], "n": [[0.0, 4.0]], "w": [[0.0, 4.0]], "e": [[0.0, 4.0]]})
+	for x in [-12.0, 0.0, 12.0]:
+		_hanging_lamp(Vector3(x, 6.4, 0), Color(1.0, 0.84, 0.58), 2.2)
+	for i in range(4):
+		_table(-14.0 + i * 9.0, 11.0)
+	_box(Vector3(-19, 0.55, -6), Vector3(3.0, 1.1, 10.0), _mat_wood)    # длинный стол
+	hide_spots.append(Vector3(-21.0, 0, -6))
+	common_spots.append(Vector3(0, 0, 2))
+	zones.append({"name": "Большой зал", "pos": Vector3(0, 0, 0), "half": Vector2(22, 16), "kind": "common"})
+
+	# анфилада: восемь комнат по кругу, каждая с одной дверью в коридор
+	var ring := [
+		["Библиотека", -38.0, -20.0], ["Кабинет", -38.0, 4.0], ["Курительная", -38.0, 28.0],
+		["Столовая", 38.0, -20.0], ["Спальня", 38.0, 4.0], ["Гардероб", 38.0, 28.0],
+		["Кухня", 0.0, -30.0], ["Оранжерея", 0.0, 34.0],
+	]
+	for room in ring:
+		var rx: float = room[1]
+		var rz: float = room[2]
+		_slab(rx, rz, 18, 16, _mat_wood)
+		_ceiling(rx, rz, 18, 16, 4.2)
+		var gap := {"e": [[0.0, 2.6]]} if rx < 0.0 else {"w": [[0.0, 2.6]]}
+		if absf(rx) < 1.0:
+			gap = {"n": [[0.0, 2.6]]} if rz > 0.0 else {"s": [[0.0, 2.6]]}
+		_walls(rx, rz, 18, 16, 4.2, gap)
+		_hanging_lamp(Vector3(rx, 3.8, rz), Color(1.0, 0.76, 0.48), 1.2)
+		_box(Vector3(rx, 0.45, rz + 4.0), Vector3(5.0, 0.9, 2.0), _mat_wood)
+		private_spots.append(Vector3(rx, 0, rz))
+		hide_spots.append(Vector3(rx + (4.0 if rx < 0.0 else -4.0), 0, rz - 5.0))
+		wander_points.append(Vector3(rx, 0, rz))
+		zones.append({"name": str(room[0]), "pos": Vector3(rx, 0, rz),
+			"half": Vector2(9, 8), "kind": "private"})
+	dressing_room = Vector3(38, 0, 4)      # спальня: туда и уводят
+
+	# коридоры вдоль стен
+	for side in [-1.0, 1.0]:
+		_slab(side * 26.0, 4, 8, 76, _mat(Color(0.16, 0.14, 0.13), 0.95, 0.0))
+	_slab(0, 22, 52, 8, _mat(Color(0.16, 0.14, 0.13), 0.95, 0.0))
+	_slab(0, -22, 52, 8, _mat(Color(0.16, 0.14, 0.13), 0.95, 0.0))
+	for i in range(6):
+		_street_lamp(Vector3(-26.0 + (i % 2) * 52.0, 0, -20.0 + float(i / 2) * 24.0))
+
+	# двор
+	for i in range(10):
+		_tree(-52.0 + randf() * 104.0, -46.0 + randf() * 12.0)
+	for i in range(3):
+		_lamp_at(Vector3(-30.0 + i * 30.0, 0, -44.0), "двор")
+	zones.append({"name": "Двор", "pos": Vector3(0, 0, -44), "half": Vector2(54, 10), "kind": "dark"})
+
+	_neon_sign(Vector3(0, 7.0, 16.4), "УСАДЬБА")
+	for p in [Vector3(0, 0, 8), Vector3(-14, 0, 0), Vector3(14, 0, 0),
+			Vector3(0, 0, -14), Vector3(-26, 0, 12), Vector3(26, 0, 12),
+			Vector3(-26, 0, -12), Vector3(26, 0, -12), Vector3(0, 0, -40)]:
+		wander_points.append(p)
+	for p in [Vector3(-8, 0, 4), Vector3(8, 0, 4), Vector3(0, 0, -10)]:
+		chat_spots.append(p)
+
+	for i in range(4):
+		_add_job("serve", Vector3(-14.0 + i * 9.0, 0, 9.0))
+	for i in range(6):
+		_add_job("dance", Vector3(-6.0 + float(i % 3) * 6.0, 0, -6.0 - float(i / 3) * 5.0))
+	for p in [Vector3(-8, 0, 4), Vector3(8, 0, 4), Vector3(0, 0, -10), Vector3(-26, 0, 12)]:
+		_add_job("talk", p)
+	_add_job("sleep", Vector3(38, 0, 8), Vector3(0, 0, 1))
+	for i in range(2):
+		_add_job("smoke", Vector3(-38.0, 0, 26.0 + i * 3.0))
+	for i in range(2):
+		_add_job("guard", Vector3(-26.0 + i * 52.0, 0, -20.0))
+	for p in [Vector3(-3, 0, 12), Vector3(0, 0, 12), Vector3(3, 0, 12)]:
+		human_spawns.append(p)
+	for p in [Vector3(-38, 0, 28), Vector3(38, 0, -20), Vector3(0, 0, -40)]:
+		undead_spawns.append(p)
+
+## Рабочие места гостей: где стоит диджей, где танцуют, где курят. Занятие
+## привязано к точке, потому что «танцует» посреди пустой парковки читается
+## как сломанный бот, а не как танец.
+##
+## Набор занятий у каждой карты свой (`Data.MAPS[...].jobs`), а места под них
+## расставляет карта. Сюда попадает то, что осталось незанятым, — такие гости
+## просто ходят.
+var job_spots: Array[Dictionary] = []
+
+func _add_job(kind: String, pos: Vector3, facing: Vector3 = Vector3.ZERO) -> void:
+	job_spots.append({"kind": kind, "pos": pos, "facing": facing, "taken": false})
+
+## Выдать боту свободное место под его занятие. Если такого нет — пусто, и
+## гость будет просто гулять.
+func claim_job(kind: String) -> Dictionary:
+	for j in job_spots:
+		if not j["taken"] and j["kind"] == kind:
+			j["taken"] = true
+			return j
+	return {}
+
+## Точки, нужные любой карте. Если карта почему-то не задала своих — ставим
+## хоть какие-то, чтобы матч не встал колом на пустых списках.
+func _points_common() -> void:
+	if wander_points.is_empty():
+		wander_points.append(Vector3.ZERO)
+	if chat_spots.is_empty():
+		chat_spots.append(Vector3.ZERO)
+	if human_spawns.is_empty():
+		human_spawns.append(Vector3(0, 0, 6))
+	if undead_spawns.is_empty():
+		undead_spawns.append(Vector3(0, 0, -6))
+	if common_spots.is_empty():
+		common_spots.append(wander_points[0])
 
 func _points() -> void:
 	# Точки клуба намеренно повторяются: народ идёт туда, где музыка, и

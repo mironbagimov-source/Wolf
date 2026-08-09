@@ -106,6 +106,9 @@ var death_kind: String = ""
 ## вплотную.
 var hidden: bool = false
 
+## Чем занят: танцует, курит, работает. Пишет мозг гостя, играет rig.
+var activity: String = ""
+
 var want_jump: bool = false
 ## На сколько голова повёрнута относительно плеч. Пишет мозг; по этому же
 ## числу видно со стороны, что человек смотрит не туда, куда идёт.
@@ -378,6 +381,7 @@ func _physics_process(delta: float) -> void:
 	_tick_channel(delta)
 	_tick_attack(delta)
 	_tick_qte(delta)
+	_tick_possessed(delta)
 	_tick_downed(delta)
 	_tick_finish(delta)
 	_tick_move(delta)
@@ -640,6 +644,7 @@ func _drive_rig(delta: float, speed2d: float) -> void:
 	rig.bitten = 1.0 if drained_by != null else 0.0
 	rig.head_turn = head_turn
 	rig.downed = downed and alive
+	rig.activity = activity
 	rig.death_kind = death_kind
 	rig.finish = 0.0 if finishing == null \
 		else 1.0 - clampf(finish_left / maxf(0.01, Data.TUNE["finish_time"]), 0.0, 1.0)
@@ -909,6 +914,152 @@ func _fire_harpoon(w: Dictionary, hit: float) -> void:
 		if best.is_player:
 			Game.say("Гарпун! Уходи вбок — прямо не вырваться", true)
 
+# ------------------------------------------------------------ одержимость
+## Лич не всегда идёт сам. На расстоянии он вселяет в человека злого духа —
+## и дальше человек работает на него, не сходя с места, где стоял.
+##
+## Исходов два, и лич не выбирает какой. Либо одержимый накладывает на себя
+## руки — тихо, без свидетелей, и со стороны это выглядит как несчастный
+## случай. Либо бросается на тех, кто рядом, — и тогда толпа дерётся сама с
+## собой, а лич в это время просто идёт мимо. Второй исход шумный, но он
+## разваливает группу, а против группы у лича шансов нет.
+var possessed_left: float = 0.0
+var possessed_by: Actor = null
+var possess_kind: String = ""       # "self" или "berserk"
+
+func try_possess(target: Actor) -> bool:
+	if role != Data.Role.LICH:
+		return false
+	if psychosis < Data.TUNE["possess_cost"]:
+		if is_player:
+			Game.say("Психоза не хватает", true)
+		return false
+	if target == null or not target.alive or target.side != Data.Side.HUMAN:
+		return false
+	if target.possessed_left > 0.0:
+		return false
+	if global_position.distance_to(target.global_position) > Data.TUNE["possess_range"]:
+		return false
+	if not has_line_of_sight(target):
+		if is_player:
+			Game.say("Его надо видеть", true)
+		return false
+
+	psychosis = maxf(0.0, psychosis - Data.TUNE["possess_cost"])
+	target.possessed_by = self
+	target.possessed_left = Data.TUNE["possess_time"]
+	target.possess_kind = "self" if randf() < Data.TUNE["possess_self_chance"] else "berserk"
+	target.cancel_channel()
+	target.break_tether()
+	Fx.blood_spray(get_parent(), target.global_position + Vector3(0, 1.6, 0), Vector3.UP, 8.0)
+	Game.raise_alarm(target.global_position, 10.0, "revealed")
+	if target.is_player:
+		Game.say("В тебя что-то вошло. Руки не твои", true)
+	else:
+		Game.say("%s держится за голову" % target.appearance_name, true)
+	return true
+
+func _tick_possessed(delta: float) -> void:
+	if possessed_left <= 0.0:
+		return
+	possessed_left -= delta
+	if possessed_left <= 0.0:
+		possess_kind = ""
+		possessed_by = null
+		activity = ""
+		if is_player:
+			Game.say("Отпустило")
+		return
+
+	if possess_kind == "self":
+		# тихий исход: человек уходит от людей и режет себя. Со стороны —
+		# несчастный случай, и лича в нём никто не заподозрит.
+		activity = ""
+		move_input = Vector3.ZERO
+		if int(possessed_left * 2.0) % 2 == 0:
+			take_damage(Data.TUNE["possess_damage"] * delta * 2.2, possessed_by,
+				global_position + Vector3(0, 1.3, 0), "possess")
+	else:
+		# шумный исход: бросается на ближайшего, кто рядом
+		var near: Actor = null
+		var best := 3.0
+		for a: Actor in Game.living(Data.Side.HUMAN):
+			if a == self:
+				continue
+			var d := global_position.distance_to(a.global_position)
+			if d < best:
+				best = d
+				near = a
+		if near != null:
+			look_dir = (near.global_position - global_position).normalized()
+			move_input = look_dir
+			if attack_cd <= 0.0:
+				attack_cd = 0.7
+				near.take_damage(Data.TUNE["possess_damage"], possessed_by,
+					near.global_position + Vector3(0, 1.2, 0), "possess")
+				Game.raise_alarm(global_position, 12.0, "attack")
+
+## Позвать на танец. Второй способ подойти вплотную, и он тем и хорош, что
+## подходить не надо: жертва встаёт напротив сама и смотрит на тебя, а не по
+## сторонам. Расплата — танцуют на виду, и на людном танцполе кормиться
+## нельзя. Прикидка простая: чем меньше глаз вокруг, тем это выгоднее.
+func try_dance(target: Actor) -> bool:
+	if role != Data.Role.VAMPIRE and role != Data.Role.THRALL:
+		return false
+	if target == null or not target.alive or target.side != Data.Side.HUMAN:
+		return false
+	if global_position.distance_to(target.global_position) > Data.TUNE["invite_range"]:
+		return false
+	if not can_fight():
+		return false
+	_start_channel("dance", Data.TUNE["dance_time"], target)
+	target.summoned_by = self
+	target.summon_hold = Data.TUNE["dance_time"] + 2.0
+	target.activity = "dance"
+	activity = "dance"
+	Game.say(Dialogue.dance_line())
+	return true
+
+## Танец кончился — жертва стоит вплотную и повёрнута к тебе. Дальше или
+## пить, или отпускать: держать её вечно нельзя.
+func _finish_dance(t: Actor) -> void:
+	activity = ""
+	if not is_instance_valid(t) or not t.alive:
+		return
+	t.activity = ""
+	t.stun_time = maxf(t.stun_time, Data.TUNE["dance_opening"])
+	if is_player:
+		Game.say("Она развернулась к тебе спиной. Сейчас или никогда", true)
+	else:
+		try_drain(t)
+
+## Засада из нычки. Сидя в укрытии вампир невидим, и первый удар из него
+## валит с ног сразу: жертва не успевает ни закричать, ни развернуться.
+## Работает один раз — из нычки после этого приходится выйти.
+func try_ambush() -> bool:
+	if not hidden or side != Data.Side.UNDEAD:
+		return false
+	var best: Actor = null
+	var best_d: float = Data.TUNE["ambush_range"]
+	for a: Actor in Game.living(Data.Side.HUMAN):
+		var d := global_position.distance_to(a.global_position)
+		if d < best_d:
+			best_d = d
+			best = a
+	if best == null:
+		return false
+	hidden = false
+	look_dir = (best.global_position - global_position).normalized()
+	Game.raise_alarm(global_position, 6.0, "attack")   # тихо: только вплотную
+	best.death_kind = str(stats.get("weapon", ""))
+	if best.downed:
+		best.die(self)
+	else:
+		best.go_down(self)
+	if is_player:
+		Game.say("Из темноты. Она даже не обернулась")
+	return true
+
 ## Вампир зовёт жертву «поговорить». Гости идут всегда, игрок может уйти.
 func try_invite(target: Actor) -> bool:
 	if role != Data.Role.VAMPIRE and role != Data.Role.THRALL:
@@ -1002,6 +1153,9 @@ func _complete_channel() -> void:
 		"drain":
 			if target is Actor:
 				_finish_drain(target)
+		"dance":
+			if target is Actor:
+				_finish_dance(target)
 		"brazier":
 			if target != null and target.has_method("light_up"):
 				target.call("light_up")
@@ -1242,6 +1396,21 @@ func die(killer: Actor = null) -> void:
 			convert_role = Data.Role.GHOUL
 
 	died.emit(self, killer)
+
+	# Вампир не оставляет тела: он расходится роем. Труп — это улика, по
+	# которой люди понимают, что среди них кто-то есть; у вампира такой
+	# улики нет, и его смерть можно вообще не заметить.
+	if role == Data.Role.VAMPIRE or role == Data.Role.THRALL:
+		var h: float = rig.rest_height if (rig != null and rig.ok) else 1.75
+		Fx.swarm_death(get_parent(), global_position, h)
+		if is_player:
+			Game.say("Ты рассыпаешься", true)
+		set_physics_process(false)
+		await get_tree().create_timer(0.9).timeout
+		if is_instance_valid(self):
+			queue_free()
+		return
+
 	if convert_role >= 0:
 		_lie_down()
 		await get_tree().create_timer(Data.TUNE["revive_delay"]).timeout

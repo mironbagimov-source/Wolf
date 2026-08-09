@@ -48,6 +48,8 @@ func _maybe_autotest() -> void:
 			_shot_path = a.substr(7)
 		elif a.begins_with("--shotat="):
 			_shot_at = float(a.substr(9))
+		elif a.begins_with("--map="):
+			Game.chosen_map = a.substr(6)
 		elif a == "--bigmap":
 			_hold_map = true                # карта во весь экран для снимка
 		elif a.begins_with("--pitch="):
@@ -386,6 +388,35 @@ func _hands_test() -> void:
 		await get_tree().physics_frame
 	print("[руки] E: канал «%s», прячется=%s" % [p.channel_kind, p.hidden])
 	Input.action_release("interact")
+
+	# ---- одержимость: проверяется здесь, вплотную и без стен между ними.
+	# В большом прогоне лича приходилось телепортировать по живой карте, и
+	# луч видимости упирался то в контейнер, то в перегородку — приём был
+	# исправен, а проверка врала.
+	if p.role == Data.Role.LICH:
+		var kinds := {"self": 0, "berserk": 0, "отказ": 0}
+		for attempt in 3:
+			# одержимый исходом «сам на себя» реально себя калечит и за
+			# несколько попыток умирает — держим его на ногах, иначе проверка
+			# обрывается на мёртвой ссылке и молча не доходит до конца
+			if not is_instance_valid(victim) or not victim.alive:
+				break
+			victim.possessed_left = 0.0
+			victim.possess_kind = ""
+			victim.downed = false
+			victim.hp = victim.hp_max
+			victim.dmg.reset()
+			p.psychosis = 100.0
+			victim.global_position = p.global_position + Vector3(0, 0, -2.0)
+			for _w in 8:
+				await get_tree().physics_frame
+			if p.try_possess(victim):
+				kinds[victim.possess_kind] = int(kinds[victim.possess_kind]) + 1
+			else:
+				kinds["отказ"] = int(kinds["отказ"]) + 1
+		victim.possessed_left = 0.0
+		print("[руки] одержимость: «сам на себя» %d, «бросается на всех» %d, отказов %d" % [
+			kinds["self"], kinds["berserk"], kinds["отказ"]])
 	get_tree().quit()
 
 ## Новые правила боя: каждое проверяется отдельно и на живых актёрах.
@@ -439,7 +470,7 @@ func _systems_test() -> void:
 	while g.alive and not g.downed and hits < 12:
 		lich.attack_cd = 0.0
 		lich.try_attack()
-		for i in 45:
+		for i in 40:
 			g.move_input = Vector3.ZERO
 			await get_tree().physics_frame
 		hits += 1
@@ -447,7 +478,7 @@ func _systems_test() -> void:
 
 	# ---- добивание
 	var finished := lich.try_finish(g)
-	for i in 120:
+	for i in 100:
 		await get_tree().physics_frame
 	print("[сис] добивание: начато=%s, жертва мертва=%s, поза «%s»" % [
 		finished, not g.alive, g.death_kind])
@@ -504,6 +535,88 @@ func _systems_test() -> void:
 			opened, good, g3.downed or not g3.alive, g3.hp_max])
 	else:
 		print("[сис] шпага: Люциуса в матче нет")
+
+	# ---- танец: жертва встаёт напротив сама
+	var g4: Actor = guests[3]
+	# укол шпагой на глазах у зала — это палево, и вампира вскрыли по делу.
+	# Для проверки танца снимаем метку: танцует тот, кого ещё не раскусили.
+	Game.exposed.clear()
+	vamp.revealed_time = 0.0
+	g4.global_position = vamp.global_position + Vector3(0, 0, -2.2)
+	await get_tree().physics_frame
+	var danced := vamp.try_dance(g4)
+	for i in 20:
+		await get_tree().physics_frame
+	print("[сис] танец: начат=%s, партнёрша идёт к тебе=%s, поза «%s» (вампир жив=%s, вскрыт=%s, дистанция %.1f, жертва жива=%s)" % [
+		danced, g4.summoned_by == vamp, g4.activity,
+		vamp.alive, not vamp.can_fight(),
+		vamp.global_position.distance_to(g4.global_position), g4.alive])
+	vamp.cancel_channel()
+
+	# ---- засада из нычки
+	var g5: Actor = guests[0] if guests[0].alive else g4
+	if g5.alive:
+		vamp.hidden = true
+		g5.global_position = vamp.global_position + Vector3(0, 0, -1.5)
+		g5.downed = false
+		await get_tree().physics_frame
+		var jumped := vamp.try_ambush()
+		# кто именно упал — важно: из нычки бьют по БЛИЖАЙШЕМУ, а он может
+		# оказаться не тем, кого подставили в проверке
+		var floored := 0
+		for a in Game.living(Data.Side.HUMAN):
+			if a.downed:
+				floored += 1
+		print("[сис] засада: сработала=%s, лежащих рядом стало %d, вампир вышел из нычки=%s" % [
+			jumped, floored, not vamp.hidden])
+
+	# ---- одержимость лича: оба исхода
+	var possessor: Actor = null
+	for a in Game.living(Data.Side.UNDEAD):
+		if a.role == Data.Role.LICH:
+			possessor = a
+			break
+	if possessor != null:
+		var counts := {"self": 0, "berserk": 0}
+		for attempt in 6:
+			var mark: Actor = null
+			for a in Game.living(Data.Side.HUMAN):
+				if a.alive and not a.downed and a.possessed_left <= 0.0:
+					mark = a
+					break
+			if mark == null:
+				break
+			possessor.psychosis = 100.0
+			# ставим через навмеш: телепорт «на четыре метра назад» легко
+			# сажает лича в стену, и луч видимости упирается в неё же
+			# в полутора метрах стены между ними взяться неоткуда: на большей
+			# дистанции луч видимости упирался в перегородку, и приём молча
+			# не срабатывал — хотя сам он был исправен
+			possessor.global_position = mark.global_position + Vector3(1.6, 0, 0)
+			await get_tree().physics_frame
+			await get_tree().physics_frame
+			if attempt == 0:
+				print("[сис] одержимость, попытка: лич жив=%s, психоз %.0f, дистанция %.1f, видит=%s" % [
+					possessor.alive, possessor.psychosis,
+					possessor.global_position.distance_to(mark.global_position),
+					possessor.has_line_of_sight(mark)])
+			if possessor.try_possess(mark):
+				counts[mark.possess_kind] = int(counts[mark.possess_kind]) + 1
+				mark.possessed_left = 0.01     # снимаем, чтобы не покалечить весь матч
+		print("[сис] одержимость: исход «сам на себя» %d раз, «бросается на всех» %d раз" % [
+			counts["self"], counts["berserk"]])
+
+	# ---- смерть вампира роем: тело не остаётся
+	var doomed: Actor = null
+	for a in Game.living(Data.Side.UNDEAD):
+		if a.role == Data.Role.VAMPIRE:
+			doomed = a
+			break
+	if doomed != null:
+		doomed.die(null)
+		for i in 65:
+			await get_tree().physics_frame
+		print("[сис] смерть вампира: тело осталось в сцене=%s" % is_instance_valid(doomed))
 
 	# ---- город: сколько где нычек и приватных комнат
 	if world != null:
@@ -883,20 +996,38 @@ func _spawn_roster() -> void:
 	# толпа: разные лица из пула гражданских, ровно одна Мария — она звезда,
 	# и её лицо стоит того, чтобы за ним охотиться
 	var civ_pool: Array = Data.CIVILIANS.duplicate()
+	var map: Dictionary = Data.map_of(Game.chosen_map)
+	var jobs: Array = map.get("jobs", [])
+	# сколько народу на карте — свойство карты: в клубе давка, на верфи ночная
+	# смена в полтора десятка человек
+	Game.guest_count = int(map.get("guests", 22))
 	var maria_placed := false
 	for i in range(Game.guest_count):
 		var base: Vector3 = world.wander_points[i % world.wander_points.size()]
 		var jitter := Vector3(randf_range(-2.5, 2.5), 0, randf_range(-2.5, 2.5))
 		var id: String = civ_pool[randi() % civ_pool.size()]
+
+		# Занятие берётся по кругу из набора карты: на верфи работают и
+		# дежурят, в клубе танцуют, в усадьбе разносят. Мария — всегда
+		# звезда вечера и всегда за пультом, если на карте есть пульт.
+		var kind: String = jobs[i % jobs.size()] if not jobs.is_empty() else ""
 		if id == "civ_maria":
 			if maria_placed:
 				id = "civ_medea"
 			else:
 				maria_placed = true
-				base = Vector3(0, 0, -13)          # за пультом
-				jitter = Vector3.ZERO
+				kind = "dj" if "dj" in jobs else kind
+		var slot: Dictionary = world.claim_job(kind) if kind != "" else {}
+		if not slot.is_empty():
+			base = slot["pos"]
+			jitter = Vector3.ZERO
+
 		var g := _spawn(id, base + jitter, false)
 		_attach_brain(g, preload("res://scripts/ai/guest_brain.gd"))
+		if not slot.is_empty():
+			var gb: Node = g.get_node_or_null("Brain")
+			if gb != null and gb.has_method("take_job"):
+				gb.call("take_job", slot["kind"], slot["pos"], slot["facing"])
 
 func _spawn(id: String, pos: Vector3, controlled: bool) -> Actor:
 	var a := Actor.new()

@@ -214,6 +214,14 @@ func _read_input(delta: float) -> void:
 		if actor.qte_target != null:
 			if actor.qte_strike():
 				shake(0.4)
+		elif actor.hidden and actor.try_ambush():
+			# удар из нычки: первый и единственный, дальше придётся выйти
+			shake(0.5)
+		elif actor.role == Data.Role.LICH and Input.is_action_pressed("sprint"):
+			# Shift+ЛКМ у лича — вселить духа в того, на кого смотришь
+			if not actor.try_possess(_aimed_enemy(Data.TUNE["possess_range"])):
+				if actor.try_attack():
+					shake(0.25)
 		elif actor.try_attack():
 			shake(0.25)
 	if _pressed_edge("signature"):
@@ -241,6 +249,24 @@ func _settle_body(_delta: float) -> void:
 ## Куда смотрит камера — по этому лучу летит чеснок и бьётся оружие.
 func _aim_dir() -> Vector3:
 	return -camera.global_transform.basis.z
+
+## Враг под прицелом взгляда — для дистанционных приёмов вроде одержимости.
+func _aimed_enemy(reach: float) -> Actor:
+	var from := camera.global_position
+	var dir := _aim_dir()
+	var best: Actor = null
+	var best_angle := 0.35
+	for a: Actor in Game.living(Data.Side.HUMAN):
+		if a == actor:
+			continue
+		var to: Vector3 = a.global_position + Vector3(0, 1.2, 0) - from
+		if to.length() > reach:
+			continue
+		var angle := dir.angle_to(to.normalized())
+		if angle < best_angle:
+			best_angle = angle
+			best = a
+	return best
 
 func _handle_interact() -> void:
 	var held := Input.is_action_pressed("interact")
@@ -281,6 +307,9 @@ func _begin_interact() -> void:
 		var d := actor.global_position.distance_to(target_actor.global_position)
 		if d <= Data.TUNE["drain_range"] and (target_actor.summoned_by == actor or target_actor.stun_time > 0.0 or d < 1.5):
 			actor.try_drain(target_actor)
+		elif Input.is_action_pressed("sprint"):
+			# Shift+E — позвать танцевать: жертва встанет напротив сама
+			actor.try_dance(target_actor)
 		else:
 			actor.try_invite(target_actor)
 

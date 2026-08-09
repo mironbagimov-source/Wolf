@@ -45,6 +45,8 @@ var roster_box: VBoxContainer
 var result_title: Label
 var result_text: Label
 var char_desc: Label
+var map_desc: Label
+var _map_buttons: Dictionary = {}
 
 var _selected: String = "chiara"
 var _char_buttons: Dictionary = {}
@@ -142,7 +144,18 @@ func _build_lobby() -> void:
 	v.add_theme_constant_override("separation", 10)
 	lobby_root.add_child(v)
 
-	v.add_child(_label("ЗА КОГО ИГРАЕШЬ", 34, GOLD))
+	v.add_child(_label("ГДЕ ИГРАЕМ", 30, GOLD))
+	var maps := HBoxContainer.new()
+	maps.add_theme_constant_override("separation", 10)
+	v.add_child(maps)
+	for id in Data.MAPS:
+		maps.add_child(_map_button(id))
+	map_desc = _label("", 15, DIM)
+	map_desc.custom_minimum_size = Vector2(0, 40)
+	map_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(map_desc)
+
+	v.add_child(_label("ЗА КОГО ИГРАЕШЬ", 30, GOLD))
 
 	var humans := _label("Люди — не атакуют. Прячутся, жгут жаровни, кидают чеснок.", 16, DIM)
 	v.add_child(humans)
@@ -175,7 +188,32 @@ func _build_lobby() -> void:
 	back.pressed.connect(func(): show_menu())
 	row.add_child(back)
 
+	_select_map(Game.chosen_map)
 	_select(_selected)
+
+func _map_button(id: String) -> Button:
+	var m: Dictionary = Data.map_of(id)
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(250, 52)
+	b.add_theme_font_size_override("font_size", 16)
+	b.text = "%s\n%d гостей" % [m["name"], int(m.get("guests", 22))]
+	b.pressed.connect(func(): _select_map(id))
+	_map_buttons[id] = b
+	return b
+
+func _select_map(id: String) -> void:
+	Game.chosen_map = id
+	for other in _map_buttons:
+		var btn: Button = _map_buttons[other]
+		btn.modulate = Color(1, 1, 1) if other == id else Color(0.62, 0.62, 0.62)
+	var m: Dictionary = Data.map_of(id)
+	var jobs: Array = m.get("jobs", [])
+	var seen: Array = []
+	for j in jobs:
+		var word: String = Data.JOB_NAME.get(j, j)
+		if not (word in seen):
+			seen.append(word)
+	map_desc.text = "%s\nКто здесь и чем занят: %s." % [m["desc"], ", ".join(seen)]
 
 func _char_button(id: String) -> Button:
 	var c: Dictionary = Data.character(id)

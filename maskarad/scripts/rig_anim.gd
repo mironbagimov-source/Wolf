@@ -62,6 +62,11 @@ var death_kind: String = ""
 var downed: bool = false
 var finish: float = 0.0
 var crawl: float = 0.0
+
+## Чем занят: "dance", "dj", "smoke", "drink", "talk", "work", "guard",
+## "serve", "sleep" или пусто. Стоящий столбом гость выдаёт, что перед тобой
+## декорация; занятый — часть места, и именно к такому подходят вплотную.
+var activity: String = ""
 var grab: float = 0.0
 var flinch: float = 0.0
 var limp_l: float = 0.0
@@ -247,6 +252,124 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	_spin("fore_r", AX, -0.25 - reach * 1.0 - arm_hurt_r * 0.6 - maxf(0.0, strike) * 1.15)
 	_spin("shoulder_l", AX, -s * swing * 0.18 - reach * 0.4)
 	_spin("shoulder_r", AX, s * swing * 0.18 - reach * 0.4 + strike * 0.35)
+
+	if activity != "" and gait < 0.15 and strike == 0.0 and reach == 0.0:
+		_pose_activity()
+
+## Занятие поверх стойки. Всё это накладывается только на стоящего: пошёл —
+## значит, уже не танцует.
+##
+## Позы разной громкости не случайно. Танцующий виден издалека и не видит
+## ничего сам — к нему подходят вплотную. Курящий у выхода стоит спокойно и
+## смотрит по сторонам. Спящий не поднимет тревоги вообще, и это знают все.
+func _pose_activity() -> void:
+	var t := breathe
+	match activity:
+		"dance":
+			# качается в такт, руки подняты, вес переносится с ноги на ногу
+			var beat := sin(t * 4.2)
+			var beat2 := sin(t * 8.4)
+			_spin("hips", AY, beat * 0.28)
+			_spin("hips", AZ, beat * 0.10)
+			_spin("spine", AZ, -beat * 0.12)
+			_spin("spine1", AY, -beat * 0.22)
+			_spin("neck", AZ, beat * 0.10)
+			_spin("head", AY, beat * 0.20)
+			_spin("arm_l", AZ, 0.55 + beat2 * 0.22)
+			_spin("arm_r", AZ, -0.55 - beat2 * 0.22)
+			_spin("fore_l", AX, -1.25 - beat * 0.35)
+			_spin("fore_r", AX, -1.25 + beat * 0.35)
+			_spin("upleg_l", AX, beat * 0.16)
+			_spin("upleg_r", AX, -beat * 0.16)
+			_spin("leg_l", AX, -maxf(0.0, beat) * 0.30)
+			_spin("leg_r", AX, -maxf(0.0, -beat) * 0.30)
+		"dj":
+			# одна рука на пульте, другая на наушниках, кивает в такт
+			var beat3 := sin(t * 4.2)
+			_spin("spine", AX, 0.14)
+			_spin("head", AX, 0.10 + beat3 * 0.14)
+			_spin("arm_l", AZ, 0.30)
+			_spin("arm_l", AX, 0.85)
+			_spin("fore_l", AX, -1.75)          # рука к уху
+			_spin("arm_r", AZ, -0.20)
+			_spin("arm_r", AX, -0.55 + beat3 * 0.12)
+			_spin("fore_r", AX, -0.95)          # рука на вертушке
+			_spin("hips", AY, beat3 * 0.08)
+		"smoke":
+			# рука ко рту раз в несколько секунд, между затяжками — вниз
+			var puff: float = maxf(0.0, sin(t * 0.55))
+			_spin("arm_r", AZ, -0.18 * puff)
+			_spin("arm_r", AX, -0.35 * puff)
+			_spin("fore_r", AX, -0.75 - puff * 1.35)
+			_spin("head", AX, puff * 0.12)
+			_spin("arm_l", AX, 0.25)
+			_spin("fore_l", AX, -0.95)          # вторая рука под локоть
+			_spin("spine", AZ, 0.06)
+		"drink":
+			# облокотился на стойку, стакан в руке
+			_spin("spine", AX, 0.22)
+			_spin("spine1", AY, 0.18)
+			_spin("arm_l", AX, 0.75)
+			_spin("fore_l", AX, -1.05)
+			_spin("arm_r", AX, -0.25 + sin(t * 0.7) * 0.25)
+			_spin("fore_r", AX, -1.15 - maxf(0.0, sin(t * 0.7)) * 0.7)
+			_spin("head", AX, maxf(0.0, sin(t * 0.7)) * 0.18)
+			_spin("upleg_l", AX, 0.12)
+		"talk":
+			# жестикулирует и покачивается: разговор видно, а не слышно
+			var wave := sin(t * 1.9)
+			_spin("spine1", AY, wave * 0.12)
+			_spin("head", AY, wave * 0.22)
+			_spin("head", AX, sin(t * 2.7) * 0.08)
+			_spin("arm_r", AZ, -0.32 - maxf(0.0, wave) * 0.22)
+			_spin("arm_r", AX, -0.45)
+			_spin("fore_r", AX, -1.05 - wave * 0.35)
+			_spin("arm_l", AZ, 0.14)
+			_spin("fore_l", AX, -0.55)
+		"work":
+			# наклонился над верстаком, обе руки заняты, раз в такт бьёт
+			var hit: float = maxf(0.0, sin(t * 2.4))
+			_spin("spine", AX, 0.55)
+			_spin("spine1", AX, 0.22)
+			_spin("neck", AX, -0.35)
+			_spin("arm_l", AZ, 0.30)
+			_spin("arm_l", AX, 0.55)
+			_spin("fore_l", AX, -1.35)
+			_spin("arm_r", AZ, -0.30)
+			_spin("arm_r", AX, 0.35 + hit * 0.85)
+			_spin("fore_r", AX, -1.25 - hit * 0.55)
+			_spin("upleg_l", AX, 0.18)
+			_spin("upleg_r", AX, 0.10)
+		"guard":
+			# руки скрещены, изредка оглядывается — единственный, кто смотрит
+			_spin("arm_l", AZ, 0.42)
+			_spin("arm_r", AZ, -0.42)
+			_spin("fore_l", AX, -1.85)
+			_spin("fore_r", AX, -1.85)
+			_spin("head", AY, sin(t * 0.35) * 0.55)
+			_spin("spine", AX, -0.06)
+		"serve":
+			# поднос на одной руке, вторая придерживает
+			_spin("arm_l", AZ, 0.55)
+			_spin("arm_l", AX, 0.35)
+			_spin("fore_l", AX, -1.55)
+			_spin("arm_r", AZ, -0.22)
+			_spin("fore_r", AX, -0.85)
+			_spin("spine", AX, -0.10)
+			_spin("head", AY, sin(t * 0.8) * 0.25)
+		"sleep":
+			# сидит завалившись, голова на грудь. Не увидит и не закричит
+			_spin("hips", AX, 0.35)
+			_spin("spine", AX, 0.45)
+			_spin("spine1", AX, 0.25)
+			_spin("neck", AX, 0.75)
+			_spin("head", AZ, 0.30)
+			_spin("arm_l", AZ, -0.25)
+			_spin("arm_r", AZ, 0.25)
+			_spin("upleg_l", AX, -1.35)
+			_spin("upleg_r", AX, -1.30)
+			_spin("leg_l", AX, -1.55)
+			_spin("leg_r", AX, -1.50)
 
 ## Умирают по-разному, и по позе видно, отчего. Смерть от топора — падение
 ## навзничь, от серпа — заваливается набок, зажимая живот, от гарпуна —
