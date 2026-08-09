@@ -306,11 +306,13 @@ func _pose_bench() -> void:
 	print("[позы] фаза удара: ", ", ".join(phases))
 	await _bench_shot("позы")
 
-## Оглядывание мышью, без кнопок. Крутим взгляд, как это делает рука на
-## мыши, и смотрим, расходятся ли голова и плечи — и сходятся ли обратно.
+## Мышь и поворот. Подаём настоящие события движения мыши по четырём
+## сторонам и смотрим, куда после этого смотрит камера и куда развёрнут сам
+## персонаж — а потом то же самое с зажатой кнопкой оглядывания.
 ##
-## Проверять это в игре руками бесполезно: разница между «повернулся» и
-## «оглянулся» — полсекунды доворота корпуса, на глаз её не поймать.
+## Проверка появилась не от хорошей жизни: «мышь влево — поворот влево»
+## звучит как то, что невозможно сломать, и было сломано дважды подряд.
+## Заодно ловится случай, когда событие мыши до игрока просто не доходит.
 func _look_test() -> void:
 	for i in 60:
 		await get_tree().physics_frame
@@ -321,35 +323,51 @@ func _look_test() -> void:
 	if brain == null or not ("yaw" in brain):
 		print("[взгляд] мозг не игрока"); get_tree().quit(); return
 
-	# ---- стоя: рывок мышью на 45° и на 90°
-	for probe in [45.0, 90.0]:
-		brain.set("yaw", brain.get("body_yaw") + deg_to_rad(probe))
-		for i in 30:
-			p.move_input = Vector3.ZERO
-			await get_tree().physics_frame
-		print("[взгляд] стоя, мышь на %.0f°: голова разошлась с плечами на %.0f°" % [
-			probe, rad_to_deg(absf(wrapf(brain.get("yaw") - brain.get("body_yaw"), -PI, PI)))])
-		brain.set("yaw", brain.get("body_yaw"))
-		for i in 20:
-			await get_tree().physics_frame
-
-	# ---- на бегу: разворот взгляда назад, ноги должны нести как несли.
-	# Жмём настоящие действия, а не пишем move_input: мозг игрока всё равно
-	# перезапишет его с клавиатуры, и проверка бы мерила стоящего человека.
-	Input.action_press("move_forward")
-	Input.action_press("sprint")
-	var keep: float = brain.get("body_yaw")
-	brain.set("yaw", keep + deg_to_rad(150.0))
-	var after_flick := 0.0
-	for i in 60:
+	# ---- четыре стороны: куда поворачивает камера и куда — сам персонаж.
+	# Подаём настоящие события мыши, как их шлёт система.
+	print("[взгляд] режим мыши: %d (захвачена = %d)" % [
+		Input.mouse_mode, Input.MOUSE_MODE_CAPTURED])
+	for probe in [
+			{"имя": "мышь влево", "rel": Vector2(-160, 0)},
+			{"имя": "мышь вправо", "rel": Vector2(160, 0)},
+			{"имя": "мышь вперёд", "rel": Vector2(0, -160)},
+			{"имя": "мышь назад", "rel": Vector2(0, 160)}]:
+		brain.set("yaw", 0.0)
+		brain.set("pitch", 0.0)
+		brain.set("body_yaw", 0.0)
+		p.rotation.y = 0.0
 		await get_tree().physics_frame
-		if i == 5:
-			after_flick = rad_to_deg(absf(wrapf(keep - brain.get("body_yaw"), -PI, PI)))
-	print("[взгляд] на бегу, рывок на 150°: через 5 кадров тело ушло на %.0f°, через 60 — на %.0f°" % [
-		after_flick, rad_to_deg(absf(wrapf(keep - brain.get("body_yaw"), -PI, PI)))])
-	Input.action_release("move_forward")
-	Input.action_release("sprint")
-	print("[взгляд] шея модели вывернута на %.0f°" % rad_to_deg(absf(p.head_turn)))
+		# через настоящий конвейер ввода, а не вызовом метода напрямую:
+		# так проверяется и то, что событие вообще доходит до игрока, а не
+		# съедается каким-нибудь элементом интерфейса по дороге
+		var ev := InputEventMouseMotion.new()
+		ev.relative = probe["rel"]
+		Input.parse_input_event(ev)
+		for i in 12:
+			await get_tree().physics_frame
+		var cam: Camera3D = brain.get("camera")
+		var fwd: Vector3 = -cam.global_transform.basis.z
+		var side := "влево" if fwd.x < -0.1 else ("вправо" if fwd.x > 0.1 else "прямо")
+		var vert := "вверх" if fwd.y > 0.1 else ("вниз" if fwd.y < -0.1 else "по горизонту")
+		var body := "влево" if p.rotation.y > 0.1 else ("вправо" if p.rotation.y < -0.1 else "не повернулся")
+		print("[взгляд] %-13s -> камера смотрит %s / %s, тело %s" % [probe["имя"], side, vert, body])
+
+	brain.set("yaw", 0.0)
+	brain.set("pitch", 0.0)
+	brain.set("body_yaw", 0.0)
+
+	# ---- с зажатой кнопкой: плечи стоят, голова свободна
+	Input.action_press("look_back")
+	brain.set("yaw", deg_to_rad(80.0))
+	for i in 20:
+		await get_tree().physics_frame
+	print("[взгляд] кнопка зажата, мышь на 80°: тело развернулось на %.0f°, шея вывернута на %.0f°" % [
+		rad_to_deg(absf(p.rotation.y)), rad_to_deg(absf(p.head_turn))])
+	Input.action_release("look_back")
+	for i in 20:
+		await get_tree().physics_frame
+	print("[взгляд] кнопку отпустили: тело развернулось на %.0f°, шея вывернута на %.0f°" % [
+		rad_to_deg(absf(p.rotation.y)), rad_to_deg(absf(p.head_turn))])
 	get_tree().quit()
 
 ## Анимации действий: доходят ли они до костей. Проверяются три вещи, каждую
