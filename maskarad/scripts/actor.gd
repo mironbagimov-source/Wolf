@@ -349,9 +349,13 @@ func _build_face() -> void:
 	if rig == null or not rig.ok or not rig.idx.has("head"):
 		return
 	var head: int = rig.idx["head"]
+	# Кость назначается ПОСЛЕ добавления в скелет. Наоборот — и на каждого
+	# персонажа в лог летит «Attempt to disconnect a nonexistent connection»:
+	# подвес отписывается от сигнала, на который ещё не подписался, потому что
+	# подписка происходит при входе в дерево.
 	var att := BoneAttachment3D.new()
-	att.bone_idx = head
 	rig.skeleton.add_child(att)
+	att.bone_idx = head
 
 	var holder := Node3D.new()
 	att.add_child(holder)
@@ -488,8 +492,8 @@ func _hand_holder(body_holder: Node3D, right: bool) -> Node3D:
 		bone = rig.idx.get("hand_l", -1)
 	if bone >= 0:
 		var att := BoneAttachment3D.new()
-		att.bone_idx = bone
 		rig.skeleton.add_child(att)
+		att.bone_idx = bone            # только после входа в дерево, см. _build_face
 		att.add_child(holder)
 		# Поворот не задаём: он ставится каждый кадр в `_aim_weapon`, в мировых
 		# осях. Подобрать его углом в системе кости нельзя — у кисти Mixamo
