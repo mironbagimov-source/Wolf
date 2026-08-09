@@ -46,6 +46,7 @@ const BLOOD_MAX := 60
 
 func reset() -> void:
 	actors.clear()
+	invalidate_roster()
 	player = null
 	braziers_lit = 0
 	braziers_total = 0
@@ -62,22 +63,51 @@ func set_state(s: int) -> void:
 func register(actor: Node) -> void:
 	if actor not in actors:
 		actors.append(actor)
+		invalidate_roster()
 		roster_changed.emit()
 
 func unregister(actor: Node) -> void:
 	actors.erase(actor)
+	invalidate_roster()
 	roster_changed.emit()
 
 # ------------------------------------------------------------------ опрос
-func living(filter_side: int = -1) -> Array:
-	var out: Array = []
+## Списки живых пересобираются РАЗ В КАДР, а не на каждый запрос.
+##
+## Раньше `living()` строила новый массив при каждом обращении, а обращались к
+## ней все: каждый актёр дважды за кадр на расталкивание и ауру, каждый из
+## двадцати четырёх ботов по разу-два в своём `think`, а вампир — по разу на
+## каждого кандидата в жертвы. Тридцать актёров превращались в сотню массивов
+## за кадр. Теперь массив один и тот же, пока кадр не сменился.
+##
+## Возвращённый массив менять нельзя: он общий.
+var _cache_frame: int = -1
+var _cache_all: Array = []
+var _cache_side: Array = [[], []]
+
+func _refresh_living() -> void:
+	var f: int = Engine.get_physics_frames()
+	if f == _cache_frame:
+		return
+	_cache_frame = f
+	_cache_all = []
+	_cache_side = [[], []]
 	for a in actors:
 		if not is_instance_valid(a) or not a.alive:
 			continue
-		if filter_side >= 0 and a.side != filter_side:
-			continue
-		out.append(a)
-	return out
+		_cache_all.append(a)
+		if a.side >= 0 and a.side < 2:
+			_cache_side[a.side].append(a)
+
+func living(filter_side: int = -1) -> Array:
+	_refresh_living()
+	if filter_side >= 0 and filter_side < 2:
+		return _cache_side[filter_side]
+	return _cache_all
+
+## Списки живых устаревают в тот же кадр, когда кто-то умер или обратился.
+func invalidate_roster() -> void:
+	_cache_frame = -1
 
 ## Только играбельные люди — гости в счёт победы не идут.
 func living_survivors() -> Array:
@@ -107,6 +137,7 @@ func _process(delta: float) -> void:
 	if state != State.PLAYING:
 		return
 	elapsed += delta
+	Actor.tick_ray_meter(delta)
 	if living_survivors().is_empty():
 		_finish(Data.Side.UNDEAD, "Людей не осталось.")
 

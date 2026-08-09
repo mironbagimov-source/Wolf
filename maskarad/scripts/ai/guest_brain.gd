@@ -117,6 +117,11 @@ func _resume_job() -> void:
 
 func panic(from: Vector3) -> void:
 	actor.activity = ""                   # напуганный бросает всё
+	# Испуг виден на лице, и это не украшение: по вытаращенным глазам гостя
+	# в другом конце зала игрок понимает, что там кого-то увидели, — раньше,
+	# чем услышит крик.
+	actor.scared_time = Data.TUNE["scare_time"]
+	actor.mood_power = 0.85
 	flee_from = from
 	_enter(FLEE, randf_range(3.5, 6.0))
 

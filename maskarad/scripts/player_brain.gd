@@ -305,8 +305,12 @@ func _begin_interact() -> void:
 	if target_actor == null:
 		return
 
-	# лежащего добивают — это главное действие нечисти вблизи
+	# лежащего добивают — это главное действие нечисти вблизи. С полным
+	# психозом Shift+E над лежащим — уже не добивание, а КАЗНЬ.
 	if actor.side == Data.Side.UNDEAD and target_actor.downed:
+		if Input.is_action_pressed("sprint") and actor.can_mori():
+			if actor.try_mori(target_actor):
+				return
 		if actor.try_finish(target_actor):
 			return
 

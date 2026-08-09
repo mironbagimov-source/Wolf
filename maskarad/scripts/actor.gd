@@ -117,6 +117,24 @@ var activity: String = ""
 ## подтягивал к себе полный зал одним нажатием.
 var lure_cd: float = 0.0
 
+## КАЗНЬ лича. Ход приёма 0..1 и роль в нём: палач или тот, кого держат.
+var mori_progress: float = 0.0
+var mori_role: String = ""
+var mori_target: Actor = null
+var mori_left: float = 0.0
+
+## Испуг — не только поведение бота, но и лицо. Держится несколько секунд
+## после того, как человек увидел монстра, и за это время успевает смениться
+## с крика на просто страх.
+var scared_time: float = 0.0
+## Насколько сильно выражено то, что на лице. Гости отыгрывают тише главных
+## героев — иначе зал превращается в театр гримас.
+var mood_power: float = 1.0
+## Только для стенда мимики: заставить лицо играть заданное выражение и
+## считать анимацию во всех подробностях, даже когда игрока в сцене нет.
+var forced_mood: String = ""
+var forced_detail: int = -1
+
 var want_jump: bool = false
 ## На сколько голова повёрнута относительно плеч. Пишет мозг; по этому же
 ## числу видно со стороны, что человек смотрит не туда, куда идёт.
@@ -227,6 +245,7 @@ func _rebuild_body() -> void:
 					rig = null
 				_fit_external_model(look)
 				_build_weapon(holder)
+				_build_face()
 				_apply_self_visibility()
 				return
 
@@ -318,6 +337,124 @@ func _apply_self_visibility() -> void:
 		var gi := m as GeometryInstance3D
 		gi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 
+## Лицо вешается на кость головы и выравнивается по осям МОДЕЛИ, а не кости.
+##
+## Кость головы у Mixamo повёрнута как попало — у одной модели её +Y идёт вдоль
+## черепа, у другой поперёк, — поэтому «глаза на десять сантиметров вперёд» в
+## осях кости означает у каждой своё направление. Считаем один раз обратный
+## трансформ покоя: он превращает подвес в узел, оси которого при взгляде
+## прямо совпадают с осями модели (X вправо, Y вверх, −Z вперёд). Дальше лицо
+## само едет за головой, куда бы та ни повернулась.
+func _build_face() -> void:
+	if rig == null or not rig.ok or not rig.idx.has("head"):
+		return
+	var head: int = rig.idx["head"]
+	var att := BoneAttachment3D.new()
+	att.bone_idx = head
+	rig.skeleton.add_child(att)
+
+	var holder := Node3D.new()
+	att.add_child(holder)
+	# Оси берём АКТЁРА, а не кости и не скелета. Модель повёрнута на 180°
+	# (`MODEL_YAW`) и ужата под рост, кость головы у Mixamo смотрит куда
+	# захотел экспортёр — в системе кости «вперёд» у каждой модели своё.
+	# Первая версия считала в системе скелета, и вся накладка уехала за
+	# затылок: у скелета лицо смотрит в +Z, а не в −Z, как у актёра.
+	var rest: Transform3D = rig.skeleton.get_bone_global_rest(head)
+	var att_rest: Transform3D = global_transform.affine_inverse() \
+		* rig.skeleton.global_transform * rest
+	holder.transform = att_rest.affine_inverse() \
+		* Transform3D(Basis.IDENTITY, att_rest.origin)
+
+	# Длина головы — от её кости до макушки. По ней меряется всё лицо.
+	var head_len := 0.22
+	if rig.idx.has("head_top"):
+		head_len = rig.skeleton.get_bone_global_rest(rig.idx["head_top"]).origin \
+			.distance_to(rest.origin)
+	# скелет ужат под рост персонажа: лицо должно ужаться вместе с ним
+	head_len *= rig.skeleton.global_transform.basis.get_scale().y
+
+	# Коробка головы приходит в осях скелета — переводим её в оси накладки
+	# (оси актёра, начало на кости головы). Иначе «вперёд» у неё своё.
+	var raw: AABB = _head_box(head)
+	var to_face: Transform3D = Transform3D(Basis.IDENTITY, -att_rest.origin) \
+		* global_transform.affine_inverse() * rig.skeleton.global_transform
+	var box := AABB()
+	if raw.size.length() > 0.001:
+		box = AABB(to_face * raw.position, Vector3.ZERO)
+		for i in 8:
+			box = box.expand(to_face * raw.get_endpoint(i))
+
+	var f := FaceRig.new()
+	holder.add_child(f)
+	f.build(head_len, box, stats.get("skin", Color(0.82, 0.7, 0.6)),
+		role == Data.Role.VAMPIRE or role == Data.Role.THRALL)
+	# у игрока голова схлопнута — своё лицо ему всё равно не видно, а изнутри
+	# черепа накладка закрывала бы пол-экрана
+	if is_player:
+		f.visible = false
+	rig.face = f
+
+## Коробка ГОЛОВЫ по самому мешу, а не по кости.
+##
+## Долями от длины кости обойтись не вышло. У Хельги накладка села идеально, а
+## у Мойры провалилась внутрь черепа: голова у неё крупнее и глубже, и то, что
+## у одной модели «на сантиметр перед губами», у другой оказывается за зубами.
+## Единственный честный ответ даёт сама геометрия — берём вершины, привязанные
+## к кости головы, и меряем их габарит. Дальше глаза, брови и рот ставятся не
+## в сантиметрах и не в долях кости, а в долях НАСТОЯЩЕЙ головы.
+##
+## Обход вершин недёшев, поэтому результат кэшируется по модели: моделей
+## десяток, а гостей два десятка, и меряется каждая ровно один раз за запуск.
+static var _head_box_cache: Dictionary = {}
+
+func _head_box(head_bone: int) -> AABB:
+	var key: String = str(stats.get("model", appearance_id))
+	if _head_box_cache.has(key):
+		return _head_box_cache[key]
+
+	var box := AABB()
+	var got := false
+	for child in _external_model.find_children("*", "MeshInstance3D", true, false):
+		var mi := child as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for surf in mi.mesh.get_surface_count():
+			var arr: Array = mi.mesh.surface_get_arrays(surf)
+			if arr.size() <= Mesh.ARRAY_WEIGHTS:
+				continue
+			var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var bones = arr[Mesh.ARRAY_BONES]
+			var weights = arr[Mesh.ARRAY_WEIGHTS]
+			if verts.is_empty() or bones == null or weights == null:
+				continue
+			var per: int = int(bones.size() / maxi(1, verts.size()))
+			if per < 1:
+				continue
+			# каждая шестая вершина: габарит головы от этого не меняется, а
+			# замер всех моделей разом на старте матча стоит вдвое дешевле
+			for vi in range(0, verts.size(), 6):
+				var mine := false
+				for j in per:
+					var at: int = vi * per + j
+					if at >= bones.size():
+						break
+					if bones[at] == head_bone and weights[at] > 0.5:
+						mine = true
+						break
+				if not mine:
+					continue
+				var p: Vector3 = verts[vi]
+				if got:
+					box = box.expand(p)
+				else:
+					box = AABB(p, Vector3.ZERO)
+					got = true
+	if not got:
+		box = AABB()
+	_head_box_cache[key] = box
+	return box
+
 func _build_weapon(body_holder: Node3D) -> void:
 	var w: Dictionary = Data.weapon_of(char_id)
 	if w.is_empty():
@@ -393,6 +530,9 @@ func _physics_process(delta: float) -> void:
 	_tick_possessed(delta)
 	_tick_downed(delta)
 	_tick_finish(delta)
+	_tick_mori(delta)
+	if scared_time > 0.0:
+		scared_time -= delta
 	_tick_move(delta)
 	_tick_visuals(delta)
 
@@ -557,7 +697,7 @@ func _tether_pull(delta: float) -> Vector3:
 
 func break_tether() -> void:
 	if tethered_by != null and is_instance_valid(tethered_by):
-		if tethered_by.get_meta("tether_target", null) == self:
+		if tethered_by.has_meta("tether_target") and tethered_by.get_meta("tether_target") == self:
 			tethered_by.remove_meta("tether_target")
 	tethered_by = null
 	tether_left = 0.0
@@ -686,9 +826,60 @@ func _drive_rig(delta: float, speed2d: float) -> void:
 	rig.limp_r = dmg.limp_right()
 	rig.arm_hurt_l = dmg.arm_hurt_left()
 	rig.arm_hurt_r = dmg.arm_hurt_right()
+	rig.armed = _weapon_mesh != null
+	rig.offhand = _offhand_mesh != null
+	rig.mori = mori_progress
+	rig.mori_kind = mori_role
+	rig.mood = _mood()
+	rig.mood_power = mood_power
+	rig.detail = _detail_level()
 	if not alive:
 		rig.dead = minf(1.0, rig.dead + delta * 2.2)
 	rig.update(delta, speed2d, want_sprint)
+
+## Что на лице. Собирается из того, что с персонажем происходит, а не
+## выставляется извне: пугаться, злиться и голодать — это состояния, которые в
+## игре уже есть, и мимика просто их показывает.
+func _mood() -> String:
+	if forced_mood != "":
+		return forced_mood          # стенд мимики: играем то, что просят
+	if not alive:
+		return ""
+	if mori_progress > 0.0:
+		return "rage" if mori_role != "victim" else "scream"
+	if activity == "sleep":
+		return "sleep"
+	if berserk_time > 0.0:
+		return "rage"
+	if downed or dmg.bleed > 0.6:
+		return "pain"
+	if scared_time > 0.0:
+		return "scream" if scared_time > Data.TUNE["scare_time"] * 0.6 else "fear"
+	if role == Data.Role.VAMPIRE and hunger > 75.0:
+		return "hunger"
+	return ""
+
+## Насколько подробно анимировать. Пальцы и лицо считаются только вблизи: для
+## гостя в сорока метрах это сорок лишних костей и накладка на голову,
+## которых на экране всё равно не видно.
+func _detail_level() -> int:
+	if forced_detail >= 0:
+		return forced_detail
+	if is_player:
+		return 0
+	var p: Actor = Game.player
+	if p == null or not is_instance_valid(p):
+		return 1
+	var d := global_position.distance_squared_to(p.global_position)
+	# в кормлении и в казни лицо важно на любой дистанции: это сцена, и её
+	# смотрят, а не пробегают мимо
+	if channel_kind == "drain" or drained_by != null or mori_progress > 0.0:
+		return 0 if d < 900.0 else 1
+	if d < 64.0:
+		return 0                        # восемь метров — лицо ещё читается
+	if d < 900.0:
+		return 1
+	return 2
 
 func _drive_primitives(delta: float, speed2d: float) -> void:
 	_walk_phase += speed2d * delta * 3.4
@@ -762,6 +953,18 @@ func try_attack() -> bool:
 		return false
 	if downed or finishing != null:
 		return false
+
+	# ВАМПИР НЕ БЬЁТ — ОН ХВАТАЕТ.
+	#
+	# Оружие у него на крайний случай, а основной приём — захват: рывок,
+	# жертва в руках, зубы в шею. Поэтому левая кнопка вплотную к человеку
+	# начинает не замах, а кормление; клинок остаётся на тех, до кого уже не
+	# дотянуться или кто сопротивляется.
+	if role == Data.Role.VAMPIRE or role == Data.Role.THRALL:
+		var prey := _grabbable()
+		if prey != null and try_drain(prey):
+			return true
+
 	# шпага не машет: она даёт одну попытку попасть в момент
 	if w.get("mode", "") == "qte":
 		return _begin_qte(w)
@@ -773,6 +976,28 @@ func try_attack() -> bool:
 	_attack_windup = w["windup"]
 	_attack_len = float(w["windup"]) + STRIKE_TIME + 0.34
 	return true
+
+## Кого можно взять в захват прямо сейчас: тот, кто перед лицом и вплотную.
+## Угол узкий намеренно — захват не должен срабатывать на того, кто сбоку.
+func _grabbable() -> Actor:
+	if channel_kind != "":
+		return null
+	var best: Actor = null
+	var best_d: float = Data.TUNE["drain_range"]
+	var face := -global_transform.basis.z
+	for a: Actor in Game.living(Data.Side.HUMAN):
+		if a == self or not a.alive or a.downed:
+			continue
+		var to := a.global_position - global_position
+		to.y = 0.0
+		var d := to.length()
+		if d > best_d or d < 0.01:
+			continue
+		if face.dot(to.normalized()) < 0.55:
+			continue                       # не перед лицом — не захват
+		best_d = d
+		best = a
+	return best
 
 func _land_attack() -> void:
 	var w: Dictionary = Data.weapon_of(char_id)
@@ -1386,8 +1611,8 @@ func go_down(from: Actor) -> void:
 func _tick_downed(delta: float) -> void:
 	if not downed or not alive:
 		return
-	if _finisher_on_me() != null:
-		return                          # пока добивают, время не идёт
+	if _finisher_on_me() != null or mori_progress > 0.0:
+		return                          # пока добивают или казнят, время не идёт
 	downed_left -= delta
 	if downed_left <= 0.0:
 		downed = false
@@ -1426,6 +1651,97 @@ func _tick_finish(delta: float) -> void:
 		# добивание видно всем, кто рядом: это самое громкое, что можно сделать
 		Game.raise_alarm(victim.global_position, Data.TUNE["corpse_alarm_radius"] * 1.4, "death")
 		victim.die(self)
+
+# =============================================================== КАЗНЬ
+## Аналог мементо мори: приём, за который лич платит всем психозом сразу.
+##
+## Отличие от добивания принципиальное, и оно не в цифрах. Добивание — способ
+## закончить начатое; казнь — способ отказаться от осторожности. Лича видно и
+## слышно на весь этаж, он три секунды стоит на месте и ничем не может
+## ответить, а взамен получает то, чего добиванием не получить: жертву, из
+## которой уже никого не поднимут, и зал, который это видел.
+##
+## У каждого лича она своя. Карл поднимает за горло и бьёт топором сверху.
+## Лара бьёт гарпуном в упор и тащит на лине, пока тот не перестанет тянуть.
+func can_mori() -> bool:
+	return role == Data.Role.LICH and alive and mori_progress <= 0.0 \
+		and psychosis >= Data.TUNE["mori_cost"]
+
+func try_mori(target: Actor) -> bool:
+	if not can_mori():
+		return false
+	if target == null or not is_instance_valid(target) or not target.alive:
+		return false
+	# Казнят только лежачего. Иначе это был бы просто удар на сто урона, и
+	# весь смысл — «сначала свали, потом решай» — исчез бы.
+	if not target.downed or target.side != Data.Side.HUMAN:
+		return false
+	if global_position.distance_to(target.global_position) > Data.TUNE["mori_range"]:
+		return false
+
+	psychosis = 0.0
+	mori_target = target
+	mori_left = Data.TUNE["mori_time"]
+	mori_progress = 0.001
+	mori_role = "killer"
+	finishing = null
+	cancel_channel()
+	look_dir = (target.global_position - global_position).normalized()
+
+	target.mori_role = "victim"
+	target.mori_progress = 0.001
+	target.mori_left = Data.TUNE["mori_time"]
+	target.stun_time = Data.TUNE["mori_time"]
+
+	Game.raise_alarm(global_position, Data.TUNE["mori_alarm"], "mori")
+	if is_player:
+		Game.say("КАЗНЬ. Тебя видит весь зал", true)
+	else:
+		Game.say("%s поднимает %s над полом" % [display_name, target.display_name], true)
+	return true
+
+func _tick_mori(delta: float) -> void:
+	if mori_progress <= 0.0:
+		return
+	move_input = Vector3.ZERO
+	velocity.x = 0.0
+	velocity.z = 0.0
+	mori_left -= delta
+	var total: float = maxf(0.01, Data.TUNE["mori_time"])
+	mori_progress = clampf(1.0 - mori_left / total, 0.001, 1.0)
+
+	if mori_role == "killer" and mori_target != null and is_instance_valid(mori_target):
+		var v: Actor = mori_target
+		# Держит на вытянутой руке: жертву подтягивает вплотную и ПОДНИМАЕТ.
+		# Оторванные от пола ноги — это и есть вся сцена.
+		var face := (v.global_position - global_position)
+		face.y = 0.0
+		if face.length() > 0.05:
+			var want: Vector3 = global_position + face.normalized() * 1.05
+			want.y = global_position.y + 0.55 * sin(clampf(mori_progress / 0.3, 0.0, 1.0) * PI * 0.5) \
+				* (1.0 - clampf((mori_progress - 0.72) / 0.28, 0.0, 1.0))
+			v.global_position = v.global_position.lerp(want, clampf(delta * 12.0, 0.0, 1.0))
+			v.look_dir = -face.normalized()
+			look_dir = face.normalized()
+		v.velocity = Vector3.ZERO
+
+	if mori_left <= 0.0:
+		var victim: Actor = mori_target
+		var was_killer: bool = mori_role == "killer"
+		mori_progress = 0.0
+		mori_role = ""
+		mori_target = null
+		if not was_killer:
+			return                          # жертва свою половину сцены отыграла
+		if victim != null and is_instance_valid(victim) and victim.alive:
+			victim.mori_progress = 0.0
+			victim.mori_role = ""
+			victim.death_kind = "mori"
+			# Из казнённого не поднимают гуля: тело после этого ни на что не
+			# годится. Это плата за приём — минус одна пара рук на своей стороне.
+			victim.set_meta("no_raise", true)
+			Game.raise_alarm(victim.global_position, Data.TUNE["mori_alarm"], "death")
+			victim.die(self)
 
 func _wound_word(real: float) -> String:
 	if real > 45.0:
@@ -1477,6 +1793,7 @@ func die(killer: Actor = null) -> void:
 	if not alive:
 		return
 	alive = false
+	Game.invalidate_roster()
 	dmg.bleed = 0.0
 	cancel_channel()
 	summoned_by = null
@@ -1490,7 +1807,12 @@ func die(killer: Actor = null) -> void:
 			killer.psychosis + Data.TUNE["psychosis_from_kill"])
 
 	var convert_role := -1
-	if killer != null and role == Data.Role.HUMAN:
+	# Казнённого не поднимают: после неё поднимать нечего. Лич меняет
+	# будущего гуля на зрелище — и это единственная причина, по которой казнь
+	# не строго выгоднее добивания.
+	if has_meta("no_raise"):
+		pass
+	elif killer != null and role == Data.Role.HUMAN:
 		if killer.role == Data.Role.VAMPIRE and randf() < Data.TUNE["thrall_chance"]:
 			convert_role = Data.Role.THRALL
 		elif killer.role == Data.Role.LICH and randf() < Data.TUNE["ghoul_chance"]:
@@ -1537,6 +1859,7 @@ func _convert_to(new_id: String) -> void:
 	set_physics_process(true)
 	collision_layer = LAYER_ACTOR
 	alive = true
+	Game.invalidate_roster()
 	if _body_root:
 		_body_root.rotation.x = 0.0
 		_body_root.position.y = 0.0
@@ -1571,16 +1894,47 @@ func _convert_to(new_id: String) -> void:
 		add_child(nb)
 
 # =============================================================== служебное
+## Сколько лучей в секунду бросает весь матч — счётчик для `--perf`.
+static var rays_per_second: float = 0.0
+static var _ray_count: int = 0
+static var _ray_window: float = 0.0
+
+## Луч «вижу или нет» — самая дорогая операция в кадре, и спрашивают её все:
+## каждый гость про каждого монстра, вампир про каждого свидетеля возле каждой
+## возможной жертвы. В худшем случае это сотни лучей за кадр, и игра встаёт.
+##
+## Ответ живёт четверть секунды. За это время никто не успевает перебежать за
+## колонну так, чтобы это меняло решение бота, зато один и тот же вопрос,
+## заданный двадцатью ботами подряд, стоит один луч, а не двадцать.
+const SIGHT_MEMORY := 0.25
+var _sight_cache: Dictionary = {}
+
 func has_line_of_sight(other: Node3D) -> bool:
 	if other == null or not is_instance_valid(other):
 		return false
+	var now: float = Game.elapsed
+	var got = _sight_cache.get(other)
+	if got != null and now - float(got[0]) < SIGHT_MEMORY:
+		return bool(got[1])
+
 	var space := get_world_3d().direct_space_state
 	var from := global_position + Vector3(0, 1.5, 0)
 	var to := other.global_position + Vector3(0, 1.4, 0)
 	var q := PhysicsRayQueryParameters3D.create(from, to, LAYER_WORLD)
 	q.hit_from_inside = false
-	var hit := space.intersect_ray(q)
-	return hit.is_empty()
+	var seen: bool = space.intersect_ray(q).is_empty()
+	_ray_count += 1
+	_sight_cache[other] = [now, seen]
+	if _sight_cache.size() > 64:
+		_sight_cache.clear()          # редко и дёшево: словарь не растёт вечно
+	return seen
+
+static func tick_ray_meter(delta: float) -> void:
+	_ray_window += delta
+	if _ray_window >= 1.0:
+		rays_per_second = _ray_count / _ray_window
+		_ray_count = 0
+		_ray_window = 0.0
 
 func noise_radius() -> float:
 	var base := 6.0

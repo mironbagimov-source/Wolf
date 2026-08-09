@@ -80,6 +80,6 @@ func use(actor: Actor) -> void:
 	for a in Game.living():
 		if a == actor:
 			continue
-		if a.summoned_by == actor or a.get_meta("lured_by", null) == actor:
+		if a.summoned_by == actor or (a.has_meta("lured_by") and a.get_meta("lured_by") == actor):
 			a.global_position = destination + Vector3(randf_range(-1.2, 1.2), 0.3, randf_range(-1.2, 1.2))
 			a.velocity = Vector3.ZERO

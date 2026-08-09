@@ -67,6 +67,8 @@ func think(delta: float) -> void:
 	if threat != null:
 		var d := distance_to(threat)
 		if d < 14.0:
+			actor.scared_time = Data.TUNE["scare_time"]
+			actor.mood_power = 1.0
 			# знакомого вампира встречаем чесноком, лича — спиной
 			if _is_vampire(threat) and garlic_cd <= 0.0 and actor.garlic_left > 0 and d < 9.0 and suspects(threat):
 				_throw_at(threat)

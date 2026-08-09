@@ -25,6 +25,7 @@ func _ready() -> void:
 	agent.avoidance_enabled = false
 	actor.add_child(agent)
 	world = _find_world()
+	think_timer = randf() / THINK_HZ          # разнести раздумья по кадрам
 	Game.alarm_raised.connect(_on_alarm)
 
 func _find_world() -> World:
@@ -53,16 +54,44 @@ func on_witness_feeding(vampire: Actor) -> void:
 func suspects(a: Actor) -> bool:
 	return float(suspicion.get(a, 0.0)) >= 5.0
 
+## Как часто бот ДУМАЕТ. Не то же самое, что как часто он двигается.
+##
+## Решение «на кого смотреть, куда идти, кого бояться» стоит дорого: обход
+## всего зала, лучи «вижу или нет», подсчёт свидетелей. Считать это шестьдесят
+## раз в секунду для двадцати шести персонажей — и есть та самая просадка, из-за
+## которой матч за человека вис: за монстра думал один бот-гость, а за человека
+## к ним добавлялся вампир, который на каждого кандидата в жертвы пересчитывал
+## всех свидетелей — сотни лучей в одном кадре.
+##
+## Двенадцать раз в секунду человек не отличит: реакция бота — восемьдесят
+## миллисекунд вместо шестнадцати, а это всё ещё быстрее человеческой. Ход по
+## пути при этом остаётся покадровым, поэтому походка гладкая.
+const THINK_HZ := 12.0
+
 func _physics_process(delta: float) -> void:
 	if not is_instance_valid(actor) or not actor.alive or Game.state != Game.State.PLAYING:
 		if is_instance_valid(actor):
 			actor.move_input = Vector3.ZERO
 		return
 	alarm_time = max(0.0, alarm_time - delta)
-	think_timer -= delta
 	repath -= delta
-	think(delta)
+
+	# Раздумья разнесены по кадрам: если бы все двадцать шесть думали в один и
+	# тот же, просадка просто стала бы реже и глубже — дёрганый кадр раз в
+	# двенадцатую секунды заметнее ровной нагрузки.
+	think_timer -= delta
+	if think_timer <= 0.0:
+		var slice: float = _think_dt
+		_think_dt = 0.0
+		think_timer += 1.0 / THINK_HZ
+		if think_timer < 0.0:
+			think_timer = 1.0 / THINK_HZ          # после лага не догоняем пачкой
+		think(slice + delta)
+	else:
+		_think_dt += delta
 	_drive(delta)
+
+var _think_dt: float = 0.0
 
 func think(_delta: float) -> void:
 	pass

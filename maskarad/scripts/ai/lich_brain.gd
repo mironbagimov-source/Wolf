@@ -45,12 +45,19 @@ func think(delta: float) -> void:
 				if distance_to(lying) < Data.TUNE["finish_range"] - 0.3:
 					stop()
 					actor.look_dir = (lying.global_position - actor.global_position).normalized()
+					# Полный психоз бот тратит на казнь, а не копит впрок:
+					# копить его не для чего, а зал, увидевший казнь, до утра
+					# помнит, кого именно надо обходить.
+					if actor.can_mori() and actor.try_mori(lying):
+						return
 					actor.try_finish(lying)
 					return
 
 			var d := distance_to(prey)
 			# кого посадил на гарпун — того и добираем: линь всё равно тянет
-			var hooked = actor.get_meta("tether_target", null)
+			# `get_meta` с `null` по умолчанию — это не «верни null», а ошибка в
+			# лог каждый кадр: движок считает пустое значение отсутствием запаса.
+			var hooked = actor.get_meta("tether_target") if actor.has_meta("tether_target") else null
 			if hooked is Actor and is_instance_valid(hooked) and hooked.alive \
 					and hooked.tethered_by == actor:
 				prey = hooked

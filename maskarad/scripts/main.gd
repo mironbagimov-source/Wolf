@@ -17,6 +17,34 @@ var _shot_path := ""
 var _shot_at := 6.0
 var _test_pitch := 0.0                    # принудительный наклон взгляда для снимка
 var _hold_map := false                    # держать карту раскрытой для снимка
+## Куда поставить игрока для снимка и куда его повернуть.
+var _place_at: Vector3 = Vector3.INF
+var _place_yaw: float = 0.0
+
+## Замер кадра. Встроенные счётчики `Performance` в headless пустые, поэтому
+## время считается вручную: сколько заняла вся физика матча за кадр.
+var _perf := false
+var _perf_sum := 0.0
+var _perf_worst := 0.0
+var _perf_n := 0
+var _perf_start := 0
+
+## Секундомер ставится по краям физического кадра: `Main` идёт первым
+## (приоритет −1000), замыкающий узел — последним (+1000). Между ними
+## укладывается вся работа матча: боты, актёры, анимация.
+func _physics_process(_delta: float) -> void:
+	if _perf:
+		_perf_start = Time.get_ticks_usec()
+
+class PerfEnd extends Node:
+	var main: Node = null
+	func _physics_process(_d: float) -> void:
+		if main == null or main._perf_start == 0:
+			return
+		var ms: float = float(Time.get_ticks_usec() - main._perf_start) / 1000.0
+		main._perf_sum += ms
+		main._perf_worst = maxf(main._perf_worst, ms)
+		main._perf_n += 1
 
 func _ready() -> void:
 	randomize()
@@ -56,6 +84,24 @@ func _maybe_autotest() -> void:
 			_test_pitch = deg_to_rad(float(a.substr(8)))   # опустить взгляд: видно ли своё тело
 		elif a == "--allbots":
 			Game.chosen_character = ""          # никто не игрок: чистая проверка ИИ
+		elif a.begins_with("--at="):
+			# поставить игрока в заданную точку: «x,y,z». Нужно, чтобы
+			# смотреть на локацию оттуда, откуда её видит игрок, а не с той
+			# случайной точки, куда его закинул спавн.
+			var c: PackedStringArray = a.substr(5).split(",")
+			if c.size() >= 3:
+				_place_at = Vector3(float(c[0]), float(c[1]), float(c[2]))
+		elif a.begins_with("--yaw="):
+			_place_yaw = deg_to_rad(float(a.substr(6)))
+	_perf = "--perf" in args
+	if _perf:
+		process_priority = -1000
+		process_physics_priority = -1000
+		var tail := PerfEnd.new()
+		tail.main = self
+		tail.process_priority = 1000
+		tail.process_physics_priority = 1000
+		add_child(tail)
 	print("[autotest] персонаж: '%s'" % Game.chosen_character)
 	if "--modelcheck" in args:
 		_model_check()
@@ -74,6 +120,12 @@ func _maybe_autotest() -> void:
 	if _shot_path != "" and "--bitecheck" in args:
 		_bite_bench()
 		return
+	if _shot_path != "" and "--facecheck" in args:
+		_face_bench(args)
+		return
+	if _shot_path != "" and "--handcheck" in args:
+		_hand_bench(args)
+		return
 	start_match.call_deferred()
 	if "--combattest" in args:
 		_combat_test.call_deferred()
@@ -85,6 +137,8 @@ func _maybe_autotest() -> void:
 		_systems_test.call_deferred()
 	if "--handstest" in args:
 		_hands_test.call_deferred()
+	if "--newtest" in args:
+		_new_features_test.call_deferred()
 
 ## Проверка боя и повреждений в отрыве от навигации: ставим лича вплотную
 ## к гостю и смотрим, доходит ли удар и что он ломает.
@@ -168,6 +222,12 @@ func _process(delta: float) -> void:
 		var pb: Node = Game.player.get_node_or_null("Brain")
 		if pb != null and "pitch" in pb:
 			pb.pitch = _test_pitch
+	if _place_at != Vector3.INF and Game.player != null and is_instance_valid(Game.player):
+		Game.player.global_position = _place_at
+		var pb2: Node = Game.player.get_node_or_null("Brain")
+		if pb2 != null and "yaw" in pb2:
+			pb2.yaw = _place_yaw
+			pb2.body_yaw = _place_yaw
 
 	if _shot_path != "":
 		_shot_at -= delta / max(0.01, Engine.time_scale)
@@ -746,6 +806,163 @@ func _bite_bench() -> void:
 	print("[укус] канал «%s», прогресс жертвы %.2f" % [v.channel_kind, prey.bite_progress])
 	await _bench_shot("укус")
 
+## Новые приёмы разом: пальцы, захват вампира на ЛКМ и КАЗНЬ лича.
+##
+## Всё три легко «сделать» и не заметить, что они ни к чему не приводят:
+## пальцы не найдены в скелете, захват молча падает в обычный замах, казнь
+## отменяется на первом же кадре. Поэтому меряем последствия, а не вызовы.
+func _new_features_test() -> void:
+	for i in 60:
+		await get_tree().physics_frame
+
+	# ---- ПАЛЬЦЫ: двигаются ли они вообще
+	var who: Actor = null
+	for a in Game.living():
+		if a.rig != null and a.rig.ok:
+			who = a
+			break
+	if who == null:
+		print("[новое] некого проверять"); get_tree().quit(); return
+	var sk: Skeleton3D = who.rig.skeleton
+	var key := "r_index2"
+	if not who.rig.idx.has(key):
+		print("[пальцы] кости пальцев НЕ НАЙДЕНЫ")
+	else:
+		var bi: int = who.rig.idx[key]
+		var lo := INF
+		var hi := -INF
+		for i in 60:
+			await get_tree().physics_frame
+			var ang: float = sk.get_bone_pose_rotation(bi).get_euler().length()
+			lo = minf(lo, ang); hi = maxf(hi, ang)
+		print("[пальцы] найдено костей: %d, сгиб указательного гулял на %.3f рад (%.1f°)" % [
+			_finger_bones(who.rig), hi - lo, rad_to_deg(hi - lo)])
+
+	# ---- ЗАХВАТ: ЛКМ вампира вплотную к человеку должен начинать кормление
+	var vamp: Actor = _spawn("moira", Vector3(0, 0.2, 6), false)
+	var prey: Actor = null
+	for a in Game.living(Data.Side.HUMAN):
+		if a.role == Data.Role.HUMAN:
+			prey = a
+			break
+	if prey != null:
+		var pb: Node = prey.get_node_or_null("Brain")
+		if pb: pb.set_physics_process(false)
+		prey.global_position = vamp.global_position + Vector3(0, 0, -1.2)
+		vamp.rotation.y = 0.0
+		vamp.look_dir = Vector3(0, 0, -1)
+		await get_tree().physics_frame
+		var grabbed := vamp.try_attack()
+		await get_tree().physics_frame
+		print("[захват] ЛКМ вплотную: начат=%s, канал «%s», жертва схвачена=%s" % [
+			grabbed, vamp.channel_kind, prey.drained_by == vamp])
+		vamp.cancel_channel()
+
+	# ---- КАЗНЬ: полный психоз + лежащий = приём, после которого не поднимают
+	var lich: Actor = _spawn("karl", Vector3(0, 0.2, 10), false)
+	var target: Actor = null
+	for a in Game.living(Data.Side.HUMAN):
+		if a.role == Data.Role.GUEST:
+			target = a
+			break
+	if target == null:
+		print("[казнь] некого казнить"); get_tree().quit(); return
+	var tb: Node = target.get_node_or_null("Brain")
+	if tb: tb.set_physics_process(false)
+	target.global_position = lich.global_position + Vector3(0, 0, -1.4)
+	lich.psychosis = Data.TUNE["psychosis_max"]
+	await get_tree().physics_frame
+	print("[казнь] без лежащего можно=%s (должно быть false)" % lich.try_mori(target))
+	target.go_down(lich)
+	await get_tree().physics_frame
+	var ok := lich.try_mori(target)
+	var lifted := 0.0
+	var was_alive := true
+	for i in 200:
+		await get_tree().physics_frame
+		if is_instance_valid(target) and target.alive:
+			lifted = maxf(lifted, target.global_position.y - lich.global_position.y)
+		elif was_alive:
+			was_alive = false
+	print("[казнь] начата=%s, психоз после=%.0f, подняли на %.2f м, жертва мертва=%s, поднять нельзя=%s" % [
+		ok, lich.psychosis, lifted,
+		not (is_instance_valid(target) and target.alive),
+		is_instance_valid(target) and target.has_meta("no_raise")])
+	get_tree().quit()
+
+func _finger_bones(rig: RigAnim) -> int:
+	var n := 0
+	for k in rig.idx:
+		if str(k).begins_with("l_") or str(k).begins_with("r_"):
+			n += 1
+	return n
+
+## Лицо крупным планом. Мимику нельзя «сделать по описанию» и поверить на
+## слово: в моделях нет ни лицевых костей, ни блендшейпов, всё лицо — это
+## геометрия, которую мы кладём поверх готовой головы. Разойтись с моделью на
+## сантиметр — и вместо выражения получаются глаза на лбу.
+func _face_bench(args: Array) -> void:
+	var who := "helga"
+	var mood := "fear"
+	for a in args:
+		if a.begins_with("--who="):
+			who = a.substr(6)
+		elif a.begins_with("--mood="):
+			mood = a.substr(7)
+	var stage := _bench_stage(Vector3(0.0, 1.62, 0.85), Vector3(0, 1.60, 0))
+	var cam := stage.find_children("*", "Camera3D", true, false)[0] as Camera3D
+	cam.fov = 26.0
+	var a2 := Actor.new()
+	stage.add_child(a2)
+	a2.setup(who, false)
+	a2.forced_detail = 0
+	a2.global_position = Vector3(0, 0.05, 0)
+	await get_tree().physics_frame
+	a2.rotation.y = 0.0
+	a2.look_dir = Vector3(0, 0, 1)          # лицом в камеру
+	if mood == "debug" and a2.rig != null and a2.rig.face != null:
+		a2.rig.face.debug_show()
+	for _f in 30:
+		a2.move_input = Vector3.ZERO
+		a2.forced_mood = "" if mood == "none" or mood == "debug" else mood
+		a2.forced_detail = 0
+		a2.mood_power = 1.0
+		await get_tree().physics_frame
+	if a2.rig != null and a2.rig.face != null:
+		var fr = a2.rig.face
+		print("[лицо] голова: длина кости %.3f, макушка %.3f, полуширина %.3f, лоб %.3f" % [
+			fr.head_len, fr._top, fr._half_w, fr._front])
+	# камера подводится точно к голове: рост у всех разный
+	if a2.rig != null and a2.rig.ok:
+		var h: Vector3 = a2.rig.bone_point("head")
+		cam.look_at_from_position(h + Vector3(0, 0.06, 0.62), h + Vector3(0, 0.05, 0), Vector3.UP)
+	await _bench_shot("лицо/%s/%s" % [who, mood])
+
+## Кисть крупным планом: сжаты ли пальцы и на чём именно.
+func _hand_bench(args: Array) -> void:
+	var who := "karl"
+	for a in args:
+		if a.begins_with("--who="):
+			who = a.substr(6)
+	var stage := _bench_stage(Vector3(0.9, 1.2, 0.9), Vector3(0, 1.1, 0))
+	var cam := stage.find_children("*", "Camera3D", true, false)[0] as Camera3D
+	cam.fov = 30.0
+	var a2 := Actor.new()
+	stage.add_child(a2)
+	a2.setup(who, false)
+	a2.global_position = Vector3(0, 0.05, 0)
+	await get_tree().physics_frame
+	a2.rotation.y = 0.0
+	a2.look_dir = Vector3(0, 0, -1)
+	for _f in 30:
+		a2.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+	if a2.rig != null and a2.rig.ok:
+		var hand: Vector3 = a2.rig.bone_point("hand_r")
+		print("[кисть] пальцев найдено: %s, кисть на %.2f" % [a2.rig.has_fingers, hand.y])
+		cam.look_at_from_position(hand + Vector3(0.35, 0.12, 0.35), hand, Vector3.UP)
+	await _bench_shot("кисть/%s" % who)
+
 ## Анимации действий: доходят ли они до костей. Проверяются три вещи, каждую
 ## из которых легко «сделать» и не заметить, что она ни на что не влияет:
 ## проходит ли удар весь путь замах → проводка → возврат, уезжает ли кисть
@@ -925,6 +1142,15 @@ func _report() -> void:
 	print("[autotest] %s | люди: %s | нечисть: %s | гости: %d | жаровни: %d/%d" % [
 		"%d/%d" % [Game.braziers_lit, Game.braziers_total], str(names), str(undead), _guest_count(),
 		Game.braziers_lit, Game.braziers_total])
+	if _perf:
+		# Худший кадр важнее среднего: виснет не тот, у кого средние 8 мс, а
+		# тот, у кого раз в секунду прилетает кадр на 60.
+		var avg: float = _perf_sum / maxf(1.0, float(_perf_n))
+		print("[кадр] физика: средняя %.2f мс, худшая %.2f мс (%d кадров), лучей %.0f/с, актёров %d" % [
+			avg, _perf_worst, _perf_n, Actor.rays_per_second, Game.living().size()])
+		_perf_sum = 0.0
+		_perf_worst = 0.0
+		_perf_n = 0
 
 func _guest_count() -> int:
 	var n := 0

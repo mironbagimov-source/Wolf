@@ -32,7 +32,6 @@ var zones: Array[Dictionary] = []
 ## Гримёрка: сюда вампир в облике звезды уводит жертву. Свидетелей нет.
 var dressing_room: Vector3 = Vector3(0, 0, -27)
 ## Крыша башни — второе безлюдное место, но идти туда далеко.
-var rooftop: Vector3 = Vector3(64, 26, -52)
 
 var _mat_asphalt: StandardMaterial3D
 var _mat_concrete: StandardMaterial3D
@@ -64,17 +63,43 @@ func build() -> void:
 	_points_common()
 	_bake()
 
-## КЛУБ. Толпа, музыка, гримёрка за сценой — исходная ночь.
+## КЛУБ — ОДНА БОЛЬШАЯ ЛОКАЦИЯ, А НЕ ГОРОД ИЗ КОМНАТ.
+##
+## Раньше здесь было восемь районов: клуб, бар, деревня, башня, склад, отель,
+## парковка, улицы. Восемь маленьких помещений, между которыми бегут по
+## пустым улицам, — и вся ночь распадалась на переходы. Двадцать четыре гостя
+## на восемь районов дают по три человека на район: ни толпы, ни давки, ни
+## социального стелса, ради которого всё и затевалось.
+##
+## Теперь это один зал. Огромный, в три этажа высотой, со своим верхом и
+## низом, и весь народ в нём. Внутри есть всё, что было в отдельных районах,
+## но не через улицу, а за дверью:
+##
+##   ГЛАВНАЯ СЦЕНА     — где играют и куда смотрит зал;
+##   ВТОРАЯ СЦЕНА      — подиум сбоку, своя музыка, своя кучка людей;
+##   ТАНЦПОЛ           — самая густая толпа, ничего не слышно и не видно;
+##   БАР               — вдоль всей западной стены, за стойкой можно сидеть;
+##   VIP-БАЛКОН        — второй ярус над залом, темно и почти пусто;
+##   ГРИМЁРКИ          — четыре комнаты за сценой, в каждую одна дверь;
+##   ПОДСОБКИ          — склад, щитовая, холодильник: три глухих угла;
+##   ГАРДЕРОБ          — ряды ШКАФОВ у входа, и в каждый можно влезть;
+##   ТУАЛЕТЫ           — кабинки, куда уходят по одному;
+##   ЗАГРУЗКА          — тёмный двор за кулисами, куда не заходит никто.
+##
+## Ходить между ними — секунды, а не полминуты. Из-за этого работает и охота,
+## и бегство: жертву уводят из толпы за десять шагов, и за десять же шагов
+## возвращаются в толпу, пока никто не хватился.
 func _build_club() -> void:
-	_club()
-	_bar()
-	_village()
-	_tower()
-	_warehouse()
-	_hotel()
-	_parking()
-	_streets()
-	_points()
+	_club_shell()
+	_club_stages()
+	_club_bar()
+	_club_balcony()
+	_club_backstage()
+	_club_utility()
+	_club_wardrobe()
+	_club_toilets()
+	_club_light_rig()
+	_points_club()
 
 func _process(delta: float) -> void:
 	_t += delta
@@ -87,10 +112,13 @@ func _process(delta: float) -> void:
 
 # ------------------------------------------------------------- материалы
 func _make_materials() -> void:
-	_mat_asphalt = _mat(Color(0.11, 0.11, 0.13), 0.95, 0.0)
-	_mat_concrete = _mat(Color(0.30, 0.30, 0.32), 0.9, 0.0)
-	_mat_wood = _mat(Color(0.24, 0.16, 0.11), 0.85, 0.0)
-	_mat_dark = _mat(Color(0.07, 0.07, 0.09), 0.8, 0.0)
+	# Материалы стали светлее и глаже. Чёрный бетон при чёрном небе давал
+	# ровное ничто: стена, пол и потолок сливались в одно пятно, и внутри
+	# зала было не понять даже, где кончается пол.
+	_mat_asphalt = _mat(Color(0.16, 0.16, 0.19), 0.72, 0.0)
+	_mat_concrete = _mat(Color(0.38, 0.38, 0.41), 0.8, 0.0)
+	_mat_wood = _mat(Color(0.30, 0.20, 0.14), 0.7, 0.0)
+	_mat_dark = _mat(Color(0.13, 0.13, 0.16), 0.55, 0.05)
 	_mat_brick = _mat(Color(0.26, 0.17, 0.15), 0.95, 0.0)
 	_mat_grass = _mat(Color(0.09, 0.13, 0.09), 1.0, 0.0)
 	_mat_glass = _mat(Color(0.12, 0.18, 0.26), 0.12, 0.85)
@@ -118,33 +146,52 @@ func _make_environment() -> void:
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.02, 0.025, 0.04)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.14, 0.17, 0.26)
-	env.ambient_light_energy = 0.75
+	# Ночь должна быть тёмной, но не слепой. Прошлая была именно слепой: в
+	# зале не читались ни стены, ни люди, а игра, где не видно человека в
+	# пяти шагах, не страшная, а неиграбельная. Подняли общий свет и
+	# развели его по цвету — низ холодный, блики тёплые, — чтобы силуэт
+	# отделялся от фона даже там, куда не достаёт ни один прожектор.
+	env.ambient_light_color = Color(0.22, 0.25, 0.34)
+	env.ambient_light_energy = 1.5
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.05, 0.06, 0.10)
-	env.fog_density = 0.010
+	env.fog_light_color = Color(0.07, 0.08, 0.13)
+	env.fog_density = 0.006
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.05
+	env.tonemap_exposure = 1.25
+	env.tonemap_white = 6.0
+	# Свечение — главный инструмент клуба: неон, экраны и лучи должны
+	# растекаться, иначе они читаются как крашеные доски.
 	env.glow_enabled = true
-	env.glow_intensity = 0.7
-	env.glow_bloom = 0.25
+	env.glow_intensity = 1.0
+	env.glow_strength = 1.1
+	env.glow_bloom = 0.35
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
 	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = 0.012
-	env.volumetric_fog_albedo = Color(0.65, 0.66, 0.72)
+	env.volumetric_fog_density = 0.018
+	env.volumetric_fog_albedo = Color(0.7, 0.72, 0.8)
+	env.volumetric_fog_emission = Color(0.03, 0.03, 0.05)
 	env.volumetric_fog_length = 90.0
 	env.ssao_enabled = true
-	env.ssao_radius = 1.5
-	env.ssao_intensity = 1.5
+	env.ssao_radius = 1.2
+	env.ssao_intensity = 2.0
+	env.ssil_enabled = true
+	env.ssil_intensity = 0.6
+	# Отражения в полу: мокрый бетон и лакированная сцена — половина всего
+	# вида ночного клуба.
+	env.ssr_enabled = true
+	env.ssr_max_steps = 32
+	env.ssr_fade_in = 0.2
 
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 
 	var moon := DirectionalLight3D.new()
-	moon.light_color = Color(0.5, 0.6, 0.9)
-	moon.light_energy = 0.5
+	moon.light_color = Color(0.55, 0.65, 0.95)
+	moon.light_energy = 0.7
 	moon.rotation_degrees = Vector3(-55, 35, 0)
 	moon.shadow_enabled = true
+	moon.directional_shadow_max_distance = 70.0
 	add_child(moon)
 
 # ------------------------------------------------------------- застройка
@@ -159,283 +206,349 @@ func _ground() -> void:
 
 ## КЛУБ. Танцпол, диджейская будка, барная стойка и гримёрка за сценой.
 ## Толпа гуще всего здесь — отсюда людей и уводят.
-func _club() -> void:
-	var h := 7.0
-	_slab(0, 0, 44, 34, _mat_dark)
-	_ceiling(0, 0, 44, 34, h)
-	_walls(0, 0, 44, 34, h, {"s": [[0.0, 5.0]], "e": [[6.0, 4.0]], "n": [[0.0, 2.4]]})
+const CLUB_H := 12.0            # высота главного зала
+const HALL_W := 62.0
+const HALL_D := 52.0
 
-	# сцена с диджейской будкой у северной стены
-	_box(Vector3(0, 0.5, -13), Vector3(16, 1.0, 6), _mat_concrete)
-	_box(Vector3(0, 1.6, -14), Vector3(4, 1.2, 1.6), _mat_dark)
-	for x in [-2.2, 2.2]:
-		_glow(Vector3(x, 2.3, -14), Vector3(1.6, 0.12, 0.8), _mat_neon_pink)
-	for x in [-1.0, 1.0]:
+## Коробка зала: пол, потолок, стены с проёмами наружу и внутрь.
+func _club_shell() -> void:
+	_slab(0, 0, HALL_W, HALL_D, _mat_dark)
+	_ceiling(0, 0, HALL_W, HALL_D, CLUB_H)
+	# Проёмы: юг — вход из фойе, север — за кулисы, запад — в подсобки,
+	# восток — к туалетам и лестнице на балкон.
+	# Двери за кулисы — по КРАЯМ сцены, а не по центру: посередине северной
+	# стены стоит сама сцена с задником, и проём там вёл бы в стену.
+	_walls(0, 0, HALL_W, HALL_D, CLUB_H, {
+		"s": [[-8.0, 6.0], [10.0, 5.0]],
+		"n": [[-22.0, 4.0], [22.0, 4.0]],
+		"w": [[-14.0, 4.0], [12.0, 4.0]],
+		"e": [[4.0, 4.0]],
+	})
+
+	# фойе со входом с улицы
+	_slab(0, 34, 34, 16, _mat_concrete)
+	_ceiling(0, 34, 34, 16, 5.0)
+	_walls(0, 34, 34, 16, 5.0, {"n": [[-8.0, 6.0], [10.0, 5.0]], "s": [[0.0, 8.0]],
+		"w": [[0.0, 4.0]]})
+	_neon_sign(Vector3(0, 6.4, 42.2), "МАСКАРАД")
+	_hanging_lamp(Vector3(-8, 4.6, 34), Color(1.0, 0.86, 0.62), 1.6)
+	_hanging_lamp(Vector3(8, 4.6, 34), Color(1.0, 0.86, 0.62), 1.6)
+
+	# площадка перед входом — чтобы ночь не обрывалась стеной
+	_slab(0, 48, 46, 16, _mat_asphalt)
+	_street_lamp(Vector3(-16, 0, 48))
+	_street_lamp(Vector3(16, 0, 48))
+
+## Две сцены. В этом вся разница с прежним залом: людей делит не стена, а
+## музыка. У главной сцены толпа плотная и смотрит в одну сторону — за спинами
+## можно делать что угодно. У второй народу меньше, зато светло.
+func _club_stages() -> void:
+	# ---- ГЛАВНАЯ СЦЕНА у северной стены
+	_box(Vector3(0, 0.7, -20), Vector3(30, 1.4, 10), _mat_concrete)
+	# ступени сбоку
+	for i in 3:
+		_box(Vector3(-16.5, 0.23 + i * 0.46, -20), Vector3(2.0, 0.46, 10.0 - i * 2.0), _mat_concrete)
+	# задник и портал
+	_box(Vector3(0, 6.0, -25.4), Vector3(30, 9.0, 0.6), _mat_dark)
+	for x in [-15.0, 15.0]:
+		_box(Vector3(x, 5.0, -20), Vector3(1.2, 8.0, 10.0), _mat_dark)
+	# колонки по краям — за ними не видно, и это одна из лучших засад в зале
+	for x in [-13.0, 13.0]:
+		_box(Vector3(x, 2.6, -17.0), Vector3(2.4, 4.0, 2.4), _mat_dark)
+		_glow(Vector3(x, 4.7, -17.0), Vector3(2.0, 0.1, 2.0), _mat_neon_pink)
+
+	# пульт диджея на сцене
+	_box(Vector3(0, 2.4, -22), Vector3(5.0, 1.2, 1.8), _mat_dark)
+	for x in [-2.6, 2.6]:
+		_glow(Vector3(x, 3.1, -22), Vector3(1.8, 0.12, 1.0), _mat_neon_blue)
+	for x in [-1.2, 1.2]:
 		var disc := MeshInstance3D.new()
 		var dm := CylinderMesh.new()
-		dm.top_radius = 0.35; dm.bottom_radius = 0.35; dm.height = 0.06
+		dm.top_radius = 0.4
+		dm.bottom_radius = 0.4
+		dm.height = 0.07
 		disc.mesh = dm
 		disc.material_override = _mat_concrete
-		disc.position = Vector3(x, 2.25, -14)
+		disc.position = Vector3(x, 3.05, -22)
 		region.add_child(disc)
 
-	# гримёрка за сценой: маленькая, глухая, с одной дверью
-	_slab(0, -27, 14, 12, _mat_wood)
-	_ceiling(0, -27, 14, 12, 3.4)
-	_walls(0, -27, 14, 12, 3.4, {"s": [[0.0, 2.4]]})
-	_box(Vector3(-4, 0.4, -30), Vector3(4, 0.8, 1.2), _mat_wood)
-	_box(Vector3(4, 0.75, -30), Vector3(3, 0.1, 1.2), _mat_wood)
-	for x in [3.0, 5.0]:
-		_glow(Vector3(x, 1.9, -31.6), Vector3(0.18, 0.18, 0.06), _emissive(Color(1, 0.9, 0.7), 3.0))
-	_hanging_lamp(Vector3(0, 3.0, -27), Color(1.0, 0.85, 0.6), 1.2)
-	dressing_room = Vector3(0, 0, -28)
-
-	# коридор от сцены к гримёрке
-	_slab(0, -19, 6, 6, _mat_dark)
-	_ceiling(0, -19, 6, 6, 3.4)
-	_walls(0, -19, 6, 6, 3.4, {"n": [[0.0, 2.4]], "s": [[0.0, 2.4]]})
-
-	# барная стойка вдоль запада
-	_box(Vector3(-18, 0.55, 2), Vector3(2.2, 1.1, 16), _mat_wood)
-	for i in range(6):
-		_box(Vector3(-15.6, 0.45, -4.0 + i * 2.6), Vector3(0.5, 0.9, 0.5), _mat_dark)
-	_glow(Vector3(-20.6, 2.6, 2), Vector3(0.2, 2.0, 14.0), _mat_neon_blue)
-
-	# танцпол
-	for ix in range(6):
-		for iz in range(5):
+	# ---- ТАНЦПОЛ перед главной сценой
+	for ix in range(9):
+		for iz in range(7):
 			var base: StandardMaterial3D = _mat_neon_pink if (ix + iz) % 2 == 0 else _mat_neon_blue
 			var dim: StandardMaterial3D = base.duplicate()
-			dim.emission_energy_multiplier = 0.7
+			dim.emission_energy_multiplier = 0.55
 			var tile := MeshInstance3D.new()
 			var bm := BoxMesh.new()
-			bm.size = Vector3(3.2, 0.06, 3.2)
+			bm.size = Vector3(3.4, 0.06, 3.4)
 			tile.mesh = bm
 			tile.material_override = dim
-			tile.position = Vector3(-8.0 + ix * 3.4, 0.02, -6.0 + iz * 3.4)
+			tile.position = Vector3(-13.6 + ix * 3.6, 0.03, -12.0 + iz * 3.6)
 			region.add_child(tile)
 
-	for i in range(4):
+	# ---- ВТОРАЯ СЦЕНА: подиум в юго-восточном углу зала
+	_box(Vector3(19, 0.45, 14), Vector3(12, 0.9, 10), _mat_wood)
+	_box(Vector3(19, 3.2, 9.4), Vector3(12, 4.6, 0.5), _mat_dark)
+	for x in [14.0, 24.0]:
+		_box(Vector3(x, 2.0, 14), Vector3(1.0, 2.2, 1.0), _mat_dark)
+		_glow(Vector3(x, 3.2, 14), Vector3(0.8, 0.1, 0.8), _emissive(Color(1, 0.75, 0.3), 4.0))
+	_glow(Vector3(19, 5.6, 9.6), Vector3(10.0, 0.3, 0.2), _emissive(Color(1, 0.4, 0.8), 5.0))
+
+## Бар вдоль всей западной стены. Стойка длинная, за ней — проход для
+## бармена, и в этот проход можно сесть: одна из главных нычек зала.
+func _club_bar() -> void:
+	_box(Vector3(-26, 0.6, 2), Vector3(2.4, 1.2, 30), _mat_wood)
+	_box(Vector3(-29.4, 1.6, 2), Vector3(0.6, 3.2, 30), _mat_dark)     # задняя полка
+	_glow(Vector3(-29.0, 2.6, 2), Vector3(0.15, 2.2, 28.0), _mat_neon_blue)
+	for i in range(10):
+		_box(Vector3(-23.4, 0.5, -12.0 + i * 3.0), Vector3(0.55, 1.0, 0.55), _mat_dark)
+	# столики вдоль стойки
+	for z in [-14.0, -7.0, 0.0, 7.0, 14.0]:
+		_table(-18.0, z)
+
+## VIP-БАЛКОН: второй ярус над восточной половиной зала. Сверху видно всё,
+## снизу балкон почти не виден — темно. Ради него зал и сделан высоким.
+func _club_balcony() -> void:
+	var y := 5.2
+	_solid_floor(20, -5, 22, 27, _mat_wood, y)
+	# Перила: по западному краю целиком, по южному — с разрывом там, куда
+	# приходит лестница. Сплошное перило запирало балкон наглухо.
+	_box(Vector3(9.2, y + 0.6, -5), Vector3(0.3, 1.2, 27), _mat_dark, false)
+	_box(Vector3(17.5, y + 0.6, 8.3), Vector3(17.0, 1.2, 0.3), _mat_dark, false)
+	_glow(Vector3(9.0, y + 1.25, -5), Vector3(0.1, 0.08, 25.0), _mat_neon_pink)
+
+	# лестница вдоль восточной стены наверх
+	for i in range(11):
+		_box(Vector3(29.0, 0.24 + i * 0.48, 21.0 - i * 1.3), Vector3(3.6, 0.48, 1.4), _mat_concrete)
+
+	# диваны наверху — здесь сидят по двое-трое, и сюда уводят
+	for z in [-14.0, -8.0, -2.0, 4.0]:
+		_box(Vector3(24.0, y + 0.4, z), Vector3(5.0, 0.8, 2.0), _mat_wood)
+	_hanging_lamp(Vector3(20, y + 3.4, -6), Color(0.9, 0.3, 0.5), 0.7)
+
+## ЗА КУЛИСАМИ: коридор во всю ширину сцены и четыре ГРИМЁРКИ, в каждую одна
+## дверь. Именно сюда уводят, и именно поэтому за сценой всегда пусто.
+func _club_backstage() -> void:
+	# коридор
+	_slab(0, -32, 50, 8, _mat_concrete)
+	_ceiling(0, -32, 50, 8, 4.0)
+	_walls(0, -32, 50, 8, 4.0, {
+		"s": [[-22.0, 4.0], [22.0, 4.0]],
+		"n": [[-18.0, 3.0], [-6.0, 3.0], [6.0, 3.0], [18.0, 3.0]],
+		"w": [[0.0, 3.0]],
+	})
+	for x in [-16.0, 0.0, 16.0]:
+		_hanging_lamp(Vector3(x, 3.6, -32), Color(1.0, 0.9, 0.72), 0.9)
+
+	# четыре гримёрки
+	var i := 0
+	for x in [-18.0, -6.0, 6.0, 18.0]:
+		_slab(x, -41, 11, 10, _mat_wood)
+		_ceiling(x, -41, 11, 10, 3.6)
+		_walls(x, -41, 11, 10, 3.6, {"s": [[0.0, 3.0]]})
+		# столик с зеркалом и лампочками — по ним гримёрка и узнаётся
+		_box(Vector3(x, 0.75, -45.0), Vector3(6.0, 0.12, 1.2), _mat_wood)
+		_box(Vector3(x, 1.9, -45.6), Vector3(5.0, 2.0, 0.15), _mat_glass)
+		for k in range(5):
+			_glow(Vector3(x - 2.0 + k * 1.0, 3.0, -45.5),
+				Vector3(0.16, 0.16, 0.08), _emissive(Color(1, 0.92, 0.72), 3.0))
+		_box(Vector3(x - 4.2, 0.45, -38.0), Vector3(1.4, 0.9, 1.4), _mat_dark)   # пуф
+		_hanging_lamp(Vector3(x, 3.2, -41), Color(1.0, 0.88, 0.68), 0.8)
+		private_spots.append(Vector3(x, 0, -41))
+		zones.append({"name": "Гримёрка %d" % (i + 1), "pos": Vector3(x, 0, -41),
+			"half": Vector2(5.5, 5.0), "kind": "private"})
+		i += 1
+	dressing_room = Vector3(-6, 0, -41)
+
+	# ЗАГРУЗКА: тёмный двор за кулисами. Ни одного гостя, ни одного окна.
+	_slab(-34, -32, 18, 14, _mat_asphalt)
+	_ceiling(-34, -32, 18, 14, 5.0)
+	_walls(-34, -32, 18, 14, 5.0, {"e": [[0.0, 3.0]]})
+	for z in [-36.0, -30.0]:
+		_box(Vector3(-38.0, 1.0, z), Vector3(3.0, 2.0, 2.4), _mat_dark)   # ящики
+	_box(Vector3(-30.0, 1.2, -27.0), Vector3(2.0, 2.4, 2.0), _mat_dark)
+
+## ПОДСОБКИ на западе: склад, щитовая, холодильник. Три глухих помещения с
+## одной дверью каждое — самые тихие места в клубе.
+func _club_utility() -> void:
+	var rooms := [
+		{"name": "Склад", "z": -14.0, "mat": _mat_concrete},
+		{"name": "Щитовая", "z": -2.0, "mat": _mat_dark},
+		{"name": "Холодильник", "z": 12.0, "mat": _mat_glass},
+	]
+	for r in rooms:
+		var z: float = r["z"]
+		_slab(-42, z, 10, 10, r["mat"])
+		_ceiling(-42, z, 10, 10, 3.6)
+		_walls(-42, z, 10, 10, 3.6, {"e": [[0.0, 3.0]]})
+		_hanging_lamp(Vector3(-42, 3.2, z), Color(0.8, 0.85, 0.9), 0.6)
+		private_spots.append(Vector3(-42, 0, z))
+		zones.append({"name": r["name"], "pos": Vector3(-42, 0, z),
+			"half": Vector2(5, 5), "kind": "private"})
+	# стеллажи на складе — между ними прячутся
+	for k in range(3):
+		_box(Vector3(-45.0 + k * 3.0, 1.3, -14.0), Vector3(0.9, 2.6, 6.0), _mat_wood)
+		hide_spots.append(Vector3(-43.4 + k * 3.0, 0, -14.0))
+	# щитовая: гудящие шкафы
+	for x in [-45.0, -42.0, -39.0]:
+		_box(Vector3(x, 1.1, -5.8), Vector3(1.6, 2.2, 0.8), _mat_dark)
+	# холодильник: бочки
+	for k in range(4):
+		_box(Vector3(-45.0 + k * 2.0, 0.6, 13.5), Vector3(1.2, 1.2, 1.2), _mat_concrete)
+
+	# Коридор от подсобок к залу. Восточной стены у него нет вовсе: там уже
+	# стоит западная стена зала со своими дверями, и вторая стена в тех же
+	# сантиметрах превращала проход в глухой мешок.
+	_slab(-34, -1, 6, 34, _mat_concrete)
+	_ceiling(-34, -1, 6, 34, 3.6)
+	_walls(-34, -1, 6, 34, 3.6, {
+		"w": [[-13.0, 3.0], [-1.0, 3.0], [13.0, 3.0]],
+		"e": [[0.0, 34.0]],
+	})
+
+## ГАРДЕРОБ. Ряды ШКАФОВ у входа — и в каждый можно влезть. Это единственное
+## место в клубе, где укрытий больше, чем людей, и куда идут все, кто ещё не
+## понял, что происходит.
+func _club_wardrobe() -> void:
+	_slab(-25, 34, 16, 14, _mat_wood)
+	_ceiling(-25, 34, 16, 14, 4.2)
+	_walls(-25, 34, 16, 14, 4.2, {"e": [[0.0, 4.0]]})
+	_hanging_lamp(Vector3(-25, 3.8, 34), Color(1.0, 0.9, 0.75), 1.0)
+	zones.append({"name": "Гардероб", "pos": Vector3(-25, 0, 34),
+		"half": Vector2(8, 7), "kind": "dark"})
+
+	# два ряда шкафов, между ними проход
+	for row in range(2):
+		var z: float = 30.5 + row * 6.0
+		for k in range(6):
+			var x: float = -31.0 + k * 2.4
+			_box(Vector3(x, 1.1, z), Vector3(2.0, 2.2, 1.2), _mat_wood)
+			# нычка — прямо перед дверцей шкафа, со стороны прохода
+			hide_spots.append(Vector3(x, 0, z + (1.3 if row == 0 else -1.3)))
+
+	# ещё шкафы за кулисами: артисты держат костюмы там
+	for k in range(4):
+		var x: float = -22.0 + k * 2.4
+		_box(Vector3(x, 1.1, -35.4), Vector3(2.0, 2.2, 1.0), _mat_wood)
+		hide_spots.append(Vector3(x, 0, -34.4))
+
+## ТУАЛЕТЫ на востоке: кабинки, в которые уходят по одному, и куда за тобой
+## никто не пойдёт — пока не станет поздно.
+func _club_toilets() -> void:
+	_slab(38, 4, 14, 16, _mat_glass)
+	_ceiling(38, 4, 14, 16, 3.6)
+	_walls(38, 4, 14, 16, 3.6, {"w": [[0.0, 3.0]]})
+	_hanging_lamp(Vector3(38, 3.2, 4), Color(0.75, 0.85, 0.95), 0.9)
+	for k in range(4):
+		var z: float = -1.0 + k * 3.0
+		_box(Vector3(42.0, 1.1, z), Vector3(4.0, 2.2, 0.2), _mat_concrete)
+		hide_spots.append(Vector3(42.0, 0, z + 1.5))
+	zones.append({"name": "Туалеты", "pos": Vector3(38, 0, 4),
+		"half": Vector2(7, 8), "kind": "private"})
+
+## Свет зала. Он и есть половина клуба: под бегающими цветными лучами лица
+## читаются плохо, и именно поэтому вампир держится танцпола.
+func _club_light_rig() -> void:
+	# ферма над танцполом
+	for x in [-14.0, 0.0, 14.0]:
+		_box(Vector3(x, CLUB_H - 0.6, -6), Vector3(0.4, 0.4, 34.0), _mat_dark, false)
+	for i in range(6):
 		var l := OmniLight3D.new()
-		l.light_color = [Color(1, 0.2, 0.6), Color(0.3, 0.6, 1), Color(0.4, 1, 0.6), Color(1, 0.8, 0.3)][i]
-		l.omni_range = 24.0
-		l.light_energy = 2.0
-		l.light_volumetric_fog_energy = 2.5
-		l.position = Vector3(-9.0 + i * 6.0, 5.4, -4.0 + (i % 2) * 8.0)
+		l.light_color = [Color(1, 0.2, 0.6), Color(0.3, 0.6, 1), Color(0.4, 1, 0.6),
+			Color(1, 0.8, 0.3), Color(0.8, 0.3, 1), Color(0.2, 1, 0.9)][i]
+		l.omni_range = 30.0
+		l.light_energy = 2.2
+		l.light_volumetric_fog_energy = 3.0
+		l.position = Vector3(-15.0 + (i % 3) * 15.0, CLUB_H - 1.6, -14.0 + float(i / 3) * 14.0)
 		add_child(l)
 		_club_lights.append(l)
+	# прожекторы сцены
+	for x in [-9.0, 0.0, 9.0]:
+		var sl := SpotLight3D.new()
+		sl.position = Vector3(x, CLUB_H - 1.4, -12.0)
+		sl.rotation_degrees = Vector3(-62, 0, 0)
+		sl.light_color = Color(1, 0.92, 0.8)
+		sl.light_energy = 5.0
+		sl.spot_range = 28.0
+		sl.spot_angle = 22.0
+		sl.light_volumetric_fog_energy = 4.0
+		add_child(sl)
 
-	_lamp_at(Vector3(-14, 0, 14), "клуб")
-	_neon_sign(Vector3(0, 6.0, 17.4), "КЛУБ")
+	# ПРОЖЕКТОРЫ-ЦЕЛИ: их зажигают люди, и в них вся их победа. Расставлены
+	# по всему клубу так, чтобы за каждым надо было идти в отдельный угол.
+	_lamp_at(Vector3(-20, 0, 20), "танцпол")
+	_lamp_at(Vector3(18, 0, -18), "у главной сцены")
+	_lamp_at(Vector3(-26, 0, -18), "бар")
+	_lamp_at(Vector3(22, 0, 18), "вторая сцена")
+	_lamp_at(Vector3(0, 0, -32), "за кулисами")
+	_lamp_at(Vector3(-42, 0, -2), "щитовая")
+	_lamp_at(Vector3(-25, 0, 34), "гардероб")
+	_lamp_at(Vector3(24, 5.2, -6), "VIP-балкон")
 
-	# кто чем занят: диджей за пультом, танцпол, стойка, курилка у выхода
-	_add_job("dj", Vector3(0, 1.0, -13), Vector3(0, 0, 1))
-	for ix in range(4):
-		for iz in range(3):
-			_add_job("dance", Vector3(-6.0 + ix * 4.0, 0, -4.0 + iz * 4.0))
-	for i in range(5):
-		_add_job("drink", Vector3(-16.4, 0, -4.0 + i * 2.6), Vector3(-1, 0, 0))
-	for i in range(3):
-		_add_job("smoke", Vector3(-2.0 + i * 2.0, 0, 15.0), Vector3(0, 0, 1))
-	for p in [Vector3(-4, 0, -2), Vector3(5, 0, 4), Vector3(-16, 0, 2)]:
-		_add_job("talk", p)
+## Точки клуба: куда ходит толпа, где стоят кучками, где кто работает.
+func _points_club() -> void:
+	for p in [
+		Vector3(-10, 0, -6), Vector3(0, 0, -4), Vector3(10, 0, -6), Vector3(-6, 0, 4),
+		Vector3(6, 0, 4), Vector3(0, 0, 10), Vector3(-16, 0, 8), Vector3(16, 0, 6),
+		Vector3(-20, 0, -6), Vector3(20, 0, 16), Vector3(0, 0, 18), Vector3(12, 0, -14),
+		Vector3(-12, 0, -14), Vector3(-22, 0, 12), Vector3(22, 0, 2), Vector3(-4, 0, 20),
+		Vector3(0, 0, 34), Vector3(-25, 0, 34), Vector3(38, 0, 4), Vector3(20, 0, 14),
+		Vector3(24, 5.2, -6), Vector3(20, 5.2, 2), Vector3(0, 0, -32), Vector3(-42, 0, -2),
+		Vector3(-18, 0, -41), Vector3(6, 0, -41), Vector3(-34, 0, 6), Vector3(-34, 0, -12),
+	]:
+		wander_points.append(p)
 
-## БАР. Тише, темнее, народу меньше — тут вампиру спокойнее работать.
-func _bar() -> void:
-	var cx := -46.0
-	var cz := 22.0
-	_slab(cx, cz, 26, 20, _mat_wood)
-	_ceiling(cx, cz, 26, 20, 4.2)
-	_walls(cx, cz, 26, 20, 4.2, {"e": [[0.0, 3.0]]})
-	_box(Vector3(cx - 4, 0.55, cz), Vector3(12, 1.1, 1.6), _mat_wood)
-	for i in range(5):
-		_box(Vector3(cx - 9.0 + i * 2.4, 0.5, cz + 1.8), Vector3(0.5, 1.0, 0.5), _mat_dark)
-	for i in range(3):
-		_table(cx + 6.0, cz - 6.0 + i * 5.0)
-	for x in [cx - 8.0, cx + 4.0]:
-		_hanging_lamp(Vector3(x, 3.0, cz), Color(1.0, 0.72, 0.42), 1.8)
-	_lamp_at(Vector3(cx + 11, 0, cz + 7), "бар")
-	_neon_sign(Vector3(cx + 13.4, 3.6, cz), "БАР", true)
+	for p in [Vector3(-8, 0, 6), Vector3(8, 0, 8), Vector3(-20, 0, 0), Vector3(18, 0, 10),
+			  Vector3(0, 0, 16), Vector3(22, 5.2, -6), Vector3(-25, 0, 34)]:
+		chat_spots.append(p)
 
-## ДЕРЕВНЯ на отшибе: тёмные дома, редкие фонари, ни одного свидетеля.
-func _village() -> void:
-	var vx := 66.0
-	var vz := 46.0
-	for i in range(7):
-		var a := (i / 7.0) * TAU
-		_house(vx + cos(a) * 22.0, vz + sin(a) * 20.0, 8.0 + (i % 3), 7.0, 4.2, a)
-	_box(Vector3(vx, 0.4, vz), Vector3(3, 0.8, 3), _mat_concrete)
-	for i in range(2):
-		_lamp_at(Vector3(vx - 12.0 + i * 24.0, 0, vz - 12.0), "деревня")
-	for i in range(12):
-		_tree(vx - 30.0 + randf() * 60.0, vz - 26.0 + randf() * 52.0)
+	for p in [Vector3(-4, 0, 30), Vector3(4, 0, 30), Vector3(0, 0, 36)]:
+		human_spawns.append(p)
+	for p in [Vector3(0, 0, -32), Vector3(-42, 0, 12), Vector3(24, 5.2, -12),
+			  Vector3(-34, 0, -32), Vector3(38, 0, 8)]:
+		undead_spawns.append(p)
 
-## БАШНЯ. Внизу вестибюль, наверху смотровая — лифт закинет туда за секунду,
-## и там уже никто не поможет.
-func _tower() -> void:
-	var tx := 64.0
-	var tz := -58.0
-	_slab(tx, tz, 30, 30, _mat_concrete)
-	_ceiling(tx, tz, 30, 30, 6.0)
-	_walls(tx, tz, 30, 30, 6.0, {"w": [[0.0, 4.0]]})
-	for i in range(3):
-		_hanging_lamp(Vector3(tx - 8.0 + i * 8.0, 4.6, tz), Color(0.8, 0.9, 1.0), 1.6)
+	# нычки в самом зале: за стойкой, под сценой, за колонками, за диванами
+	for p in [Vector3(-27.6, 0, -6), Vector3(-27.6, 0, 8), Vector3(-27.6, 0, 16),
+			  Vector3(-13.0, 0, -15.0), Vector3(13.0, 0, -15.0),
+			  Vector3(0, 0, -16.0), Vector3(24, 5.2, -14), Vector3(24, 5.2, 4),
+			  Vector3(-38, 0, -30), Vector3(-30, 0, -25)]:
+		hide_spots.append(p)
 
-	# шпиль: виден из любой точки города
-	for i in range(9):
-		var w: float = 22.0 - i * 2.0
-		var y: float = 6.0 + i * 13.0
-		var seg := MeshInstance3D.new()
-		var bm := BoxMesh.new()
-		bm.size = Vector3(w, 13.0, w)
-		seg.mesh = bm
-		seg.material_override = _mat_glass
-		seg.position = Vector3(tx, y + 6.5, tz)
-		add_child(seg)
-		if i % 2 == 0:
-			_glow(Vector3(tx, y + 12.0, tz + w * 0.5), Vector3(w * 0.8, 0.3, 0.2), _mat_neon_blue)
+	for p in [Vector3(0, 0, -4), Vector3(20, 0, 14), Vector3(-20, 0, 2), Vector3(0, 0, 34)]:
+		common_spots.append(p)
 
-	# смотровая площадка — здесь пол настоящий, он высоко над землёй
-	_solid_floor(tx, tz, 22, 22, _mat_concrete, 26.0)
-	for s in [[0.0, -11.0, 22.0, 1.0], [0.0, 11.0, 22.0, 1.0], [-11.0, 0.0, 1.0, 22.0], [11.0, 0.0, 1.0, 22.0]]:
-		_box(Vector3(tx + s[0], 26.7, tz + s[1]), Vector3(s[2], 1.4, s[3]), _mat_glass)
-	rooftop = Vector3(tx, 26.0, tz + 6.0)
+	zones.append({"name": "Танцпол", "pos": Vector3(0, 0, -4), "half": Vector2(18, 14), "kind": "common"})
+	zones.append({"name": "Главная сцена", "pos": Vector3(0, 0, -20), "half": Vector2(15, 5), "kind": "common"})
+	zones.append({"name": "Вторая сцена", "pos": Vector3(19, 0, 14), "half": Vector2(7, 5), "kind": "common"})
+	zones.append({"name": "Бар", "pos": Vector3(-24, 0, 2), "half": Vector2(6, 15), "kind": "common"})
+	zones.append({"name": "VIP-балкон", "pos": Vector3(20, 0, -6), "half": Vector2(11, 13), "kind": "dark"})
+	zones.append({"name": "Фойе", "pos": Vector3(0, 0, 34), "half": Vector2(17, 8), "kind": "common"})
+	zones.append({"name": "За кулисами", "pos": Vector3(0, 0, -32), "half": Vector2(25, 4), "kind": "dark"})
+	zones.append({"name": "Загрузка", "pos": Vector3(-34, 0, -32), "half": Vector2(9, 7), "kind": "dark"})
 
-	_lift(Vector3(tx - 12.0, 0.0, tz + 12.0), rooftop, "подняться на смотровую")
-	_lift(Vector3(tx, 26.0, tz + 9.5), Vector3(tx - 12.0, 0.0, tz + 13.5), "спуститься вниз")
-	_lamp_at(Vector3(tx - 13, 0, tz - 8), "башня")
-
-func _streets() -> void:
-	_slab(-24, 14, 34, 8, _mat_asphalt, 0.01)
-	_slab(34, 24, 60, 8, _mat_asphalt, 0.01)
-	_slab(40, -30, 8, 62, _mat_asphalt, 0.01)
-	_slab(22, 8, 40, 8, _mat_asphalt, 0.01)
-	for i in range(7):
-		_street_lamp(Vector3(-32.0 + i * 12.0, 0, 18.0))
-	# у входа в клуб и на площади перед ним
-	for p2 in [Vector3(-8, 0, 20), Vector3(8, 0, 20), Vector3(0, 0, 26), Vector3(16, 0, 12)]:
-		_street_lamp(p2)
-	for i in range(6):
-		_street_lamp(Vector3(44.0, 0, -22.0 + i * 12.0))
-
-# ------------------------------------------------------------ наполнение
-## СКЛАД. Огромный ангар, а внутри — лабиринт из контейнеров: длинные
-## коридоры, тупики и щели между штабелями. Здесь ломается главное
-## преимущество лича: по прямой он всё равно медленнее, а прямых тут нет.
-func _warehouse() -> void:
-	var cx := -70.0
-	var cz := -46.0
-	_slab(cx, cz, 56, 44, _mat_concrete)
-	_ceiling(cx, cz, 56, 44, 9.0)
-	_walls(cx, cz, 56, 44, 9.0, {"e": [[0.0, 5.0], [14.0, 4.0]], "s": [[-10.0, 4.0]]})
-
-	# штабеля контейнеров: между ними проходы в полтора метра
-	var colours := [Color(0.30, 0.16, 0.14), Color(0.14, 0.24, 0.28),
-		Color(0.26, 0.24, 0.14), Color(0.18, 0.18, 0.22)]
-	var i := 0
-	for gx in range(5):
-		for gz in range(4):
-			if (gx + gz) % 3 == 0:
-				continue                       # пропуски и есть коридоры
-			var x := cx - 20.0 + gx * 9.5
-			var z := cz - 15.0 + gz * 9.5
-			var tall := 1 if (gx * gz) % 2 == 0 else 2
-			for level in tall:
-				_box(Vector3(x, 1.3 + level * 2.6, z), Vector3(6.0, 2.5, 5.0),
-					_mat(colours[i % colours.size()], 0.9, 0.1))
-			i += 1
-			# щель за штабелем — в неё и прячутся
-			if tall == 1:
-				hide_spots.append(Vector3(x + 4.0, 0, z))
-
-	# конторка: одна дверь, окно, никто не заходит
-	_slab(cx + 20, cz - 15, 12, 10, _mat_wood)
-	_ceiling(cx + 20, cz - 15, 12, 10, 3.4)
-	_walls(cx + 20, cz - 15, 12, 10, 3.4, {"w": [[0.0, 2.4]]})
-	_box(Vector3(cx + 22, 0.45, cz - 17), Vector3(3, 0.9, 1.4), _mat_wood)
-	_hanging_lamp(Vector3(cx + 20, 3.0, cz - 15), Color(0.9, 0.85, 0.6), 1.1)
-	private_spots.append(Vector3(cx + 20, 0, cz - 15))
-	hide_spots.append(Vector3(cx + 23, 0, cz - 12))
-
-	for p in [Vector3(cx - 22, 0, cz + 16), Vector3(cx + 16, 0, cz + 14)]:
-		_hanging_lamp(p + Vector3(0, 7.4, 0), Color(0.75, 0.82, 0.95), 1.6)
-	_lamp_at(Vector3(cx + 24, 0, cz + 18), "склад")
-	_neon_sign(Vector3(cx, 7.6, cz + 22.4), "СКЛАД")
-	common_spots.append(Vector3(cx - 4, 0, cz + 12))
-	zones.append({"name": "Склад", "pos": Vector3(cx, 0, cz), "half": Vector2(28, 22), "kind": "dark"})
-
-## ОТЕЛЬ. Холл на виду и коридор с шестью номерами. Номера — это шесть
-## комнат с одной дверью каждая: лучшего места, чтобы увести человека и не
-## быть увиденным, в городе нет. Поэтому же человеку туда ходить страшно.
-func _hotel() -> void:
-	var cx := -72.0
-	var cz := 80.0
-	# холл
-	_slab(cx, cz, 28, 20, _mat_wood)
-	_ceiling(cx, cz, 28, 20, 5.0)
-	_walls(cx, cz, 28, 20, 5.0, {"s": [[0.0, 4.0]], "n": [[8.0, 3.0]]})
-	_box(Vector3(cx - 8, 0.55, cz - 6), Vector3(9, 1.1, 1.6), _mat_wood)   # стойка портье
-	hide_spots.append(Vector3(cx - 8, 0, cz - 7.6))
-	for x in [cx - 9.0, cx + 6.0]:
-		_hanging_lamp(Vector3(x, 3.8, cz), Color(1.0, 0.8, 0.55), 1.6)
-	for i in range(3):
-		_table(cx + 7.0, cz - 5.0 + i * 5.0)
-	common_spots.append(Vector3(cx + 4, 0, cz + 2))
-	_neon_sign(Vector3(cx, 4.4, cz + 10.4), "ОТЕЛЬ")
-
-	# коридор на север и шесть номеров по обе стороны
-	_slab(cx + 8, cz - 24, 6, 30, _mat_dark)
-	_ceiling(cx + 8, cz - 24, 6, 30, 3.2)
-	_walls(cx + 8, cz - 24, 6, 30, 3.2, {
-		"s": [[0.0, 2.4]],
-		"w": [[-9.0, 2.2], [0.0, 2.2], [9.0, 2.2]],
-		"e": [[-9.0, 2.2], [0.0, 2.2], [9.0, 2.2]]})
-	for i in range(3):
-		var rz := cz - 33.0 + i * 9.0
-		for sx: float in [-1.0, 1.0]:
-			var rx: float = cx + 8.0 + sx * 9.0
-			_slab(rx, rz, 12, 8, _mat_wood)
-			_ceiling(rx, rz, 12, 8, 3.2)
-			var gap := {"e": [[0.0, 2.2]]} if sx < 0.0 else {"w": [[0.0, 2.2]]}
-			_walls(rx, rz, 12, 8, 3.2, gap)
-			_box(Vector3(rx - sx * 3.0, 0.35, rz), Vector3(2.6, 0.7, 4.0), _mat_wood)  # кровать
-			_hanging_lamp(Vector3(rx, 2.9, rz), Color(1.0, 0.72, 0.45), 0.9)
-			private_spots.append(Vector3(rx, 0, rz))
-			hide_spots.append(Vector3(rx + sx * 4.4, 0, rz + 2.6))          # шкаф
-	_lamp_at(Vector3(cx + 12, 0, cz + 6), "отель")
-	zones.append({"name": "Отель", "pos": Vector3(cx + 4, 0, cz - 14), "half": Vector2(20, 30), "kind": "private"})
-
-## ПАРКОВКА. Низкий потолок, колонны, машины и ни одного окна. Свет через
-## один — между пятнами темнота, в которой стоят и ждут.
-func _parking() -> void:
-	var cx := 20.0
-	var cz := 72.0
-	_slab(cx, cz, 46, 34, _mat_asphalt)
-	_ceiling(cx, cz, 46, 34, 3.6)
-	_walls(cx, cz, 46, 34, 3.6, {"n": [[-12.0, 5.0]], "w": [[0.0, 4.0]]})
-	for gx in range(6):
-		for gz in range(4):
-			_box(Vector3(cx - 18.0 + gx * 7.2, 1.8, cz - 12.0 + gz * 8.0),
-				Vector3(1.0, 3.6, 1.0), _mat_concrete)
-	# машины: за ними и приседают
-	for i in range(10):
-		var mx := cx - 16.0 + float(i % 5) * 8.0
-		var mz := cz - 9.0 + float(i / 5) * 16.0
-		_box(Vector3(mx, 0.7, mz), Vector3(4.4, 1.4, 2.0), _mat(Color(0.16, 0.16, 0.19), 0.5, 0.4))
-		_box(Vector3(mx, 1.5, mz), Vector3(2.4, 0.8, 1.9), _mat_glass)
-		hide_spots.append(Vector3(mx, 0, mz + 1.9))
+	# ---- кто чем занят. Занятий много и они разные: клуб живой, а не
+	# декорация, и по тому, чем занят гость, видно, стоит ли к нему подходить.
+	_add_job("dj", Vector3(0, 1.4, -21.4), Vector3(0, 0, 1))
+	for ix in range(5):
+		for iz in range(4):
+			_add_job("dance", Vector3(-11.0 + ix * 5.5, 0, -11.0 + iz * 5.0))
+	for i in range(8):
+		_add_job("drink", Vector3(-24.2, 0, -12.0 + i * 3.0), Vector3(-1, 0, 0))
 	for i in range(4):
-		_hanging_lamp(Vector3(cx - 15.0 + i * 10.0, 3.2, cz), Color(0.7, 0.8, 0.9), 1.3)
-	# будка охраны — приватная и с обзором
-	_slab(cx + 20, cz + 13, 8, 6, _mat_concrete)
-	_ceiling(cx + 20, cz + 13, 8, 6, 3.0)
-	_walls(cx + 20, cz + 13, 8, 6, 3.0, {"w": [[0.0, 2.2]]})
-	private_spots.append(Vector3(cx + 20, 0, cz + 13))
-	_lamp_at(Vector3(cx - 20, 0, cz + 14), "парковка")
-	zones.append({"name": "Парковка", "pos": Vector3(cx, 0, cz), "half": Vector2(23, 17), "kind": "dark"})
+		_add_job("smoke", Vector3(-8.0 + i * 3.0, 0, 40.0), Vector3(0, 0, 1))
+	for i in range(3):
+		_add_job("serve", Vector3(-16.0 + i * 6.0, 0, 12.0))
+	for i in range(2):
+		_add_job("guard", Vector3(-6.0 + i * 14.0, 0, 25.0), Vector3(0, 0, 1))
+	_add_job("guard", Vector3(0, 0, -27.0), Vector3(0, 0, 1))
+	for p in [Vector3(-8, 0, 6), Vector3(8, 0, 8), Vector3(22, 5.2, -6), Vector3(-20, 0, 18)]:
+		_add_job("talk", p)
+	for p in [Vector3(24, 5.2, -14), Vector3(24, 5.2, 4)]:
+		_add_job("sleep", p)
+	_add_job("work", Vector3(-42, 0, -14), Vector3(1, 0, 0))
+	_add_job("work", Vector3(-36, 0, -32), Vector3(1, 0, 0))
 
-## ВЕРФЬ. Вода, краны, штабеля и ангар. Простор и длинные линии: гарпун
-## Лары здесь достаёт через полкарты, а прятаться приходится за железом.
 func _build_wharf() -> void:
 	var water := _mat(Color(0.04, 0.07, 0.10), 0.25, 0.3)
 	_slab(0, -70, 200, 60, water)                     # гавань на севере
@@ -641,62 +754,6 @@ func _points_common() -> void:
 		undead_spawns.append(Vector3(0, 0, -6))
 	if common_spots.is_empty():
 		common_spots.append(wander_points[0])
-
-func _points() -> void:
-	# Точки клуба намеренно повторяются: народ идёт туда, где музыка, и
-	# именно поэтому в клубе давка, а в деревне — тишина и никого.
-	for p in [
-		Vector3(-6, 0, -4), Vector3(6, 0, -4), Vector3(-6, 0, 6), Vector3(6, 0, 6),
-		Vector3(0, 0, 0), Vector3(0, 0, 9), Vector3(-14, 0, 8), Vector3(14, 0, 2),
-		Vector3(-16, 0, -6), Vector3(12, 0, 12), Vector3(0, 0, 14), Vector3(8, 0, -8),
-		Vector3(-4, 0, -8), Vector3(4, 0, -9), Vector3(-10, 0, 2), Vector3(10, 0, -2),
-		Vector3(-46, 0, 18), Vector3(-40, 0, 26), Vector3(-52, 0, 22), Vector3(-44, 0, 16),
-		Vector3(-24, 0, 14), Vector3(10, 0, 22),
-		Vector3(64, 0, 46), Vector3(56, 0, 42),
-		Vector3(64, 0, -58), Vector3(58, 0, -52),
-	]:
-		wander_points.append(p)
-
-	for p in [Vector3(-4, 0, -2), Vector3(5, 0, 4), Vector3(-16, 0, 2),
-			  Vector3(-46, 0, 20), Vector3(64, 0, 44), Vector3(62, 0, -56)]:
-		chat_spots.append(p)
-
-	# новые районы: без своих точек толпа в них не заходит, и половина
-	# города стоит пустой декорацией
-	for p in [
-		Vector3(-70, 0, -30), Vector3(-58, 0, -40), Vector3(-82, 0, -52),
-		Vector3(-70, 0, -58), Vector3(-50, 0, -46), Vector3(-66, 0, -46),
-		Vector3(-72, 0, 80), Vector3(-64, 0, 86), Vector3(-80, 0, 76),
-		Vector3(-64, 0, 60), Vector3(-58, 0, 44), Vector3(-52, 0, 34),
-		Vector3(20, 0, 72), Vector3(8, 0, 66), Vector3(32, 0, 78),
-		Vector3(20, 0, 58), Vector3(6, 0, 44), Vector3(24, 0, 36),
-		Vector3(-24, 0, 40), Vector3(20, 0, -20), Vector3(40, 0, 10),
-	]:
-		wander_points.append(p)
-	for p in [Vector3(-70, 0, -34), Vector3(-68, 0, 82), Vector3(18, 0, 70)]:
-		chat_spots.append(p)
-
-	for p in [Vector3(-2, 0, 12), Vector3(2, 0, 12), Vector3(0, 0, 15)]:
-		human_spawns.append(p)
-	for p in [Vector3(-46, 0, 26), Vector3(64, 0, 50), Vector3(60, 0, -54), Vector3(16, 0, 10),
-			  Vector3(-70, 0, -40), Vector3(-66, 0, 78), Vector3(20, 0, 66)]:
-		undead_spawns.append(p)
-
-	# нычки в старых районах
-	for p in [Vector3(-19.4, 0, 2), Vector3(-14, 0, -12), Vector3(6, 0, -16),
-			  Vector3(-51.6, 0, 22), Vector3(-40, 0, 27),
-			  Vector3(58, 0, -66), Vector3(70, 0, -50)]:
-		hide_spots.append(p)
-	for p in [Vector3(0, 0, -28), Vector3(0, 0, -19)]:
-		private_spots.append(p)
-	for p in [Vector3(0, 0, 0), Vector3(-46, 0, 22), Vector3(64, 0, -58)]:
-		common_spots.append(p)
-
-	zones.append({"name": "Клуб", "pos": Vector3(0, 0, -2), "half": Vector2(22, 24), "kind": "common"})
-	zones.append({"name": "Гримёрка", "pos": Vector3(0, 0, -27), "half": Vector2(7, 6), "kind": "private"})
-	zones.append({"name": "Бар", "pos": Vector3(-46, 0, 22), "half": Vector2(13, 10), "kind": "common"})
-	zones.append({"name": "Деревня", "pos": Vector3(66, 0, 46), "half": Vector2(30, 26), "kind": "dark"})
-	zones.append({"name": "Башня", "pos": Vector3(64, 0, -58), "half": Vector2(15, 15), "kind": "private"})
 
 # --------------------------------------------------------------- кирпичи
 ## Пол района: только картинка, чуть выше общей земли. Твёрдая поверхность

@@ -33,9 +33,25 @@ const BONES := {
 	"foot_r": "mixamorig_RightFoot",
 }
 
+## Пальцы. В моделях их сорок — по четыре сустава на каждый из пяти пальцев
+## обеих рук, — и до сих пор они не двигались ни разу: кулак был отлит вместе с
+## предплечьем. Оттого руки и выглядели муляжом, особенно от первого лица, где
+## кисть занимает четверть экрана.
+const FINGERS := ["Thumb", "Index", "Middle", "Ring", "Pinky"]
+
 var skeleton: Skeleton3D = null
 var idx: Dictionary = {}                  # ключ -> индекс кости
 var ok: bool = false
+## Есть ли в модели пальцы: у собранных из примитивов тел их нет.
+var has_fingers: bool = false
+
+## Уровень подробности. 0 — всё: пальцы, лицо, мимика. 1 — тело без пальцев и
+## без лица. 2 — только корпус и конечности, и реже.
+##
+## Считать сорок пальцевых костей и мимику для гостя в другом конце зала не
+## имеет смысла: на экране он двадцать пикселей ростом. Зато для того, кого
+## держат за горло в полуметре от камеры, важен каждый сустав.
+var detail: int = 0
 
 ## Высота макушки в покое — по ней модель приводится к нужному росту.
 var rest_height: float = 1.78
@@ -79,6 +95,21 @@ var limp_r: float = 0.0
 var arm_hurt_l: float = 0.0
 var arm_hurt_r: float = 0.0
 var dead: float = 0.0
+## Есть ли что в руках: по этому кисть сжимается на рукояти, а не болтается.
+var armed: bool = false
+var offhand: bool = false
+
+## Казнь лича: своя, длинная, необратимая. 0..1 по ходу приёма.
+var mori: float = 0.0
+var mori_kind: String = ""
+
+## Мимика. Лицевых костей в моделях нет вовсе, поэтому лицо — отдельная
+## накладка (`FaceRig`), а сюда кладётся только НАСТРОЕНИЕ, и его же
+## отыгрывают шея и плечи. Одно и то же слово двигает и брови, и позу: испуг —
+## это не только круглые глаза, но и вобранная в плечи голова.
+var face: FaceRig = null
+var mood: String = ""
+var mood_power: float = 0.0
 
 ## Своя голова у игрока: камера сидит внутри черепа, и изнутри он закрывает
 ## пол-экрана. Схлопываем кость головы в точку — остальное тело остаётся
@@ -95,6 +126,15 @@ func bind(root: Node) -> bool:
 		var i := skeleton.find_bone(BONES[key])
 		if i >= 0:
 			idx[key] = i
+	# пальцы заводятся списком: имена у Mixamo строго по шаблону
+	for side in ["Left", "Right"]:
+		var s: String = "l" if side == "Left" else "r"
+		for f in FINGERS:
+			for j in range(1, 4):
+				var bi := skeleton.find_bone("mixamorig_%sHand%s%d" % [side, f, j])
+				if bi >= 0:
+					idx["%s_%s%d" % [s, f.to_lower(), j]] = bi
+					has_fingers = true
 	ok = idx.has("hips") and idx.has("arm_l") and idx.has("upleg_l")
 	if ok:
 		_measure()
@@ -176,14 +216,33 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	if hide_head and idx.has("head"):
 		skeleton.set_bone_pose_scale(idx["head"], Vector3.ONE * 0.001)
 
+	# Лежащий, ползущий и добивающий — тоже с руками и с лицом: именно в эти
+	# секунды камера ближе всего, и именно здесь пустое лицо заметнее всего.
 	if dead > 0.0:
 		_pose_dead()
+		_hands(0.0, 0.0)
+		_face(dt)
+		return
+	# Казнь проверяется РАНЬШЕ «сбит с ног»: казнят как раз лежачего, и поза
+	# ползущего перебивала бы всю сцену — человек висел бы в руках лича,
+	# продолжая ползти по воздуху.
+	if mori > 0.0:
+		if mori_kind == "victim":
+			_pose_mori_victim(mori)
+		else:
+			_pose_mori(mori)
+		_hands(0.0, 0.0)
+		_face(dt)
 		return
 	if downed:
 		_pose_downed(dt)
+		_hands(0.0, sin(crawl))
+		_face(dt)
 		return
 	if finish > 0.0:
 		_pose_finish(finish)
+		_hands(0.0, 0.0)
+		_face(dt)
 		return
 
 	var gait: float = clampf(speed / 4.4, 0.0, 1.3)
@@ -260,21 +319,55 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	# затылке, другая под лопатками, и обе сведены внутрь. Без этого поза
 	# читалась как «двое стоят близко», а не как то, что происходит.
 	if drink > 0.0:
+		# ЗАХВАТ. Первая четверть секунды — рывок: вампир не тянется, а
+		# ХВАТАЕТ. Плечи выбрасываются вперёд разом, обе кисти смыкаются на
+		# жертве, корпус идёт следом. Дальше руки уже только держат.
+		var snatch: float = clampf(drink * 3.0, 0.0, 1.0) * (1.0 - clampf((drink - 0.7) / 0.3, 0.0, 1.0))
 		_spin("arm_l", AZ, -drink * 0.55)
 		_spin("arm_r", AZ, drink * 0.55)
+		_spin("arm_l", AX, -snatch * 0.45)
+		_spin("arm_r", AX, -snatch * 0.45)
 		_spin("fore_l", AX, -drink * 0.85)
 		_spin("fore_r", AX, -drink * 0.65)
 		_spin("shoulder_l", AZ, -drink * 0.25)
 		_spin("shoulder_r", AZ, drink * 0.25)
+		_spin("shoulder_l", AX, -snatch * 0.55)
+		_spin("shoulder_r", AX, -snatch * 0.55)
+		# одна рука выше — она держит затылок, вторая ниже, под лопатками
+		_spin("arm_l", AX, -drink * 0.30)
+		_spin("fore_l", AX, -drink * 0.35)
 
-	# Жертву держат: руки повисли вдоль тела, колени уходят, спина
-	# прогибается назад через шею. К концу она уже не стоит, а висит.
+	# ЖЕРТВА В ЗАХВАТЕ. Это не «её держат», это две разные сцены подряд, и
+	# граница между ними — самое главное в укусе.
+	#
+	# Сначала она СОПРОТИВЛЯЕТСЯ: руки идут вперёд, в чужую грудь, локти
+	# согнуты, она упирается и мелко дёргается. Потом перестаёт: руки падают
+	# вдоль тела, колени уходят, спина прогибается через запрокинутую шею — и
+	# к концу она уже не стоит, а висит на руках. Раньше был только второй
+	# кусок, и укус читался как «двое обнялись»: никто не боролся.
 	if bitten > 0.0:
 		var sag: float = bite_sag * bite_sag      # обмякает не сразу, а к концу
-		_spin("arm_l", AX, bitten * 0.35)
-		_spin("arm_r", AX, bitten * 0.35)
-		_spin("fore_l", AX, -bitten * 0.25)
-		_spin("fore_r", AX, -bitten * 0.25)
+		var fight: float = bitten * (1.0 - bite_sag)
+		var shake: float = sin(breathe * 21.0) * fight
+
+		# упирается руками
+		_spin("arm_l", AZ, fight * 0.62)
+		_spin("arm_r", AZ, -fight * 0.62)
+		_spin("arm_l", AX, -fight * 1.15 + shake * 0.10)
+		_spin("arm_r", AX, -fight * 1.15 - shake * 0.10)
+		_spin("fore_l", AX, -fight * 1.05)
+		_spin("fore_r", AX, -fight * 1.05)
+		_spin("shoulder_l", AX, -fight * 0.30)
+		_spin("shoulder_r", AX, -fight * 0.30)
+		# и бьётся всем корпусом, пока есть силы
+		_spin("spine", AY, shake * 0.14)
+		_spin("hips", AY, -shake * 0.10)
+
+		# потом руки падают
+		_spin("arm_l", AX, sag * 0.42)
+		_spin("arm_r", AX, sag * 0.42)
+		_spin("fore_l", AX, -sag * 0.30)
+		_spin("fore_r", AX, -sag * 0.30)
 		_spin("upleg_l", AX, -sag * 0.55)
 		_spin("upleg_r", AX, -sag * 0.45)
 		_spin("leg_l", AX, -sag * 0.85)
@@ -288,6 +381,9 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 
 	if activity != "" and gait < 0.15 and strike == 0.0 and reach == 0.0:
 		_pose_activity()
+
+	_hands(gait, s)
+	_face(dt)
 
 ## Занятие поверх стойки. Всё это накладывается только на стоящего: пошёл —
 ## значит, уже не танцует.
@@ -454,6 +550,20 @@ func _pose_dead() -> void:
 			_spin("upleg_r", AX, -t * 1.25)
 			_spin("leg_l", AX, -t * 2.0)
 			_spin("leg_r", AX, -t * 1.95)
+		"mori":
+			# после казни тело роняют: оно падает как мешок, ничем не смягчая
+			_spin("hips", AY, t * 0.7)
+			_spin("spine", AX, t * 0.75)
+			_spin("spine1", AZ, t * 0.35)
+			_spin("neck", AX, -t * 0.85)
+			_spin("head", AZ, t * 0.55)
+			_spin("arm_l", AZ, -t * 1.45)
+			_spin("arm_r", AZ, t * 0.95)
+			_spin("arm_r", AX, -t * 0.85)
+			_spin("upleg_l", AX, -t * 0.85)
+			_spin("upleg_r", AX, t * 0.45)
+			_spin("leg_l", AX, -t * 1.7)
+			_spin("leg_r", AX, -t * 0.6)
 		"drain":
 			# выпитый складывается мягко, без единого рывка
 			_spin("spine", AX, t * 0.4)
@@ -507,6 +617,196 @@ func _pose_finish(t: float) -> void:
 	_spin("fore_r", AX, -0.6 - swing * 0.6)
 	_spin("upleg_l", AX, -0.55)
 	_spin("leg_l", AX, -0.7)
+
+# =================================================================== пальцы
+## Кисть: `curl` — насколько сжата (0 раскрыта, 1 кулак), `spread` — насколько
+## разведены пальцы, `thumb` — отдельно большой (он в захвате ложится поперёк,
+## а в раскрытой ладони отходит вбок).
+##
+## Ось сгиба одна для всех пальцев и берётся в системе СКЕЛЕТА, как и везде в
+## этом файле. В T-позе руки разведены, ладони смотрят вниз: пальцы левой руки
+## указывают в +X, правой в −X, и в обоих случаях сгиб уводит кончик к −Y.
+## Значит, вращение вокруг Z — вправо для правой руки, влево для левой.
+##
+## Суставы гнутся не поровну: у ближней фаланги ход меньше, у средней больше
+## всего. Ровный сгиб на все три дал бы не кулак, а спираль.
+const JOINT_BEND := [0.55, 1.0, 0.75]
+
+func _hand_pose(right: bool, curl: float, spread: float, thumb: float) -> void:
+	if not has_fingers or detail > 0:
+		return
+	var s: String = "r" if right else "l"
+	var dir: float = 1.0 if right else -1.0
+	for fi in FINGERS.size():
+		var f: String = FINGERS[fi].to_lower()
+		if f == "thumb":
+			continue
+		# мизинец в кулаке всегда сжат чуть сильнее указательного — из-за
+		# этого кулак и выглядит живым, а не штампованным
+		var extra: float = 1.0 + float(fi) * 0.06
+		for j in range(1, 4):
+			var key := "%s_%s%d" % [s, f, j]
+			if not idx.has(key):
+				continue
+			_spin(key, AZ, dir * curl * JOINT_BEND[j - 1] * 1.55 * extra)
+		# развод пальцев веером — только по ближней фаланге
+		if idx.has("%s_%s1" % [s, f]):
+			_spin("%s_%s1" % [s, f], AY, (float(fi) - 2.0) * spread * 0.16 * dir)
+
+	# Большой палец ложится не так: он не сгибается к ладони, а идёт поперёк.
+	for j in range(1, 4):
+		var key := "%s_thumb%d" % [s, j]
+		if not idx.has(key):
+			continue
+		_spin(key, AY, dir * thumb * 0.55)
+		_spin(key, AZ, dir * thumb * 0.45)
+
+## Насколько сжата кисть в этом кадре — считается здесь, а не у вызывающего:
+## правил немного, и все они про одно и то же.
+func _hands(gait: float, s: float) -> void:
+	if not has_fingers or detail > 0:
+		return
+	# Живой покой. Пальцы НИКОГДА не стоят на месте: они мелко подрабатывают
+	# в такт дыханию и шагу. Разница между «рука» и «протез» — вот эта дрожь
+	# в полтора градуса, и без неё модель мёртвая, как её ни двигай.
+	var idle_l: float = 0.18 + sin(breathe * 1.3) * 0.045 + sin(breathe * 2.7 + 1.1) * 0.02
+	var idle_r: float = 0.18 + sin(breathe * 1.15 + 2.0) * 0.05 + sin(breathe * 3.1) * 0.02
+	# на ходу кисть подбирается в такт маху
+	idle_l += maxf(0.0, -s) * gait * 0.16
+	idle_r += maxf(0.0, s) * gait * 0.16
+
+	var curl_l: float = idle_l
+	var curl_r: float = idle_r
+	var thumb_l: float = 0.25
+	var thumb_r: float = 0.25
+	var spread_l: float = 0.5
+	var spread_r: float = 0.5
+
+	# оружие держат мёртвой хваткой, и на замахе она ещё крепче
+	if armed:
+		curl_r = 0.92 + maxf(0.0, strike) * 0.08
+		thumb_r = 0.95
+		spread_r = 0.0
+	if offhand:
+		curl_l = 0.9
+		thumb_l = 0.95
+		spread_l = 0.0
+
+	# ЗАХВАТ. Пальцы смыкаются на жертве — это и есть та деталь, ради которой
+	# захват вообще читается как захват. Раскрытая ладонь у горла — это жест,
+	# сомкнутые пальцы — это хват.
+	if grab > 0.0 or drink > 0.0:
+		var g: float = maxf(grab, drink)
+		curl_l = maxf(curl_l, 0.30 + g * 0.55)
+		curl_r = maxf(curl_r, 0.30 + g * 0.55)
+		thumb_l = maxf(thumb_l, g * 0.85)
+		thumb_r = maxf(thumb_r, g * 0.85)
+		spread_l = lerp(spread_l, 0.15, g)
+		spread_r = lerp(spread_r, 0.15, g)
+
+	# Жертву держат: сначала она ЦАРАПАЕТСЯ — пальцы растопырены и дрожат, —
+	# и только потом кисти раскрываются и обвисают.
+	if bitten > 0.0:
+		var fight: float = bitten * (1.0 - bite_sag)
+		var loose: float = bite_sag * bite_sag
+		curl_l = lerp(curl_l, 0.75 + sin(breathe * 17.0) * 0.12, fight)
+		curl_r = lerp(curl_r, 0.75 + sin(breathe * 15.5) * 0.12, fight)
+		spread_l = lerp(spread_l, 1.0, fight)
+		spread_r = lerp(spread_r, 1.0, fight)
+		curl_l = lerp(curl_l, 0.12, loose)
+		curl_r = lerp(curl_r, 0.12, loose)
+
+	if dead > 0.0:
+		# у мёртвого кисть полураскрыта: не кулак и не ладонь
+		curl_l = lerp(curl_l, 0.22, dead)
+		curl_r = lerp(curl_r, 0.22, dead) if not armed else curl_r
+		spread_l = lerp(spread_l, 0.3, dead)
+
+	match activity:
+		"dj":
+			# пальцы на пластинке — левая на наушнике, правая работает
+			curl_r = 0.35 + maxf(0.0, sin(breathe * 4.2)) * 0.3
+			curl_l = 0.55
+			spread_r = 0.7
+		"drink", "smoke":
+			curl_r = 0.72
+			thumb_r = 0.8
+			spread_r = 0.1
+		"serve":
+			curl_l = 0.10          # ладонь плоская под подносом
+			spread_l = 0.8
+		"talk":
+			curl_r = 0.25 + sin(breathe * 1.9) * 0.2
+			spread_r = 0.9
+		"work":
+			curl_l = 0.85
+			curl_r = 0.85
+			thumb_l = 0.9
+			thumb_r = 0.9
+
+	_hand_pose(false, clampf(curl_l, 0.0, 1.0), spread_l, clampf(thumb_l, 0.0, 1.0))
+	_hand_pose(true, clampf(curl_r, 0.0, 1.0), spread_r, clampf(thumb_r, 0.0, 1.0))
+
+# ==================================================================== лицо
+func _face(dt: float) -> void:
+	if face == null or not is_instance_valid(face):
+		return
+	if detail > 0:
+		face.visible = false
+		return
+	face.visible = true
+	face.drive(dt, self)
+
+## КАЗНЬ. Не добивание: добивание — работа, а это представление.
+##
+## Три доли. Первая — лич поднимает жертву за горло одной рукой: корпус
+## откинут назад, рука выпрямлена вперёд и вверх, кисть сжата. Вторая —
+## заносит оружие свободной рукой, и на этом моменте всё замирает. Третья —
+## удар и бросок: корпус проворачивается, рука разжимается.
+func _pose_mori(t: float) -> void:
+	var lift: float = clampf(t / 0.30, 0.0, 1.0)              # поднял
+	var hold: float = clampf((t - 0.30) / 0.35, 0.0, 1.0)     # занёс
+	var down: float = clampf((t - 0.65) / 0.35, 0.0, 1.0)     # ударил
+
+	# держит на вытянутой: плечи развёрнуты, спина откинута назад
+	_spin("spine", AX, -0.22 * lift + down * 0.45)
+	_spin("spine1", AY, -0.30 * lift + down * 0.55)
+	_spin("neck", AX, -0.18 * lift)
+	_spin("arm_l", AZ, -1.32 + lift * 0.95)
+	_spin("arm_l", AX, -lift * 1.45 + down * 0.55)            # рука вперёд
+	_spin("fore_l", AX, -0.15)                                # локоть прямой
+	_spin("shoulder_l", AX, -lift * 0.35)
+
+	# свободная рука заносит и бьёт
+	_spin("arm_r", AZ, 1.32 - hold * 0.60)
+	_spin("arm_r", AX, -0.15 + hold * 1.95 - down * 3.1)
+	_spin("fore_r", AX, -0.25 - hold * 1.55 + down * 1.35)
+	_spin("shoulder_r", AX, hold * 0.45 - down * 0.35)
+
+	# ноги: широкий упор, на ударе вес переносится вперёд
+	_spin("upleg_l", AX, 0.28 - down * 0.35)
+	_spin("upleg_r", AX, -0.30 + down * 0.30)
+	_spin("leg_r", AX, -0.42)
+	_spin("hips", AY, -0.18 * lift + down * 0.30)
+
+## Обратная сторона казни: как выглядит тот, кого держат за горло.
+func _pose_mori_victim(t: float) -> void:
+	var grip: float = clampf(t / 0.25, 0.0, 1.0)
+	var limp: float = clampf((t - 0.62) / 0.38, 0.0, 1.0)
+	var kick: float = (1.0 - limp) * grip
+	_spin("spine", AX, -0.30 * grip)
+	_spin("neck", AX, -0.55 * grip + limp * 0.9)
+	_spin("head", AZ, 0.22 * grip)
+	# бьётся ногами, пока может
+	_spin("upleg_l", AX, -0.55 * grip + sin(breathe * 11.0) * 0.45 * kick)
+	_spin("upleg_r", AX, -0.45 * grip - sin(breathe * 11.0) * 0.45 * kick)
+	_spin("leg_l", AX, -0.75 * grip)
+	_spin("leg_r", AX, -0.70 * grip)
+	# руки цепляются за чужое запястье, потом падают
+	_spin("arm_l", AZ, -1.32 + 0.85 * grip * (1.0 - limp))
+	_spin("arm_r", AZ, 1.32 - 0.85 * grip * (1.0 - limp))
+	_spin("fore_l", AX, -1.35 * grip * (1.0 - limp))
+	_spin("fore_r", AX, -1.35 * grip * (1.0 - limp))
 
 ## Куда прикрепить оружие: глобальный трансформ кисти относительно корня модели.
 func hand_bone() -> int:
