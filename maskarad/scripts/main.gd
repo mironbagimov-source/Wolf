@@ -78,6 +78,8 @@ func _maybe_autotest() -> void:
 		_look_test.call_deferred()
 	if "--systest" in args:
 		_systems_test.call_deferred()
+	if "--handstest" in args:
+		_hands_test.call_deferred()
 
 ## Проверка боя и повреждений в отрыве от навигации: ставим лича вплотную
 ## к гостю и смотрим, доходит ли удар и что он ломает.
@@ -310,6 +312,81 @@ func _pose_bench() -> void:
 		phases.append("%s %+.2f" % [a.char_id, a.attack_curve()])
 	print("[позы] фаза удара: ", ", ".join(phases))
 	await _bench_shot("позы")
+
+## Руки игрока: доходят ли ЛКМ и `E` до действия. Проверяется не «есть ли
+## такой код», а нажатие настоящей кнопки — потому что сломалось ровно
+## посередине, между кнопкой и действием, и обе стороны по отдельности были
+## целы.
+func _hands_test() -> void:
+	for i in 90:
+		await get_tree().physics_frame
+	var p: Actor = Game.player
+	if p == null or not is_instance_valid(p):
+		print("[руки] игрока нет"); get_tree().quit(); return
+
+	# ставим жертву прямо перед игроком, чтобы удару было во что попасть
+	var victim: Actor = null
+	for a in Game.living():
+		if a != p and a.side != p.side:
+			victim = a
+			break
+	if victim == null:
+		print("[руки] некого бить"); get_tree().quit(); return
+	var vb: Node = victim.get_node_or_null("Brain")
+	if vb:
+		vb.set_process(false); vb.set_physics_process(false)
+	# Разворачивать надо мозг, а не актёра: игрока каждый кадр доворачивает
+	# на `body_yaw`, и выставленный вручную `rotation.y` тут же затирается.
+	var pbrain: Node = p.get_node_or_null("Brain")
+	if pbrain != null:
+		pbrain.set("yaw", 0.0)          # 0 — это взгляд по -Z
+		pbrain.set("body_yaw", 0.0)
+	p.rotation.y = 0.0
+	p.look_dir = Vector3(0, 0, -1)
+	victim.global_position = p.global_position + Vector3(0, 0, -1.6)
+	await get_tree().physics_frame
+
+	# ---- ЛКМ. Кнопку надо ПОДЕРЖАТЬ: `physics_frame` просыпается в начале
+	# кадра, до `_physics_process`, и нажатие, снятое сразу же, игрок не
+	# увидит ни в одном кадре.
+	var hp0 := victim.hp
+	Input.action_press("attack")
+	var seen_pressed := false
+	var started := false
+	for i in 6:
+		await get_tree().physics_frame
+		if Input.is_action_pressed("attack"):
+			seen_pressed = true
+		# ловим ЗДЕСЬ, пока ничего не вызывали вручную: иначе не отличить
+		# сработавшую кнопку от собственного вызова в проверке
+		if p.pending_attack or p.qte_target != null:
+			started = true
+	Input.action_release("attack")
+	for i in 90:
+		victim.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+	print("[руки] ЛКМ: кнопка дошла=%s, удар начат=%s, здоровье %.0f -> %.0f, сбита=%s" % [
+		seen_pressed, started, hp0, victim.hp, victim.downed])
+	print("[руки] ввод игрока читался %d кадров, нажатий удара увидено %d" % [
+		pbrain.get("read_frames"), pbrain.get("attack_presses")])
+	if not started:
+		print("[руки] ЛКМ не сработал: можно драться=%s, откат %.2f, оглушён %.2f, ручной вызов=%s" % [
+			p.can_fight(), p.attack_cd, p.stun_time, p.try_attack()])
+
+	# ---- E по жертве: у вампира это укус, у человека разговор
+	victim.global_position = p.global_position + Vector3(0, 0, -1.4)
+	victim.summoned_by = p if p.side == Data.Side.UNDEAD else null
+	await get_tree().physics_frame
+	var brain: Node = p.get_node_or_null("Brain")
+	if brain != null:
+		brain.call("_find_target")
+		print("[руки] E наводится на: «%s»" % brain.get("prompt"))
+	Input.action_press("interact")
+	for i in 40:
+		await get_tree().physics_frame
+	print("[руки] E: канал «%s», прячется=%s" % [p.channel_kind, p.hidden])
+	Input.action_release("interact")
+	get_tree().quit()
 
 ## Новые правила боя: каждое проверяется отдельно и на живых актёрах.
 ## Здесь легко «сделать» механику, которая ни разу не сработает в матче —

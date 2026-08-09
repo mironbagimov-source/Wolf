@@ -148,7 +148,33 @@ func _place_camera(delta: float) -> void:
 	var concussion: float = actor.dmg.concussion()
 	camera.fov = lerp(78.0, 86.0, concussion * 0.6)
 
+## Сколько раз ввод игрока вообще был прочитан и сколько нажатий удара
+## увидено. Нужно, чтобы отличать «кнопка не дошла» от «действие отказало»:
+## оба выглядят одинаково — ничего не происходит.
+var read_frames: int = 0
+var attack_presses: int = 0
+
+## Предыдущее состояние разовых действий.
+var _was_down: Dictionary = {}
+
+## Нажатие «только что» — своё, а не движковое.
+##
+## `Input.is_action_just_pressed()` из `_physics_process` сверяет счётчик
+## кадров, и в этой игре он не совпадал: за 184 кадра с зажатой кнопкой
+## удара не было засчитано НИ ОДНОГО нажатия, хотя `is_action_pressed`
+## всё это время возвращал true. Так и пропали удар, прыжок, способность и
+## чеснок — всё, что вешалось на «только что нажал».
+##
+## Здесь фронт считается вручную: было отпущено, стало нажато. Ни на какие
+## счётчики кадров это не опирается и потому не может разойтись с ними.
+func _pressed_edge(action: String) -> bool:
+	var down := Input.is_action_pressed(action)
+	var was: bool = _was_down.get(action, false)
+	_was_down[action] = down
+	return down and not was
+
 func _read_input(delta: float) -> void:
+	read_frames += 1
 	looking_back = Input.is_action_pressed("look_back")
 
 	# движение считается от тела, а не от взгляда — иначе при оглядывании
@@ -174,6 +200,33 @@ func _read_input(delta: float) -> void:
 	# шею, и со стороны видно, куда человек смотрит на самом деле
 	actor.head_turn = wrapf(yaw - body_yaw, -PI, PI)
 
+
+	# вырваться из «поговорим» можно только уйдя
+	if actor.summoned_by != null and actor.move_input.length() > 0.1:
+		actor.summoned_by = null
+		actor.summon_hold = 0.0
+
+	actor.want_jump = _pressed_edge("jump")
+
+	if _pressed_edge("attack"):
+		attack_presses += 1
+		# идёт окно шпаги — тот же ЛКМ решает, попал или открылся
+		if actor.qte_target != null:
+			if actor.qte_strike():
+				shake(0.4)
+		elif actor.try_attack():
+			shake(0.25)
+	if _pressed_edge("signature"):
+		if not actor.try_signature():
+			Game.say("Способность ещё не готова", true)
+	if _pressed_edge("garlic"):
+		if actor.garlic_left > 0:
+			actor.try_throw_garlic(_aim_dir())
+		else:
+			Game.say("Чеснок кончился", true)
+
+	_handle_interact()
+
 ## Тело идёт за взглядом в тот же кадр. Единственное исключение — пока
 ## держат кнопку оглядывания: тогда стоят плечи, а не голова.
 func _settle_body(_delta: float) -> void:
@@ -184,31 +237,6 @@ func _settle_body(_delta: float) -> void:
 	var diff := wrapf(yaw - body_yaw, -PI, PI)
 	if absf(diff) > NECK_LIMIT:
 		body_yaw = yaw - NECK_LIMIT * signf(diff)
-
-	# вырваться из «поговорим» можно только уйдя
-	if actor.summoned_by != null and actor.move_input.length() > 0.1:
-		actor.summoned_by = null
-		actor.summon_hold = 0.0
-
-	actor.want_jump = Input.is_action_just_pressed("jump")
-
-	if Input.is_action_just_pressed("attack"):
-		# идёт окно шпаги — тот же ЛКМ решает, попал или открылся
-		if actor.qte_target != null:
-			if actor.qte_strike():
-				shake(0.4)
-		elif actor.try_attack():
-			shake(0.25)
-	if Input.is_action_just_pressed("signature"):
-		if not actor.try_signature():
-			Game.say("Способность ещё не готова", true)
-	if Input.is_action_just_pressed("garlic"):
-		if actor.garlic_left > 0:
-			actor.try_throw_garlic(_aim_dir())
-		else:
-			Game.say("Чеснок кончился", true)
-
-	_handle_interact()
 
 ## Куда смотрит камера — по этому лучу летит чеснок и бьётся оружие.
 func _aim_dir() -> Vector3:
@@ -227,7 +255,10 @@ func _begin_interact() -> void:
 	if target_door != null and target_door.has_method("use"):
 		target_door.call("use", actor)
 		return
-	if target_hide != null:
+	# Сравнивать вектор с null нельзя: Vector3 не равен null НИКОГДА, и это
+	# условие срабатывало всегда. Из-за одной строки `E` уходил в «спрятаться»
+	# и не доходил ни до укуса, ни до разговора, ни до прожектора.
+	if target_hide != Vector3.INF:
 		actor.hidden = not actor.hidden
 		Game.say("Спрятался" if actor.hidden else "Вышел из укрытия")
 		return
