@@ -42,6 +42,80 @@ static func line_for(vampire: Actor) -> String:
 	return STAR_TALK[randi() % STAR_TALK.size()] if can_lure(vampire) \
 		else SMALL_TALK[randi() % SMALL_TALK.size()]
 
+# ------------------------------------------------------- разговор человека
+## Человек тоже разговаривает — и это его единственный способ узнать хоть
+## что-то. Гость отвечает тем, что видел сам: кто уходил в гримёрку, за кем
+## он не может уследить, кого давно не видно. Ответ не даёт имени вампира
+## прямо, но сужает круг — а больше людям в этой игре и не положено.
+const GREETING := [
+	"«Ну и вечер.»",
+	"«Ты чего такой дёрганый?»",
+	"«Слышал что-нибудь?»",
+]
+
+const NOTHING := [
+	"«Ничего такого. Музыка громкая, я половину не слышу.»",
+	"«Да я только пришёл.»",
+	"«Всё как всегда. А что?»",
+]
+
+const SCARED := [
+	"«Не подходи ко мне.»",
+	"«Я видел. Я всё видел. Отойди.»",
+]
+
+## Что гость расскажет игроку. Порядок важен: сперва то, что он видел
+## своими глазами, потом то, что просто заметил, потом ничего.
+static func talk(asker: Actor, who: Actor) -> void:
+	if who == null or not is_instance_valid(who) or not who.alive:
+		return
+	if asker.global_position.distance_to(who.global_position) > Data.TUNE["invite_range"]:
+		return
+
+	var brain := who.get_node_or_null("Brain")
+	# напуганный не разговаривает — но само это уже ответ
+	if brain != null and "mode" in brain and who.role == Data.Role.GUEST:
+		if brain.get("suspicion") is Dictionary and not (brain.get("suspicion") as Dictionary).is_empty():
+			var seen: Actor = null
+			for a in (brain.get("suspicion") as Dictionary):
+				if a is Actor and is_instance_valid(a):
+					seen = a
+					break
+			if seen != null:
+				Game.say("%s: %s" % [who.appearance_name, SCARED[randi() % SCARED.size()]], true)
+				Game.say("%s косится на «%s»" % [who.appearance_name, seen.appearance_name], true)
+				return
+
+	Game.say("%s: %s" % [who.appearance_name, GREETING[randi() % GREETING.size()]])
+	var hint := _hint(who)
+	if hint != "":
+		Game.say("%s: %s" % [who.appearance_name, hint])
+	else:
+		Game.say("%s: %s" % [who.appearance_name, NOTHING[randi() % NOTHING.size()]])
+
+## Наблюдение гостя: кого не хватает и куда кто-то уходил. Считается по
+## живому состоянию матча, а не по заранее написанному тексту.
+static func _hint(who: Actor) -> String:
+	var missing: Array = []
+	for id in Data.CIVILIANS:
+		var name_of: String = Data.character(id)["name"]
+		var found := false
+		for a: Actor in Game.living():
+			if a.appearance_id == id:
+				found = true
+				break
+		if not found:
+			missing.append(name_of)
+	if not missing.is_empty() and randf() < 0.7:
+		return "«Слушай, а где %s? Только что была тут.»" % missing[randi() % missing.size()]
+
+	for a: Actor in Game.living():
+		if a.lure_to != Vector3.INF and a != who:
+			return "«%s куда-то повели за сцену. Странно.»" % a.appearance_name
+	if Game.blood_spots.size() > 2 and randf() < 0.5:
+		return "«Там на полу кровь. Я думал, вино.»"
+	return ""
+
 ## Насколько охотно идут: за звездой — почти все, за незнакомцем — не всегда.
 static func acceptance(vampire: Actor, target: Actor) -> float:
 	var base := 0.72

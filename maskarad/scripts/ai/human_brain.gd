@@ -12,6 +12,28 @@ var flee_from: Vector3 = Vector3.ZERO
 var accuse_target: Actor = null
 var garlic_cd: float = 0.0
 
+## Ближайшая нычка, но не та, что за спиной у преследователя: бежать в
+## укрытие мимо лича — это не спрятаться, а подойти.
+func _nearest_hide(threat: Actor) -> Vector3:
+	if world == null or world.hide_spots.is_empty():
+		return Vector3.INF
+	var best := Vector3.INF
+	var best_score := INF
+	for p: Vector3 in world.hide_spots:
+		var d := actor.global_position.distance_to(p)
+		if d > 26.0:
+			continue
+		var score := d
+		if threat != null:
+			# штраф за то, что нычка ближе к преследователю, чем ты сам
+			var td := threat.global_position.distance_to(p)
+			if td < distance_to(threat):
+				score += 40.0
+		if score < best_score:
+			best_score = score
+			best = p
+	return best
+
 func think(delta: float) -> void:
 	mode_time -= delta
 	garlic_cd = max(0.0, garlic_cd - delta)
@@ -23,6 +45,24 @@ func think(delta: float) -> void:
 		_flee_from(actor.global_position + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
 		return
 
+	# сбит с ног — ползти прочь от того, кто идёт добивать
+	if actor.downed:
+		var killer := _nearest_threat()
+		if killer != null:
+			var away2 := actor.global_position - killer.global_position
+			away2.y = 0.0
+			go_to(actor.global_position + away2.normalized() * 6.0)
+		return
+
+	# на лине: тянуть поперёк, а не назад — назад линь всё равно сильнее
+	if actor.tethered_by != null and is_instance_valid(actor.tethered_by):
+		var line := actor.global_position - actor.tethered_by.global_position
+		line.y = 0.0
+		var side_way := Vector3(-line.z, 0, line.x).normalized()
+		actor.want_sprint = true
+		go_to(actor.global_position + side_way * 8.0)
+		return
+
 	var threat := _nearest_threat()
 	if threat != null:
 		var d := distance_to(threat)
@@ -30,9 +70,22 @@ func think(delta: float) -> void:
 			# знакомого вампира встречаем чесноком, лича — спиной
 			if _is_vampire(threat) and garlic_cd <= 0.0 and actor.garlic_left > 0 and d < 9.0 and suspects(threat):
 				_throw_at(threat)
-			else:
+			elif _is_vampire(threat):
 				_flee_from(threat.global_position)
+			else:
+				# от лича по прямой не уйти на длинной дистанции: ищем нычку
+				var spot := _nearest_hide(threat)
+				if spot != Vector3.INF and actor.global_position.distance_to(spot) < 18.0:
+					go_to(spot)
+					actor.want_sprint = actor.stamina > 12.0
+					if actor.global_position.distance_to(spot) < Data.TUNE["hide_range"]:
+						actor.hidden = true
+						stop()
+				else:
+					_flee_from(threat.global_position)
 			return
+	if actor.hidden and (threat == null or distance_to(threat) > 20.0):
+		actor.hidden = false
 
 	match mode:
 		WORK:

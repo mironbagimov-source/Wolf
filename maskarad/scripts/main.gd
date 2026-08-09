@@ -16,6 +16,7 @@ var _autotest_tick := 0.0
 var _shot_path := ""
 var _shot_at := 6.0
 var _test_pitch := 0.0                    # принудительный наклон взгляда для снимка
+var _hold_map := false                    # держать карту раскрытой для снимка
 
 func _ready() -> void:
 	randomize()
@@ -47,6 +48,8 @@ func _maybe_autotest() -> void:
 			_shot_path = a.substr(7)
 		elif a.begins_with("--shotat="):
 			_shot_at = float(a.substr(9))
+		elif a == "--bigmap":
+			_hold_map = true                # карта во весь экран для снимка
 		elif a.begins_with("--pitch="):
 			_test_pitch = deg_to_rad(float(a.substr(8)))   # опустить взгляд: видно ли своё тело
 		elif a == "--allbots":
@@ -73,6 +76,8 @@ func _maybe_autotest() -> void:
 		_anim_test.call_deferred()
 	if "--looktest" in args:
 		_look_test.call_deferred()
+	if "--systest" in args:
+		_systems_test.call_deferred()
 
 ## Проверка боя и повреждений в отрыве от навигации: ставим лича вплотную
 ## к гостю и смотрим, доходит ли удар и что он ломает.
@@ -305,6 +310,130 @@ func _pose_bench() -> void:
 		phases.append("%s %+.2f" % [a.char_id, a.attack_curve()])
 	print("[позы] фаза удара: ", ", ".join(phases))
 	await _bench_shot("позы")
+
+## Новые правила боя: каждое проверяется отдельно и на живых актёрах.
+## Здесь легко «сделать» механику, которая ни разу не сработает в матче —
+## потому что до неё не доходит ни один сценарий.
+func _systems_test() -> void:
+	for i in 90:
+		await get_tree().physics_frame
+
+	var lich: Actor = null      # Карл или Лара
+	var vamp: Actor = null
+	var guests: Array[Actor] = []
+	for a in Game.living():
+		if a.role == Data.Role.LICH and lich == null:
+			lich = a
+		elif a.role == Data.Role.VAMPIRE and vamp == null:
+			vamp = a
+		elif a.role == Data.Role.GUEST and guests.size() < 4:
+			guests.append(a)
+	if lich == null or vamp == null or guests.size() < 4:
+		print("[сис] некого проверять"); get_tree().quit(); return
+	for who in ([lich, vamp] as Array[Actor]) + guests:
+		var b: Node = who.get_node_or_null("Brain")
+		if b:
+			b.set_process(false)
+			b.set_physics_process(false)
+		who.move_input = Vector3.ZERO
+
+	# ---- скорости: от лича человек обязан уходить
+	var slowest_human := INF
+	var fastest_lich := 0.0
+	for id in ["helga", "jay", "chiara"]:
+		slowest_human = minf(slowest_human, float(Data.character(id)["speed"]))
+	for id in ["lara", "karl"]:
+		fastest_lich = maxf(fastest_lich, float(Data.character(id)["speed"]))
+	print("[сис] скорость: медленный человек %.1f, быстрый лич %.1f — %s" % [
+		slowest_human, fastest_lich, "убежит" if slowest_human > fastest_lich else "НЕ УБЕЖИТ"])
+
+	# ---- вскрытый вампир не дерётся
+	var could_before := vamp.can_fight()
+	Game.mark_exposed(vamp)
+	print("[сис] вампир: до палева бьёт=%s, после=%s" % [could_before, vamp.can_fight()])
+
+	# ---- гость держит несколько ударов и сначала падает, а не умирает
+	var g: Actor = guests[0]
+	g.global_position = lich.global_position + Vector3(0, 0, -1.2)
+	lich.rotation.y = 0.0
+	lich.look_dir = Vector3(0, 0, -1)
+	await get_tree().physics_frame
+	var hits := 0
+	while g.alive and not g.downed and hits < 12:
+		lich.attack_cd = 0.0
+		lich.try_attack()
+		for i in 45:
+			g.move_input = Vector3.ZERO
+			await get_tree().physics_frame
+		hits += 1
+	print("[сис] топор: ударов до падения %d, сбит=%s, жив=%s" % [hits, g.downed, g.alive])
+
+	# ---- добивание
+	var finished := lich.try_finish(g)
+	for i in 120:
+		await get_tree().physics_frame
+	print("[сис] добивание: начато=%s, жертва мертва=%s, поза «%s»" % [
+		finished, not g.alive, g.death_kind])
+
+	# ---- гарпун сажает на линь. Лары может не быть в ростере — тогда
+	# ставим её отдельно: проверять оружие «если повезёт» бессмысленно.
+	if Data.character(lich.char_id).get("weapon", "") != "harpoon":
+		var gunner := Actor.new()
+		actors_root.add_child(gunner)
+		gunner.setup("lara", false)
+		gunner.global_position = lich.global_position + Vector3(6, 0, 0)
+		lich = gunner
+		await get_tree().physics_frame
+	var g2: Actor = guests[1]
+	if Data.character(lich.char_id).get("weapon", "") == "harpoon":
+		g2.global_position = lich.global_position + Vector3(0, 0, -6.0)
+		lich.rotation.y = 0.0
+		lich.look_dir = Vector3(0, 0, -1)
+		lich.attack_cd = 0.0
+		await get_tree().physics_frame
+		lich.try_attack()
+		for i in 60:
+			g2.move_input = Vector3.ZERO
+			await get_tree().physics_frame
+		print("[сис] гарпун: на лине=%s, жив=%s, осталось держать %.1f с" % [
+			g2.tethered_by == lich, g2.alive, g2.tether_left])
+	else:
+		print("[сис] гарпун: Лары в матче нет")
+
+	# ---- шпага: окно и точный удар. Люциуса тоже может не быть — ставим.
+	if Data.character(vamp.char_id).get("weapon", "") != "rapier":
+		var duelist := Actor.new()
+		actors_root.add_child(duelist)
+		duelist.setup("lucius", false)
+		duelist.global_position = vamp.global_position + Vector3(-6, 0, 0)
+		vamp = duelist
+		await get_tree().physics_frame
+	var g3: Actor = guests[2]
+	g3.global_position = vamp.global_position + Vector3(0, 0, -2.0)
+	vamp.rotation.y = 0.0
+	vamp.look_dir = Vector3(0, 0, -1)
+	vamp.attack_cd = 0.0
+	Game.exposed.clear()
+	await get_tree().physics_frame
+	if Data.character(vamp.char_id).get("weapon", "") == "rapier":
+		vamp.try_attack()
+		await get_tree().physics_frame
+		var opened := vamp.qte_target != null
+		vamp.qte_pos = (vamp.qte_from + vamp.qte_to) * 0.5      # ставим метку в окно
+		var good := vamp.qte_strike()
+		for i in 30:
+			await get_tree().physics_frame
+		print("[сис] шпага: окно открылось=%s, удар в момент=%s, жертва сбита=%s (hp было %.0f)" % [
+			opened, good, g3.downed or not g3.alive, g3.hp_max])
+	else:
+		print("[сис] шпага: Люциуса в матче нет")
+
+	# ---- город: сколько где нычек и приватных комнат
+	if world != null:
+		print("[сис] карта: районов %d, нычек %d, приватных %d, общих %d, точек ходьбы %d" % [
+			world.zones.size(), world.hide_spots.size(), world.private_spots.size(),
+			world.common_spots.size(), world.wander_points.size()])
+	get_tree().quit()
 
 ## Мышь и поворот. Подаём настоящие события движения мыши по четырём
 ## сторонам и смотрим, куда после этого смотрит камера и куда развёрнут сам
@@ -608,6 +737,7 @@ func start_match() -> void:
 	_spawn_roster()
 
 	ui.show_hud()
+	ui.force_big_map = _hold_map
 	Game.set_state(Game.State.PLAYING)
 	Game.cursor_free = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

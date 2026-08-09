@@ -56,6 +56,12 @@ var bitten: float = 0.0
 ## Голова повёрнута относительно плеч, в радианах. Оглядывание видно и со
 ## стороны: по вывернутой шее понятно, что человек смотрит не туда, куда идёт.
 var head_turn: float = 0.0
+## Отчего умер — от этого зависит поза падения.
+var death_kind: String = ""
+## Ползёт сбитым с ног / добивает лежащего.
+var downed: bool = false
+var finish: float = 0.0
+var crawl: float = 0.0
 var grab: float = 0.0
 var flinch: float = 0.0
 var limp_l: float = 0.0
@@ -163,6 +169,12 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	if dead > 0.0:
 		_pose_dead()
 		return
+	if downed:
+		_pose_downed(dt)
+		return
+	if finish > 0.0:
+		_pose_finish(finish)
+		return
 
 	var gait: float = clampf(speed / 4.4, 0.0, 1.3)
 	phase += dt * (2.2 + speed * 2.2)
@@ -236,18 +248,109 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	_spin("shoulder_l", AX, -s * swing * 0.18 - reach * 0.4)
 	_spin("shoulder_r", AX, s * swing * 0.18 - reach * 0.4 + strike * 0.35)
 
-## Мёртвое тело складывается вперёд и заваливается — ragdoll здесь избыточен.
+## Умирают по-разному, и по позе видно, отчего. Смерть от топора — падение
+## навзничь, от серпа — заваливается набок, зажимая живот, от гарпуна —
+## вперёд, на линь, от шпаги — оседает почти прямо, от клыков — мягко, без
+## сопротивления. Ragdoll здесь избыточен: тело всё равно лежит секунды.
 func _pose_dead() -> void:
 	var t: float = clampf(dead, 0.0, 1.0)
-	_spin("spine", AX, t * 0.5)
-	_spin("spine1", AX, t * 0.45)
-	_spin("neck", AX, t * 0.5)
-	_spin("arm_l", AZ, -t * 1.1)
-	_spin("arm_r", AZ, t * 1.1)
-	_spin("upleg_l", AX, -t * 0.9)
-	_spin("upleg_r", AX, -t * 0.7)
-	_spin("leg_l", AX, -t * 1.3)
-	_spin("leg_r", AX, -t * 1.1)
+	match death_kind:
+		"axe", "finish":
+			# опрокинуло назад, руки в стороны
+			_spin("spine", AX, -t * 0.55)
+			_spin("spine1", AX, -t * 0.35)
+			_spin("neck", AX, -t * 0.6)
+			_spin("arm_l", AZ, -t * 0.55)
+			_spin("arm_r", AZ, t * 0.55)
+			_spin("upleg_l", AX, t * 0.35)
+			_spin("upleg_r", AX, t * 0.2)
+		"sickle":
+			# набок, руками к животу
+			_spin("hips", AY, t * 0.5)
+			_spin("spine", AX, t * 0.6)
+			_spin("spine1", AY, t * 0.4)
+			_spin("neck", AX, t * 0.35)
+			_spin("arm_l", AZ, -t * 1.35)
+			_spin("arm_r", AZ, t * 1.35)
+			_spin("fore_l", AX, t * 1.5)
+			_spin("fore_r", AX, t * 1.5)
+			_spin("upleg_l", AX, -t * 1.1)
+			_spin("leg_l", AX, -t * 1.5)
+			_spin("leg_r", AX, -t * 0.9)
+		"harpoon":
+			# выдернуло вперёд, руки за линём
+			_spin("spine", AX, t * 0.85)
+			_spin("spine1", AX, t * 0.5)
+			_spin("neck", AX, -t * 0.3)
+			_spin("arm_l", AZ, -t * 0.35)
+			_spin("arm_r", AZ, t * 0.35)
+			_spin("arm_l", AX, -t * 1.2)
+			_spin("arm_r", AX, -t * 1.2)
+			_spin("upleg_l", AX, -t * 0.5)
+			_spin("upleg_r", AX, -t * 0.3)
+		"rapier":
+			# осел на колени, почти прямо
+			_spin("spine", AX, t * 0.3)
+			_spin("neck", AX, -t * 0.45)
+			_spin("arm_l", AZ, -t * 1.0)
+			_spin("arm_r", AZ, t * 1.0)
+			_spin("upleg_l", AX, -t * 1.3)
+			_spin("upleg_r", AX, -t * 1.25)
+			_spin("leg_l", AX, -t * 2.0)
+			_spin("leg_r", AX, -t * 1.95)
+		"drain":
+			# выпитый складывается мягко, без единого рывка
+			_spin("spine", AX, t * 0.4)
+			_spin("spine1", AX, t * 0.4)
+			_spin("neck", AX, t * 0.7)
+			_spin("arm_l", AZ, -t * 1.25)
+			_spin("arm_r", AZ, t * 1.25)
+			_spin("upleg_l", AX, -t * 1.2)
+			_spin("upleg_r", AX, -t * 1.1)
+			_spin("leg_l", AX, -t * 1.6)
+			_spin("leg_r", AX, -t * 1.5)
+		_:
+			_spin("spine", AX, t * 0.5)
+			_spin("spine1", AX, t * 0.45)
+			_spin("neck", AX, t * 0.5)
+			_spin("arm_l", AZ, -t * 1.1)
+			_spin("arm_r", AZ, t * 1.1)
+			_spin("upleg_l", AX, -t * 0.9)
+			_spin("upleg_r", AX, -t * 0.7)
+			_spin("leg_l", AX, -t * 1.3)
+			_spin("leg_r", AX, -t * 1.1)
+
+## Сбит с ног: лежит на животе и ползёт, подтягиваясь руками.
+func _pose_downed(dt: float) -> void:
+	crawl += dt * 3.2
+	var c := sin(crawl)
+	_spin("hips", AX, 1.15)              # корпус почти горизонтален
+	_spin("spine", AX, 0.2)
+	_spin("neck", AX, -0.75)             # голова поднята: он смотрит, кто идёт
+	_spin("arm_l", AZ, -0.5)
+	_spin("arm_r", AZ, 0.5)
+	_spin("arm_l", AX, -0.9 - c * 0.5)   # руки подтягивают по очереди
+	_spin("arm_r", AX, -0.9 + c * 0.5)
+	_spin("fore_l", AX, -0.5)
+	_spin("fore_r", AX, -0.5)
+	_spin("upleg_l", AX, -0.25 + c * 0.3)
+	_spin("upleg_r", AX, -0.25 - c * 0.3)
+	_spin("leg_l", AX, -0.5)
+	_spin("leg_r", AX, -0.5)
+
+## Добивание: наклон над лежащим и короткий замах сверху вниз. Смотрится
+## как работа, а не как удар — потому что это она и есть.
+func _pose_finish(t: float) -> void:
+	var swing: float = sin(clampf(t, 0.0, 1.0) * PI)
+	_spin("spine", AX, 0.55 + swing * 0.25)
+	_spin("spine1", AX, 0.25)
+	_spin("neck", AX, 0.35)
+	_spin("arm_l", AZ, -1.1)
+	_spin("arm_r", AZ, 1.1 - swing * 0.5)
+	_spin("arm_r", AX, 1.3 - swing * 2.4)
+	_spin("fore_r", AX, -0.6 - swing * 0.6)
+	_spin("upleg_l", AX, -0.55)
+	_spin("leg_l", AX, -0.7)
 
 ## Куда прикрепить оружие: глобальный трансформ кисти относительно корня модели.
 func hand_bone() -> int:

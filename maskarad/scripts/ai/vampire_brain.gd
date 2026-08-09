@@ -89,13 +89,29 @@ func _feed() -> void:
 		victim = null
 		_enter(RETREAT, 4.0)
 
+## Вскрытому вампиру драться нечем — он уходит и ждёт, пока про него забудут.
+## Без этого «палево» было бы просто неприятностью; теперь это конец охоты.
 func _hunt() -> void:
+	if not actor.can_fight():
+		_enter(RETREAT, 8.0)
+		return
 	var prey := nearest_visible_enemy(70.0)
 	if prey == null:
 		prey = Game.nearest(actor.global_position, Game.living(Data.Side.HUMAN)) as Actor
 	if prey == null:
 		_enter(BLEND, 4.0)
 		return
+
+	# лежащего добить — быстрее и тише, чем гнаться за здоровым
+	var lying := _nearest_downed()
+	if lying != null:
+		go_to(lying.global_position)
+		if distance_to(lying) < Data.TUNE["finish_range"] - 0.3:
+			stop()
+			actor.look_dir = (lying.global_position - actor.global_position).normalized()
+			actor.try_finish(lying)
+		return
+
 	go_to(prey.global_position)
 	actor.want_sprint = distance_to(prey) > 4.0 and actor.stamina > 15.0
 	if distance_to(prey) < 2.4:
@@ -103,6 +119,18 @@ func _hunt() -> void:
 		actor.try_attack()
 	if mode_time <= 0.0:
 		_enter(HUNT if Game.is_exposed(actor) else BLEND, 12.0)
+
+func _nearest_downed() -> Actor:
+	var best: Actor = null
+	var best_d := 18.0
+	for a: Actor in Game.living(Data.Side.HUMAN):
+		if not a.downed:
+			continue
+		var d := distance_to(a)
+		if d < best_d:
+			best_d = d
+			best = a
+	return best
 
 func _retreat() -> void:
 	actor.want_sprint = actor.stamina > 20.0

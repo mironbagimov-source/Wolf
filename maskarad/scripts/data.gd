@@ -25,7 +25,7 @@ const ROLE_NAME := {
 const TUNE := {
 	# ночь
 	"night_seconds": 420.0,
-	"brazier_bonus": 40.0,          # на столько ночь короче за каждую зажжённую жаровню
+	"brazier_share": 0.52,          # какую долю ночи забирают ВСЕ прожекторы вместе
 	"brazier_light_radius": 9.0,    # в круге света вампир не прячется
 
 	# движение
@@ -75,6 +75,21 @@ const TUNE := {
 	# восприятие
 	"nametag_range": 9.0,
 	"corpse_alarm_radius": 12.0,
+
+	# прыжок
+	"jump_speed": 6.2,
+
+	# добивание: раненный насмерть NPC не умирает мгновенно, а падает и
+	# ползёт. Пока он на земле, его добивают — и только тогда он мёртв.
+	# Из-за этого убийство перестало быть мгновенным и стало заметным.
+	"downed_time": 9.0,             # сколько лежит, прежде чем встать
+	"downed_speed": 1.1,            # ползком
+	"finish_time": 1.3,             # сколько занимает добивание
+	"finish_range": 2.2,
+
+	# нычки
+	"hide_range": 1.8,              # с какого расстояния прячешься
+	"hide_reveal": 3.0,             # с какого расстояния монстр видит спрятавшегося
 }
 
 # --------------------------------------------------------------- персонажи
@@ -93,7 +108,7 @@ const CHARACTERS := {
 	"helga": {
 		"name": "Хельга",
 		"side": Side.HUMAN, "role": Role.HUMAN,
-		"speed": 4.0, "sprint": 1.55, "stamina": 145.0, "hp": 120.0,
+		"speed": 4.7, "sprint": 1.55, "stamina": 145.0, "hp": 120.0,
 		"perception": 0.9, "noise": 1.25, "garlic": 3,
 		"skin": Color(0.86, 0.74, 0.63), "cloth": Color(0.36, 0.28, 0.22), "hair": Color(0.75, 0.62, 0.31),
 		"accent": Color(0.62, 0.50, 0.30),
@@ -105,7 +120,7 @@ const CHARACTERS := {
 	"jay": {
 		"name": "Джей",
 		"side": Side.HUMAN, "role": Role.HUMAN,
-		"speed": 4.7, "sprint": 1.7, "stamina": 115.0, "hp": 85.0,
+		"speed": 5.3, "sprint": 1.7, "stamina": 115.0, "hp": 85.0,
 		"perception": 1.0, "noise": 0.55, "garlic": 3,
 		"skin": Color(0.72, 0.56, 0.42), "cloth": Color(0.2, 0.24, 0.3), "hair": Color(0.15, 0.13, 0.12),
 		"accent": Color(0.42, 0.38, 0.30),
@@ -117,7 +132,7 @@ const CHARACTERS := {
 	"chiara": {
 		"name": "Кьяра",
 		"side": Side.HUMAN, "role": Role.HUMAN,
-		"speed": 4.3, "sprint": 1.6, "stamina": 105.0, "hp": 95.0,
+		"speed": 5.0, "sprint": 1.6, "stamina": 105.0, "hp": 95.0,
 		"perception": 1.5, "noise": 0.85, "garlic": 5,
 		"skin": Color(0.8, 0.66, 0.55), "cloth": Color(0.45, 0.16, 0.2), "hair": Color(0.28, 0.16, 0.1),
 		"accent": Color(0.66, 0.52, 0.42),
@@ -157,7 +172,7 @@ const CHARACTERS := {
 	"lara": {
 		"name": "Лара",
 		"side": Side.UNDEAD, "role": Role.LICH,
-		"speed": 4.15, "sprint": 1.45, "stamina": 150.0, "hp": 200.0,
+		"speed": 3.5, "sprint": 1.25, "stamina": 150.0, "hp": 260.0,
 		"perception": 1.0, "noise": 1.5, "weapon": "harpoon",
 		"skin": Color(0.55, 0.58, 0.5), "cloth": Color(0.18, 0.2, 0.17), "hair": Color(0.1, 0.1, 0.1),
 		"accent": Color(0.20, 0.18, 0.16),
@@ -169,7 +184,7 @@ const CHARACTERS := {
 	"karl": {
 		"name": "Карл",
 		"side": Side.UNDEAD, "role": Role.LICH,
-		"speed": 4.5, "sprint": 1.5, "stamina": 140.0, "hp": 225.0,
+		"speed": 3.7, "sprint": 1.25, "stamina": 140.0, "hp": 300.0,
 		"perception": 0.9, "noise": 1.6, "weapon": "axe",
 		"skin": Color(0.5, 0.5, 0.46), "cloth": Color(0.24, 0.16, 0.12), "hair": Color(0.12, 0.1, 0.08),
 		"accent": Color(0.22, 0.15, 0.11),
@@ -187,7 +202,7 @@ const CHARACTERS := {
 	"guest": {
 		"name": "Гость",
 		"side": Side.HUMAN, "role": Role.GUEST,
-		"speed": 2.6, "sprint": 1.6, "stamina": 80.0, "hp": 45.0,
+		"speed": 2.6, "sprint": 1.6, "stamina": 80.0, "hp": 150.0,
 		"perception": 0.7, "noise": 0.9,
 		"skin": Color(0.82, 0.7, 0.6), "cloth": Color(0.3, 0.3, 0.34), "hair": Color(0.2, 0.17, 0.14),
 		"accent": Color(0.42, 0.36, 0.30),
@@ -198,7 +213,7 @@ const CHARACTERS := {
 	"civ_maria": {
 		"name": "Мария",
 		"side": Side.HUMAN, "role": Role.GUEST,
-		"speed": 2.7, "sprint": 1.6, "stamina": 85.0, "hp": 50.0,
+		"speed": 2.7, "sprint": 1.6, "stamina": 85.0, "hp": 160.0,
 		"perception": 0.8, "noise": 0.9,
 		"skin": Color(0.82, 0.7, 0.6), "cloth": Color(0.24, 0.14, 0.34), "hair": Color(0.5, 0.14, 0.3),
 		"accent": Color(0.6, 0.2, 0.5),
@@ -210,7 +225,7 @@ const CHARACTERS := {
 	"civ_medea": {
 		"name": "Медея",
 		"side": Side.HUMAN, "role": Role.GUEST,
-		"speed": 2.6, "sprint": 1.6, "stamina": 80.0, "hp": 45.0,
+		"speed": 2.6, "sprint": 1.6, "stamina": 80.0, "hp": 150.0,
 		"perception": 0.75, "noise": 0.85,
 		"skin": Color(0.8, 0.68, 0.6), "cloth": Color(0.18, 0.16, 0.26), "hair": Color(0.15, 0.12, 0.14),
 		"accent": Color(0.44, 0.2, 0.42),
@@ -221,7 +236,7 @@ const CHARACTERS := {
 	"civ_boss": {
 		"name": "Толян",
 		"side": Side.HUMAN, "role": Role.GUEST,
-		"speed": 2.3, "sprint": 1.35, "stamina": 65.0, "hp": 60.0,
+		"speed": 2.3, "sprint": 1.35, "stamina": 65.0, "hp": 195.0,
 		"perception": 0.6, "noise": 1.3,
 		"skin": Color(0.78, 0.62, 0.52), "cloth": Color(0.2, 0.2, 0.22), "hair": Color(0.18, 0.16, 0.14),
 		"accent": Color(0.3, 0.28, 0.26),
@@ -232,7 +247,7 @@ const CHARACTERS := {
 	"civ_peasant": {
 		"name": "Василиса",
 		"side": Side.HUMAN, "role": Role.GUEST,
-		"speed": 2.7, "sprint": 1.65, "stamina": 90.0, "hp": 45.0,
+		"speed": 2.7, "sprint": 1.65, "stamina": 90.0, "hp": 150.0,
 		"perception": 0.85, "noise": 0.8,
 		"skin": Color(0.84, 0.72, 0.62), "cloth": Color(0.32, 0.26, 0.18), "hair": Color(0.42, 0.28, 0.12),
 		"accent": Color(0.5, 0.4, 0.24),
@@ -243,7 +258,7 @@ const CHARACTERS := {
 	"civ_drunk": {
 		"name": "Гоша",
 		"side": Side.HUMAN, "role": Role.GUEST,
-		"speed": 2.1, "sprint": 1.3, "stamina": 55.0, "hp": 50.0,
+		"speed": 2.1, "sprint": 1.3, "stamina": 55.0, "hp": 165.0,
 		"perception": 0.45, "noise": 1.5,     # ничего не замечает и всем мешает
 		"skin": Color(0.72, 0.64, 0.56), "cloth": Color(0.24, 0.22, 0.2), "hair": Color(0.14, 0.12, 0.1),
 		"accent": Color(0.34, 0.3, 0.24),
@@ -266,7 +281,7 @@ const CHARACTERS := {
 	"ghoul": {
 		"name": "Гуль",
 		"side": Side.UNDEAD, "role": Role.GHOUL,
-		"speed": 3.5, "sprint": 1.3, "stamina": 70.0, "hp": 130.0,
+		"speed": 3.4, "sprint": 1.3, "stamina": 70.0, "hp": 170.0,
 		"perception": 0.6, "noise": 1.4, "weapon": "claws",
 		"skin": Color(0.45, 0.48, 0.42), "cloth": Color(0.2, 0.18, 0.15), "hair": Color(0.1, 0.1, 0.08),
 		"accent": Color(0.18, 0.17, 0.14),
@@ -290,32 +305,51 @@ const MODEL_YAW := PI
 
 # ----------------------------------------------------------------- оружие
 # kind: "swing" — дуга, "thrust" — выпад, "ranged" — выстрел с притягиванием.
+## У каждого оружия своя манера, а не только цифра урона. `mode` — что оно
+## делает сверх обычного удара:
+##
+##   "bleed"   серп: бьёт часто и неглубоко, но рвёт — жертва истекает кровью
+##             и оставляет след, по которому её найдут
+##   "heavy"   топор: медленно и страшно, промах наказывается
+##   "tether"  гарпун: выстрел не убивает, а сажает на линь и тянет к себе;
+##             добивают уже вплотную
+##   "qte"     шпага: один точный укол. Попал в окно — насквозь, мимо —
+##             открылся сам
+##
+## `hp` гостей поднят так, что забить кого-то насмерть — это работа на
+## несколько ударов и на весь зал шума. Кроме шпаги: она пробивает любую
+## живучесть, если попасть в момент.
 const WEAPONS := {
 	"sickle": {
-		"name": "Серп", "kind": "swing",
-		"damage": 46.0, "range": 2.4, "arc": 1.75, "cooldown": 0.8, "windup": 0.32,
+		"name": "Серп", "kind": "swing", "mode": "bleed",
+		"damage": 30.0, "range": 2.4, "arc": 1.75, "cooldown": 0.42, "windup": 0.18,
+		"bleed": 3.2,                   # во столько раз сильнее рвёт
 	},
 	"rapier": {
-		"name": "Шпага", "kind": "thrust",
-		"damage": 40.0, "range": 3.2, "arc": 0.45, "cooldown": 0.6, "windup": 0.22,
+		"name": "Шпага", "kind": "thrust", "mode": "qte",
+		"damage": 34.0, "range": 3.2, "arc": 0.45, "cooldown": 1.6, "windup": 0.22,
+		"qte_window": 0.30,             # ширина окна в долях полосы
+		"qte_speed": 1.35,              # проходов полосы в секунду
+		"qte_time": 2.4,                # сколько дают на попытку
 	},
 	"harpoon": {
-		"name": "Гарпунное ружьё", "kind": "ranged",
-		"damage": 38.0, "range": 24.0, "arc": 0.12, "cooldown": 2.8, "windup": 0.45,
-		"pull": 11.0,
+		"name": "Гарпунное ружьё", "kind": "ranged", "mode": "tether",
+		"damage": 34.0, "range": 24.0, "arc": 0.12, "cooldown": 3.6, "windup": 0.45,
+		"pull": 4.2,                    # м/с, с которой линь тащит к стрелку
+		"tether_time": 6.0,             # сколько держит, если не порвать
 	},
 	"axe": {
-		"name": "Топор", "kind": "swing",
-		"damage": 72.0, "range": 2.5, "arc": 1.2, "cooldown": 1.4, "windup": 0.55,
+		"name": "Топор", "kind": "swing", "mode": "heavy",
+		"damage": 95.0, "range": 2.5, "arc": 1.2, "cooldown": 1.9, "windup": 0.62,
 		"secondary": "knife",
 	},
 	"knife": {
-		"name": "Нож", "kind": "thrust",
-		"damage": 26.0, "range": 1.9, "arc": 0.5, "cooldown": 0.45, "windup": 0.14,
+		"name": "Нож", "kind": "thrust", "mode": "quick",
+		"damage": 30.0, "range": 1.9, "arc": 0.5, "cooldown": 0.5, "windup": 0.14,
 	},
 	"claws": {
-		"name": "Когти", "kind": "swing",
-		"damage": 30.0, "range": 2.0, "arc": 1.0, "cooldown": 0.85, "windup": 0.3,
+		"name": "Когти", "kind": "swing", "mode": "quick",
+		"damage": 34.0, "range": 2.0, "arc": 1.0, "cooldown": 0.8, "windup": 0.28,
 	},
 }
 
@@ -334,6 +368,8 @@ const ACTIONS := {
 	"scoreboard": [KEY_TAB],
 	"press_wound": [KEY_R],        # зажать рану: кровь останавливается, но ты стоишь
 	"look_back": [KEY_ALT, KEY_C], # оглянуться, не разворачивая тела; ещё ПКМ
+	"jump": [KEY_SPACE],
+	"map": [KEY_M],                # карта во весь экран
 }
 
 ## Мышь: удар на левую, оглядывание на правую. Правая свободна у всех —

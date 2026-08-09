@@ -84,6 +84,29 @@ var _attack_windup: float = 0.3
 var _attack_len: float = 0.8
 ## Кого вампир держит зубами и кого держат — обе стороны укуса.
 var drained_by: Actor = null
+
+## На лине у гарпуна. Выстрел Лары не убивает — он сажает на крюк и тянет
+## обратно, и добивают уже вплотную. Убежать нельзя, можно только рвать
+## линь, уходя в сторону: время держания тикает быстрее, если тащить назад.
+var tethered_by: Actor = null
+var tether_left: float = 0.0
+
+## Сбит с ног. Гости держат много ударов и не умирают мгновенно: сначала
+## валятся и ползут. Пока лежит — его добивают, и только это его убивает.
+## Убийство перестало быть мгновенным и стало заметным со стороны.
+var downed: bool = false
+var downed_left: float = 0.0
+## Кого сейчас добивают и кто добивает.
+var finishing: Actor = null
+var finish_left: float = 0.0
+## Отчего умер — по этому играется своя поза смерти.
+var death_kind: String = ""
+
+## Сидит в нычке: за стойкой, в шкафу, между контейнерами. Видно только
+## вплотную.
+var hidden: bool = false
+
+var want_jump: bool = false
 ## На сколько голова повёрнута относительно плеч. Пишет мозг; по этому же
 ## числу видно со стороны, что человек смотрит не туда, куда идёт.
 var head_turn: float = 0.0
@@ -354,6 +377,9 @@ func _physics_process(delta: float) -> void:
 	_tick_bleeding(delta)
 	_tick_channel(delta)
 	_tick_attack(delta)
+	_tick_qte(delta)
+	_tick_downed(delta)
+	_tick_finish(delta)
 	_tick_move(delta)
 	_tick_visuals(delta)
 
@@ -440,6 +466,9 @@ func _tick_move(delta: float) -> void:
 	speed *= dmg.speed_factor()          # перебитая нога — это не полоска, а хромота
 	if hp < hp_max * 0.3:
 		speed *= 0.9
+	if downed:
+		speed = Data.TUNE["downed_speed"]      # сбитый с ног только ползёт
+		can_move = finishing == null and _finisher_on_me() == null
 
 	var wish := Vector3.ZERO
 	if can_move:
@@ -447,8 +476,14 @@ func _tick_move(delta: float) -> void:
 		if wish.length() > 1.0:
 			wish = wish.normalized()
 	var push := _separation()
-	velocity.x = move_toward(velocity.x, wish.x * speed + push.x, 40.0 * delta)
-	velocity.z = move_toward(velocity.z, wish.z * speed + push.z, 40.0 * delta)
+	var drag := _tether_pull(delta)
+	velocity.x = move_toward(velocity.x, wish.x * speed + push.x + drag.x, 40.0 * delta)
+	velocity.z = move_toward(velocity.z, wish.z * speed + push.z + drag.z, 40.0 * delta)
+
+	if want_jump and is_on_floor() and not downed and channel_kind == "" and stun_time <= 0.0:
+		velocity.y = Data.TUNE["jump_speed"]
+	want_jump = false
+
 	move_and_slide()
 
 	var face := look_dir
@@ -458,6 +493,48 @@ func _tick_move(delta: float) -> void:
 		# без них модель разворачивается ровно на 180° и идёт спиной
 		var want := atan2(-face.x, -face.z)
 		rotation.y = lerp_angle(rotation.y, want, clampf(Data.TUNE["turn_speed"] * delta, 0.0, 1.0))
+
+## Линь гарпуна: тянет к стрелку, пока держит. Рвётся тем быстрее, чем
+## упорнее уходишь вбок — прямое бегство от Лары бесполезно, надо разрывать
+## линию, заходя за угол.
+func _tether_pull(delta: float) -> Vector3:
+	if tethered_by == null:
+		return Vector3.ZERO
+	if not is_instance_valid(tethered_by) or not tethered_by.alive:
+		break_tether()
+		return Vector3.ZERO
+	var to: Vector3 = tethered_by.global_position - global_position
+	to.y = 0.0
+	var d := to.length()
+	if d < 1.6 or d > 30.0:
+		break_tether()
+		return Vector3.ZERO
+
+	var w: Dictionary = Data.weapon_of(tethered_by.char_id)
+	# сопротивление засчитывается за движение поперёк линя, а не против него
+	var along: float = 0.0
+	if move_input.length() > 0.1:
+		along = absf(move_input.normalized().dot(to.normalized()))
+	tether_left -= delta * (1.0 + (1.0 - along) * 1.6)
+	if tether_left <= 0.0:
+		break_tether()
+		Game.say("Линь сорван")
+		return Vector3.ZERO
+	return to.normalized() * float(w.get("pull", 4.0))
+
+func break_tether() -> void:
+	if tethered_by != null and is_instance_valid(tethered_by):
+		if tethered_by.get_meta("tether_target", null) == self:
+			tethered_by.remove_meta("tether_target")
+	tethered_by = null
+	tether_left = 0.0
+
+## Кто именно меня сейчас добивает.
+func _finisher_on_me() -> Actor:
+	for a: Actor in Game.living(Data.Side.UNDEAD):
+		if a.finishing == self:
+			return a
+	return null
 
 ## Мягкое расталкивание вместо жёсткого столкновения тел: толпа остаётся
 ## толпой, но не превращается в стену, сквозь которую никто не проходит.
@@ -562,6 +639,10 @@ func _drive_rig(delta: float, speed2d: float) -> void:
 	rig.drink_pull = channel_time                 # ритм глотков
 	rig.bitten = 1.0 if drained_by != null else 0.0
 	rig.head_turn = head_turn
+	rig.downed = downed and alive
+	rig.death_kind = death_kind
+	rig.finish = 0.0 if finishing == null \
+		else 1.0 - clampf(finish_left / maxf(0.01, Data.TUNE["finish_time"]), 0.0, 1.0)
 	rig.grab = 1.0 if (channel_kind == "invite" or channel_kind == "talk") else 0.0
 	rig.flinch = clampf(invulnerable * 2.0, 0.0, 1.0)
 	rig.limp_l = dmg.limp_left()
@@ -625,10 +706,28 @@ func _flickers_for_chiara() -> bool:
 	return appearance_id != char_id
 
 # =============================================================== действия
+## Вскрытому вампиру драться нечем. Это не штраф, а суть роли: вампир силён
+## ровно до того мгновения, пока его считают гостем. Увидели, как он пьёт,
+## или сорвали чужое лицо чесноком — и весь его инструмент это ноги и тени.
+## Лича это не касается: его и так все знают в лицо.
+func can_fight() -> bool:
+	if role != Data.Role.VAMPIRE and role != Data.Role.THRALL:
+		return true
+	return revealed_time <= 0.0 and not Game.is_exposed(self)
+
 func try_attack() -> bool:
 	var w: Dictionary = Data.weapon_of(char_id)
 	if w.is_empty() or attack_cd > 0.0 or pending_attack or stun_time > 0.0:
 		return false
+	if not can_fight():
+		if is_player:
+			Game.say("Тебя узнали. Драться нечем — только уходить", true)
+		return false
+	if downed or finishing != null:
+		return false
+	# шпага не машет: она даёт одну попытку попасть в момент
+	if w.get("mode", "") == "qte":
+		return _begin_qte(w)
 	cancel_channel()
 	pending_attack = true
 	windup_time = w["windup"]
@@ -658,10 +757,124 @@ func _land_attack() -> void:
 			continue
 		if forward.angle_to(to.normalized()) > float(w["arc"]):
 			continue
-		a.take_damage(hit, self, a.global_position + Vector3(0, 1.2, 0))
+		a.take_damage(hit, self, a.global_position + Vector3(0, 1.2, 0),
+			str(stats.get("weapon", "")))
 		if w["kind"] == "thrust":
 			break                         # выпад бьёт одного, замах — всех в дуге
 	Game.raise_alarm(global_position, 10.0, "attack")
+
+# ------------------------------------------------------------------ шпага
+## Шпага не рубит, а колет — один раз и точно. Вместо удара запускается
+## окно: по полосе ходит метка, и попасть надо в момент. Попал — клинок
+## проходит насквозь, и живучесть жертвы не имеет значения; промахнулся —
+## открылся сам, и следующие секунды принадлежат ей.
+signal qte_changed(active: bool, marker: float, from: float, to: float)
+
+var qte_target: Actor = null
+var qte_left: float = 0.0
+var qte_pos: float = 0.0             # где метка, 0..1
+var qte_dir: float = 1.0
+var qte_from: float = 0.0
+var qte_to: float = 0.0
+
+func _begin_qte(w: Dictionary) -> bool:
+	var victim := _closest_enemy_in_arc(w)
+	if victim == null:
+		if is_player:
+			Game.say("Некого колоть — подойди ближе", true)
+		return false
+	qte_target = victim
+	qte_left = w["qte_time"]
+	qte_pos = 0.0
+	qte_dir = 1.0
+	var width: float = w["qte_window"]
+	qte_from = randf_range(0.12, 0.88 - width)
+	qte_to = qte_from + width
+	attack_cd = w["cooldown"]
+	qte_changed.emit(true, qte_pos, qte_from, qte_to)
+	if is_player:
+		Game.say("Момент — жми удар, когда метка в окне")
+	return true
+
+func _tick_qte(delta: float) -> void:
+	if qte_target == null:
+		return
+	var w: Dictionary = Data.weapon_of(char_id)
+	if not is_instance_valid(qte_target) or not qte_target.alive \
+			or global_position.distance_to(qte_target.global_position) > float(w["range"]) + 1.0:
+		_end_qte(false)
+		return
+	qte_pos += delta * float(w["qte_speed"]) * qte_dir
+	if qte_pos > 1.0:
+		qte_pos = 1.0; qte_dir = -1.0
+	elif qte_pos < 0.0:
+		qte_pos = 0.0; qte_dir = 1.0
+	qte_changed.emit(true, qte_pos, qte_from, qte_to)
+	# Бот жмёт сам: без этого Люциус завис бы в окне до конца ночи. Он
+	# «целится» — ждёт, пока метка войдёт в окно, и бьёт, но не мгновенно,
+	# так что промахивается примерно так же, как живой человек.
+	if not is_player and qte_pos >= qte_from and qte_pos <= qte_to:
+		if randf() < 0.35:
+			qte_strike()
+			return
+
+	qte_left -= delta
+	if qte_left <= 0.0:
+		_end_qte(false)
+
+## Нажали удар во время окна.
+func qte_strike() -> bool:
+	if qte_target == null:
+		return false
+	var good := qte_pos >= qte_from and qte_pos <= qte_to
+	_end_qte(good)
+	return good
+
+func _end_qte(hit: bool) -> void:
+	var victim := qte_target
+	qte_target = null
+	qte_changed.emit(false, 0.0, 0.0, 0.0)
+	_attack_t = 0.0
+	_attack_windup = 0.08
+	_attack_len = 0.08 + STRIKE_TIME + 0.3
+	Game.raise_alarm(global_position, 10.0, "attack")
+	if victim == null or not is_instance_valid(victim) or not victim.alive:
+		return
+	if hit:
+		# насквозь: живучесть здесь ни при чём, на то он и точный удар
+		victim.death_kind = "rapier"
+		Fx.blood_spray(get_parent(), victim.global_position + Vector3(0, 1.3, 0),
+			(victim.global_position - global_position).normalized(), 60.0)
+		if victim.downed:
+			victim.die(self)
+		else:
+			victim.go_down(self)
+			victim.downed_left = Data.TUNE["downed_time"] * 0.4
+		if is_player:
+			Game.say("Насквозь")
+	else:
+		stun_time = maxf(stun_time, 0.7)     # промах наказывается открытой стойкой
+		if is_player:
+			Game.say("Мимо. Ты открыт", true)
+
+func _closest_enemy_in_arc(w: Dictionary) -> Actor:
+	var forward := -global_transform.basis.z
+	var best: Actor = null
+	var best_d := INF
+	for a: Actor in Game.living():
+		if a == self or a.side == side:
+			continue
+		var to := a.global_position - global_position
+		to.y = 0.0
+		var d := to.length()
+		if d > float(w["range"]) + 0.4 or d < 0.01:
+			continue
+		if forward.angle_to(to.normalized()) > float(w["arc"]) + 0.35:
+			continue
+		if d < best_d:
+			best_d = d
+			best = a
+	return best
 
 func _fire_harpoon(w: Dictionary, hit: float) -> void:
 	var forward := -global_transform.basis.z
@@ -683,13 +896,18 @@ func _fire_harpoon(w: Dictionary, hit: float) -> void:
 	Game.raise_alarm(global_position, 16.0, "shot")
 	if best == null:
 		return
-	best.take_damage(hit, self, best.global_position + Vector3(0, 1.3, 0))
+	best.take_damage(hit, self, best.global_position + Vector3(0, 1.3, 0), "harpoon")
 	if best.alive:
-		# гарпун тащит: убежать мало, надо разорвать линию
-		var pull := (global_position - best.global_position)
-		pull.y = 0.0
-		best.velocity += pull.normalized() * float(w.get("pull", 10.0))
-		best.stun_time = max(best.stun_time, 0.45)
+		# Гарпун не убивает — он сажает на линь. Дальше Ларе надо подойти и
+		# добить: выстрел через весь зал стоит ей всей дистанции обратно,
+		# и это единственное, что уравнивает такое оружие.
+		best.break_tether()
+		best.tethered_by = self
+		best.tether_left = float(w.get("tether_time", 6.0))
+		best.stun_time = maxf(best.stun_time, 0.35)
+		set_meta("tether_target", best)
+		if best.is_player:
+			Game.say("Гарпун! Уходи вбок — прямо не вырваться", true)
 
 ## Вампир зовёт жертву «поговорить». Гости идут всегда, игрок может уйти.
 func try_invite(target: Actor) -> bool:
@@ -825,6 +1043,10 @@ func _finish_drain(victim: Actor) -> void:
 	hunger = min(Data.TUNE["hunger_max"], hunger + gain)
 	set_meta("last_victim", victim.char_id)
 	_notice_witnesses(victim)
+	# выпитый умирает сразу, без падения: кормление и так занимает секунды,
+	# и растягивать его добиванием некуда
+	victim.death_kind = "drain"
+	victim.downed = true                 # чтобы take_damage не сбивал с ног ещё раз
 	victim.take_damage(9999.0, self)
 	set_appearance(appearance_id)
 
@@ -850,7 +1072,8 @@ func _notice_witnesses(victim: Actor) -> void:
 ## Урон приходит не «в персонажа», а в место. По точке попадания ищется
 ## ближайшая кость, и от неё зависит всё: множитель, кровь и что откажет —
 ## нога, рука или сознание.
-func take_damage(amount: float, from: Actor = null, at: Vector3 = Vector3.INF) -> void:
+func take_damage(amount: float, from: Actor = null, at: Vector3 = Vector3.INF,
+		kind: String = "") -> void:
 	if not alive or invulnerable > 0.0:
 		return
 
@@ -859,10 +1082,17 @@ func take_damage(amount: float, from: Actor = null, at: Vector3 = Vector3.INF) -
 		point = global_position + Vector3(0, 1.2, 0)
 	var zone: int = Damage.zone_at(self, point, rig)
 	var real: float = dmg.apply(zone, amount)
+	# серп рвёт: урона меньше, крови больше, и по этой крови жертву найдут
+	if kind != "":
+		var w: Dictionary = Data.WEAPONS.get(kind, {})
+		var extra: float = float(w.get("bleed", 1.0)) - 1.0
+		if extra > 0.0:
+			dmg.bleed = minf(100.0, dmg.bleed + amount * Damage.BLEED_PER_DAMAGE * extra)
 
 	hp -= real
 	invulnerable = 0.25
 	cancel_channel()
+	hidden = false                      # из нычки выбивают первым же ударом
 	Fx.blood_spray(get_parent(), point, (point - global_position).normalized(), real)
 
 	if zone == Damage.Zone.HEAD and real > 20.0:
@@ -871,7 +1101,76 @@ func take_damage(amount: float, from: Actor = null, at: Vector3 = Vector3.INF) -
 		Game.say("%s — %s" % [Damage.ZONE_NAME[zone], _wound_word(real)], true)
 
 	if hp <= 0.0:
-		die(from)
+		death_kind = kind
+		if _can_be_downed():
+			go_down(from)
+		else:
+			die(from)
+
+## Кого сбивает с ног, а кто умирает сразу. Люди и гости падают: их много
+## бьют, и мгновенная смерть от одного удара делала бы драку незаметной.
+## Нечисть и уже сбитые уходят насмерть.
+func _can_be_downed() -> bool:
+	return not downed and side == Data.Side.HUMAN and alive
+
+## Сбит с ног: лежит, ползёт, зовёт. Пока лежит — его добивают; если не
+## добили и не добили вовремя, встаёт с четвертью здоровья.
+func go_down(from: Actor) -> void:
+	downed = true
+	downed_left = Data.TUNE["downed_time"]
+	hp = 1.0
+	stun_time = 0.0
+	break_tether()
+	cancel_channel()
+	Game.raise_alarm(global_position, Data.TUNE["corpse_alarm_radius"], "down")
+	if is_player:
+		Game.say("Ты сбит с ног. Ползи, пока не добили", true)
+	elif from != null and from.is_player:
+		Game.say("%s сбит — добей (E)" % display_name)
+
+func _tick_downed(delta: float) -> void:
+	if not downed or not alive:
+		return
+	if _finisher_on_me() != null:
+		return                          # пока добивают, время не идёт
+	downed_left -= delta
+	if downed_left <= 0.0:
+		downed = false
+		hp = hp_max * 0.25
+		dmg.bleed = maxf(dmg.bleed, 18.0)   # встал, но течёт
+		if is_player:
+			Game.say("Поднялся. Ненадолго")
+
+## Добивание. Занимает больше секунды и приковывает обоих: это окно, в
+## которое добивающего успевают увидеть — и запомнить.
+func try_finish(target: Actor) -> bool:
+	if target == null or not is_instance_valid(target) or not target.downed or not target.alive:
+		return false
+	if side != Data.Side.UNDEAD or finishing != null:
+		return false
+	if global_position.distance_to(target.global_position) > Data.TUNE["finish_range"]:
+		return false
+	finishing = target
+	finish_left = Data.TUNE["finish_time"]
+	look_dir = (target.global_position - global_position).normalized()
+	return true
+
+func _tick_finish(delta: float) -> void:
+	if finishing == null:
+		return
+	if not is_instance_valid(finishing) or not finishing.alive or not finishing.downed \
+			or global_position.distance_to(finishing.global_position) > Data.TUNE["finish_range"] + 0.6:
+		finishing = null
+		return
+	move_input = Vector3.ZERO
+	finish_left -= delta
+	if finish_left <= 0.0:
+		var victim: Actor = finishing
+		finishing = null
+		victim.death_kind = "finish"
+		# добивание видно всем, кто рядом: это самое громкое, что можно сделать
+		Game.raise_alarm(victim.global_position, Data.TUNE["corpse_alarm_radius"] * 1.4, "death")
+		victim.die(self)
 
 func _wound_word(real: float) -> String:
 	if real > 45.0:
@@ -888,10 +1187,20 @@ func _tick_bleeding(delta: float) -> void:
 	dmg.pressing = is_player and Input.is_action_pressed("press_wound") and side == Data.Side.HUMAN
 	var lost := dmg.tick(delta)
 	if lost > 0.0:
-		hp -= lost
-		if hp <= 0.0:
-			die(null)
-			return
+		# Сбитого с ног кровь не добивает. Иначе получалось так: удар валит
+		# с ног, здоровья остаётся единица — и в тот же кадр её съедает
+		# кровотечение. Лежачий умирал раньше, чем к нему успевали подойти,
+		# и добивание не срабатывало ни разу.
+		if downed:
+			hp = maxf(hp, 1.0)
+		else:
+			hp -= lost
+			if hp <= 0.0:
+				if _can_be_downed():
+					go_down(null)
+				else:
+					die(null)
+				return
 	if dmg.should_drip(delta):
 		Game.drop_blood(global_position, side)
 		Fx.blood_drip(get_parent(), global_position)

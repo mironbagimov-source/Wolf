@@ -41,6 +41,7 @@ var looking_back: bool = false         # держат кнопку: тело з�
 var target_actor: Actor = null
 var target_brazier: Lamp = null
 var target_door: Node = null
+var target_hide: Vector3 = Vector3.INF
 var prompt: String = ""
 
 var _holding_interact: bool = false
@@ -189,8 +190,14 @@ func _settle_body(_delta: float) -> void:
 		actor.summoned_by = null
 		actor.summon_hold = 0.0
 
+	actor.want_jump = Input.is_action_just_pressed("jump")
+
 	if Input.is_action_just_pressed("attack"):
-		if actor.try_attack():
+		# идёт окно шпаги — тот же ЛКМ решает, попал или открылся
+		if actor.qte_target != null:
+			if actor.qte_strike():
+				shake(0.4)
+		elif actor.try_attack():
 			shake(0.25)
 	if Input.is_action_just_pressed("signature"):
 		if not actor.try_signature():
@@ -220,11 +227,25 @@ func _begin_interact() -> void:
 	if target_door != null and target_door.has_method("use"):
 		target_door.call("use", actor)
 		return
+	if target_hide != null:
+		actor.hidden = not actor.hidden
+		Game.say("Спрятался" if actor.hidden else "Вышел из укрытия")
+		return
 	if target_brazier != null:
 		actor._start_channel("brazier", Data.TUNE["brazier_light_time"], target_brazier)
 		return
 	if target_actor == null:
 		return
+
+	# лежащего добивают — это главное действие нечисти вблизи
+	if actor.side == Data.Side.UNDEAD and target_actor.downed:
+		if actor.try_finish(target_actor):
+			return
+
+	if actor.side == Data.Side.HUMAN and actor.role == Data.Role.HUMAN:
+		Dialogue.talk(actor, target_actor)
+		return
+
 	if actor.role == Data.Role.VAMPIRE or actor.role == Data.Role.THRALL:
 		var d := actor.global_position.distance_to(target_actor.global_position)
 		if d <= Data.TUNE["drain_range"] and (target_actor.summoned_by == actor or target_actor.stun_time > 0.0 or d < 1.5):
@@ -232,16 +253,60 @@ func _begin_interact() -> void:
 		else:
 			actor.try_invite(target_actor)
 
+## Ближайшая нычка, если стоишь прямо в ней.
+func _nearest_hide() -> Vector3:
+	var w = actor.get_tree().get_first_node_in_group("world")
+	if w == null or not ("hide_spots" in w):
+		return Vector3.INF
+	var best := Vector3.INF
+	var best_d: float = Data.TUNE["hide_range"]
+	for p: Vector3 in w.hide_spots:
+		var d := actor.global_position.distance_to(p)
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
+
+func _nearest_downed() -> Actor:
+	var best: Actor = null
+	var best_d: float = Data.TUNE["finish_range"]
+	for a: Actor in Game.living():
+		if a == actor or not a.downed:
+			continue
+		var d := actor.global_position.distance_to(a.global_position)
+		if d < best_d:
+			best_d = d
+			best = a
+	return best
+
 ## Что перед носом. Луч из камеры, а не «ближайший в радиусе»: от первого
 ## лица целятся взглядом.
 func _find_target() -> void:
 	target_actor = null
 	target_brazier = null
 	target_door = null
+	target_hide = Vector3.INF
 	prompt = ""
 
 	var from := camera.global_position
 	var dir := _aim_dir()
+
+	# нычка под ногами — важнее всего остального: в неё ныряют на бегу
+	var spot := _nearest_hide()
+	if spot != Vector3.INF:
+		target_hide = spot
+		prompt = "E — вылезти" if actor.hidden else "E — спрятаться"
+		return
+
+	# лежащего добить / поднять — тоже раньше прочего
+	var near := _nearest_downed()
+	if near != null:
+		target_actor = near
+		if actor.side == Data.Side.UNDEAD:
+			prompt = "E — добить: %s" % near.appearance_name
+		else:
+			prompt = "%s сбит с ног" % near.appearance_name
+		return
 
 	# двери и жаровни — по лучу
 	var space := actor.get_world_3d().direct_space_state

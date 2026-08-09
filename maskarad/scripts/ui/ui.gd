@@ -32,6 +32,14 @@ var brazier_label: Label
 var wound_label: Label
 var keys_label: Label
 var _keys_left: float = 0.0            # сколько ещё показывать шпаргалку
+var minimap: Minimap
+## Держать карту раскрытой — для снимков в проверке.
+var force_big_map: bool = false
+var qte_root: Control
+var qte_bar: ColorRect
+var qte_window: ColorRect
+var qte_marker: ColorRect
+var qte_hint: Label
 var roster_panel: PanelContainer
 var roster_box: VBoxContainer
 var result_title: Label
@@ -293,6 +301,37 @@ func _build_hud() -> void:
 	roster_box = VBoxContainer.new()
 	roster_panel.add_child(roster_box)
 
+	# карта в правом верхнем углу, по `M` — во весь экран
+	minimap = Minimap.new()
+	minimap.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	minimap.offset_left = -238; minimap.offset_top = 96
+	minimap.offset_right = -26; minimap.offset_bottom = 308
+	hud_root.add_child(minimap)
+
+	# окно шпаги: метка ходит по полосе, попасть надо в подсвеченный кусок
+	qte_root = Control.new()
+	qte_root.set_anchors_preset(Control.PRESET_CENTER)
+	qte_root.offset_left = -180; qte_root.offset_right = 180
+	qte_root.offset_top = -40; qte_root.offset_bottom = 20
+	qte_root.visible = false
+	hud_root.add_child(qte_root)
+	qte_bar = ColorRect.new()
+	qte_bar.color = Color(0.10, 0.10, 0.12, 0.9)
+	qte_bar.set_anchors_preset(Control.PRESET_FULL_RECT)
+	qte_bar.offset_top = 20; qte_bar.offset_bottom = -18
+	qte_root.add_child(qte_bar)
+	qte_window = ColorRect.new()
+	qte_window.color = Color(0.85, 0.72, 0.25, 0.85)
+	qte_root.add_child(qte_window)
+	qte_marker = ColorRect.new()
+	qte_marker.color = Color(0.95, 0.95, 0.92)
+	qte_root.add_child(qte_marker)
+	qte_hint = _label("ЛКМ — в момент", 15, GOLD)
+	qte_hint.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	qte_hint.offset_left = -140; qte_hint.offset_right = 140
+	qte_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	qte_root.add_child(qte_hint)
+
 	# Ни один элемент HUD не должен трогать мышь. По умолчанию Control ловит
 	# её на себя, и полоска или панель, оказавшаяся под курсором, съедает
 	# движение мыши до того, как его увидит игрок: камера просто перестаёт
@@ -394,6 +433,19 @@ func _process(_delta: float) -> void:
 	timer_label.text = Data.clock(Game.time_left)
 	brazier_label.text = "Прожекторы: %d из %d" % [Game.braziers_lit, Game.braziers_total]
 
+	# карта во весь экран, пока держат M
+	var want_big := Input.is_action_pressed("map") or force_big_map
+	if minimap.big != want_big:
+		minimap.big = want_big
+		if want_big:
+			minimap.set_anchors_preset(Control.PRESET_CENTER)
+			minimap.offset_left = -330; minimap.offset_right = 330
+			minimap.offset_top = -330; minimap.offset_bottom = 330
+		else:
+			minimap.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+			minimap.offset_left = -238; minimap.offset_top = 96
+			minimap.offset_right = -26; minimap.offset_bottom = 308
+
 	var p: Actor = Game.player
 	if p == null or not is_instance_valid(p):
 		return
@@ -426,11 +478,25 @@ func _process(_delta: float) -> void:
 	wound_label.modulate = Color(0.85, 0.25, 0.25) if p.dmg.bleed > 5.0 else Color(0.8, 0.6, 0.35)
 	objective_label.text = _objective(p)
 
-	if p.channel_kind != "":
+	if p.finishing != null:
+		channel_bar.visible = true
+		channel_bar.value = 1.0 - clampf(p.finish_left / maxf(0.01, Data.TUNE["finish_time"]), 0.0, 1.0)
+	elif p.channel_kind != "":
 		channel_bar.visible = true
 		channel_bar.value = clampf(p.channel_time / max(0.01, p.channel_total), 0.0, 1.0)
 	else:
 		channel_bar.visible = false
+
+	# окно шпаги
+	qte_root.visible = p.qte_target != null
+	if qte_root.visible:
+		var w := qte_root.size.x
+		qte_window.position = Vector2(p.qte_from * w, 20)
+		qte_window.size = Vector2((p.qte_to - p.qte_from) * w, qte_root.size.y - 38)
+		qte_marker.position = Vector2(p.qte_pos * w - 2, 14)
+		qte_marker.size = Vector2(4, qte_root.size.y - 26)
+		var inside := p.qte_pos >= p.qte_from and p.qte_pos <= p.qte_to
+		qte_marker.color = Color(1.0, 0.95, 0.5) if inside else Color(0.95, 0.95, 0.92)
 
 	var brain := p.get_node_or_null("Brain")
 	prompt_label.text = brain.prompt if brain != null and "prompt" in brain else ""

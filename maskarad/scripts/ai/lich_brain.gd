@@ -36,7 +36,25 @@ func think(delta: float) -> void:
 				mode = PROWL
 				mode_time = 2.0
 				return
+
+			# Лежащего добивают, и это важнее любой другой цели: пока он не
+			# добит, он встанет. Ради этого лич бросает даже погоню.
+			var lying := _nearest_downed()
+			if lying != null:
+				go_to(lying.global_position)
+				if distance_to(lying) < Data.TUNE["finish_range"] - 0.3:
+					stop()
+					actor.look_dir = (lying.global_position - actor.global_position).normalized()
+					actor.try_finish(lying)
+					return
+
 			var d := distance_to(prey)
+			# кого посадил на гарпун — того и добираем: линь всё равно тянет
+			var hooked = actor.get_meta("tether_target", null)
+			if hooked is Actor and is_instance_valid(hooked) and hooked.alive \
+					and hooked.tethered_by == actor:
+				prey = hooked
+				d = distance_to(prey)
 			go_to(prey.global_position)
 			actor.want_sprint = d > 3.0 and actor.stamina > 10.0
 
@@ -77,6 +95,19 @@ func _pick_prey() -> Actor:
 		var score := d * (0.8 if a.role == Data.Role.HUMAN else 1.0)
 		if score < best_score:
 			best_score = score
+			best = a
+	return best
+
+## Ближайший сбитый с ног, до которого ещё можно дойти.
+func _nearest_downed() -> Actor:
+	var best: Actor = null
+	var best_d := 22.0
+	for a: Actor in Game.living(Data.Side.HUMAN):
+		if not a.downed:
+			continue
+		var d := distance_to(a)
+		if d < best_d:
+			best_d = d
 			best = a
 	return best
 

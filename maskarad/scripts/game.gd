@@ -105,7 +105,14 @@ func _process(delta: float) -> void:
 
 func light_brazier() -> void:
 	braziers_lit += 1
-	time_left = max(5.0, time_left - Data.TUNE["brazier_bonus"])
+	# Сколько ночи снимает один прожектор — считается от их числа, а не
+	# берётся константой. Иначе каждый новый район города молча усиливает
+	# людей: с восемью прожекторами по сорок секунд от семиминутной ночи
+	# оставалось полторы минуты, и нечисть не успевала физически.
+	# Все прожекторы вместе всегда забирают одну и ту же долю ночи.
+	var per: float = Data.TUNE["night_seconds"] * Data.TUNE["brazier_share"] \
+		/ maxf(1.0, float(braziers_total))
+	time_left = max(5.0, time_left - per)
 	notice.emit("Жаровня зажжена — до рассвета ближе", false)
 
 func raise_alarm(pos: Vector3, radius: float, kind: String) -> void:
