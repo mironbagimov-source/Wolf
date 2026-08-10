@@ -127,6 +127,9 @@ func _maybe_autotest() -> void:
 	if _shot_path != "" and "--handcheck" in args:
 		_hand_bench(args)
 		return
+	if _shot_path != "" and "--deathcheck" in args:
+		_death_bench(args)
+		return
 	start_match.call_deferred()
 	if "--combattest" in args:
 		_combat_test.call_deferred()
@@ -1003,6 +1006,90 @@ func _finger_bones(rig: RigAnim) -> int:
 		if str(k).begins_with("l_") or str(k).begins_with("r_"):
 			n += 1
 	return n
+
+## СМЕРТЬ, покадрово и в раскладку.
+##
+## По одному снимку не отличить «упал» от «мгновенно лёг», поэтому кадры
+## снимаются подряд и с ЧЁТКО ВИДНЫМ ПОЛОМ: первая версия стенда снимала
+## тёмную комнату, где непонятно было даже, где земля, — и тело, висящее в
+## воздухе, выглядело как лежащее.
+func _death_bench(args: Array) -> void:
+	var kind := "back"
+	for a in args:
+		if a.begins_with("--fall="):
+			kind = a.substr(7)
+	# камера сбоку и чуть выше пояса: дуга падения видна только в профиль
+	var stage := _bench_stage(Vector3(5.0, 1.1, 0.2), Vector3(0, 0.8, 0))
+
+	# светлый пол с разметкой — чтобы земля читалась однозначно
+	var floor_mi := MeshInstance3D.new()
+	var pm := BoxMesh.new()
+	pm.size = Vector3(14, 0.06, 14)
+	floor_mi.mesh = pm
+	var fmat := StandardMaterial3D.new()
+	fmat.albedo_color = Color(0.42, 0.44, 0.48)
+	floor_mi.material_override = fmat
+	floor_mi.position = Vector3(0, 0.03, 0)
+	stage.add_child(floor_mi)
+	for i in range(-6, 7):
+		var line := MeshInstance3D.new()
+		var lm := BoxMesh.new()
+		lm.size = Vector3(14, 0.02, 0.04)
+		line.mesh = lm
+		var lmat := StandardMaterial3D.new()
+		lmat.albedo_color = Color(0.22, 0.23, 0.26)
+		line.material_override = lmat
+		line.position = Vector3(0, 0.07, float(i))
+		stage.add_child(line)
+
+	var who := Actor.new()
+	stage.add_child(who)
+	who.setup("civ_peasant", false)
+	who.forced_detail = 0
+	who.global_position = Vector3(0, 0.05, 0)
+	await get_tree().physics_frame
+	who.rotation.y = 0.0
+	who.look_dir = Vector3(0, 0, -1)
+	for _f in 20:
+		who.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+
+	# ставим обстановку так, чтобы выбор падения дал нужный дубль
+	# `last_hit_dir` — направление ОТ бьющего К жертве. Персонаж смотрит на −Z,
+	# значит удар СПЕРЕДИ толкает его в +Z, и это падение назад.
+	match kind:
+		"back":
+			who.last_hit_dir = Vector3(0, 0, 1)
+		"forward":
+			who.last_hit_dir = Vector3(0, 0, -1)
+		"side_l":
+			who.last_hit_dir = Vector3(-1, 0, 0)
+		"side_r":
+			who.last_hit_dir = Vector3(1, 0, 0)
+		"stumble":
+			who.velocity = Vector3(0, 0, -5.0)
+		"knees":
+			who.death_kind = "rapier"
+		"flat":
+			who.downed = true
+	who.die(null)
+	await get_tree().physics_frame
+	print("[смерть] просили «%s», выбрано «%s»" % [kind, who.fall_kind])
+
+	var y0: float = who.global_position.y
+	for shot_i in 6:
+		for _f in 11:
+			await get_tree().physics_frame
+		await RenderingServer.frame_post_draw
+		var img := get_viewport().get_texture().get_image()
+		img.save_png(_shot_path.replace(".png", "_%s_%d.png" % [kind, shot_i]))
+	print("[смерть] «%s»: наклон %.2f, крен %.2f, высота %.2f -> %.2f, dead=%.2f" % [
+		who.fall_kind,
+		who._body_root.rotation.x if who._body_root else 0.0,
+		who._body_root.rotation.z if who._body_root else 0.0,
+		y0, who.global_position.y,
+		who.rig.dead if who.rig else -1.0])
+	get_tree().quit()
 
 ## Лицо крупным планом. Мимику нельзя «сделать по описанию» и поверить на
 ## слово: в моделях нет ни лицевых костей, ни блендшейпов, всё лицо — это

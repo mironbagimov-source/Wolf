@@ -56,8 +56,7 @@ var _env: Environment = null
 ## делится на громкие и тихие места одинаково для обеих сторон.
 var doors: Array = []
 var speakers: Array[Dictionary] = []
-var _music_t: float = 0.0
-var _beat: int = 0
+
 var _t: float = 0.0
 
 func build() -> void:
@@ -122,7 +121,6 @@ func _on_quality(_level: int) -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
-	_tick_music(delta)
 	# в клубе свет живёт своей жизнью: под ним трудно понять, кто перед тобой
 	for i in _club_lights.size():
 		var l: OmniLight3D = _club_lights[i]
@@ -511,8 +509,10 @@ func _club_doors() -> void:
 	_door(Vector3(-17.0, 0, 34.0), 4.0, PI * 0.5, "гардероб")
 	_door(Vector3(-25.0, 0, -32.0), 3.0, PI * 0.5, "загрузка")
 
-## Музыка клуба. Ритм собирается из бочки и баса, а не из файла: нужен не
-## трек, а пульс, по которому слышно, где громко.
+## Колонки клуба. Звука в игре нет, но колонки остались — и остались не как
+## мебель: по ним считается, где музыка ГЛУШИТ шум. Тревога у главной сцены
+## расходится вдвое ближе, чем в подсобке, и это по-прежнему делит зал на
+## громкие и тихие места для обеих сторон.
 func _club_music() -> void:
 	speakers.append({"pos": Vector3(0, 3.0, -18.0), "power": 1.0})     # главная сцена
 	speakers.append({"pos": Vector3(19, 2.5, 12.0), "power": 0.7})     # вторая сцена
@@ -535,18 +535,6 @@ func music_loudness(at: Vector3) -> float:
 		var v: float = clampf(1.0 - d / (26.0 * float(sp["power"]) + 6.0), 0.0, 1.0)
 		best = maxf(best, v * float(sp["power"]))
 	return best
-
-func _tick_music(delta: float) -> void:
-	if speakers.is_empty() or Game.state != Game.State.PLAYING:
-		return
-	_music_t -= delta
-	if _music_t > 0.0:
-		return
-	_music_t = 0.5                      # 120 ударов в минуту
-	_beat = (_beat + 1) % 4
-	for sp in speakers:
-		var db: float = linear_to_db(clampf(float(sp["power"]), 0.05, 1.0)) - 4.0
-		Sfx.play("kick", sp["pos"], db, 1.0 if _beat % 2 == 0 else 1.12)
 
 func _club_light_rig() -> void:
 	# ферма над танцполом

@@ -110,7 +110,6 @@ func _physics_process(delta: float) -> void:
 	_read_input(delta)
 	_place_camera(delta)
 	_find_target()
-	_tick_heartbeat(delta)
 
 ## Смерть: голова заваливается набок и оседает на пол.
 func _death_camera(delta: float) -> void:
@@ -350,20 +349,6 @@ func _begin_interact() -> void:
 			actor.try_dance(target_actor)
 		else:
 			actor.try_invite(target_actor)
-
-## Сердце. Единственная подсказка, которую человек получает НЕ ГЛАЗАМИ:
-## чем ближе монстр, тем чаще стучит. Работает и через стену — потому и
-## работает: увидеть за стеной нельзя, а почувствовать можно.
-##
-## У нечисти сердца нет — ей стучать не от чего.
-func _tick_heartbeat(delta: float) -> void:
-	if actor.side != Data.Side.HUMAN:
-		return
-	var closest := 999.0
-	for a: Actor in Game.living(Data.Side.UNDEAD):
-		closest = minf(closest, actor.global_position.distance_to(a.global_position))
-	# двадцать метров — ничего, пять — колотится
-	Sfx.tick_heartbeat(delta, clampf((20.0 - closest) / 15.0, 0.0, 1.0))
 
 ## Ближайшая нычка, если стоишь прямо в ней.
 func _nearest_hide() -> Vector3:

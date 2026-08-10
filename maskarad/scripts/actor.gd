@@ -130,6 +130,13 @@ var mori_role: String = ""
 var mori_target: Actor = null
 var mori_left: float = 0.0
 
+## Откуда прилетел последний удар (направление ОТ бьющего К жертве) и каким
+## падением тело будет падать. Разбор — в `_choose_fall`.
+var last_hit_dir: Vector3 = Vector3.ZERO
+var fall_kind: String = "back"
+## Куда человек бежал в момент смерти. Читается при выборе падения.
+var _death_move: Vector3 = Vector3.ZERO
+
 ## Испуг — не только поведение бота, но и лицо. Держится несколько секунд
 ## после того, как человек увидел монстра, и за это время успевает смениться
 ## с крика на просто страх.
@@ -585,6 +592,8 @@ func _hand_holder(body_holder: Node3D, right: bool) -> Node3D:
 func _physics_process(delta: float) -> void:
 	if not alive:
 		_tick_fall(delta)
+		if rig != null:
+			rig.fall_kind = fall_kind
 		if rig != null and rig.ok:
 			rig.dead = minf(1.0, rig.dead + delta * 1.6)
 			rig.update(delta, 0.0, false)
@@ -672,9 +681,6 @@ func _tick_channel(delta: float) -> void:
 				v.velocity.x = 0.0
 				v.velocity.z = 0.0
 			look_dir = -grip.normalized()
-			if v.bite_progress <= 0.0:
-				Sfx.play("scream", v.global_position, -2.0, randf_range(0.95, 1.1))
-				Sfx.play("bite", global_position, -6.0)
 			v.bite_progress = clampf(channel_time / maxf(0.01, channel_total), 0.0, 1.0)
 
 	if channel_time >= channel_total:
@@ -847,15 +853,7 @@ func _tick_visuals(delta: float) -> void:
 			_attack_t = -1.0
 
 	if rig != null and rig.ok:
-		var was_phase: float = rig.phase
 		_drive_rig(delta, speed2d)
-		# Шаг звучит там, где нога касается пола, — по переходу фазы через
-		# полупериод. Громкость от собственной шумности: у Джея «лёгкая нога»
-		# не строчка в описании, а тише слышный шаг.
-		if speed2d > 0.6 and int(was_phase / PI) != int(rig.phase / PI):
-			var loud: float = float(stats.get("noise", 1.0)) * (1.4 if want_sprint else 1.0)
-			Sfx.play("step", global_position, linear_to_db(clampf(loud * 0.45, 0.05, 1.2)),
-				randf_range(0.92, 1.1))
 		_aim_weapon(_weapon_mesh, true)
 		_aim_weapon(_offhand_mesh, false)
 	elif _parts != null:
@@ -1181,7 +1179,6 @@ func drop_carry(stunned: bool = false) -> void:
 			# что держал пустоту
 			v.stun_time = maxf(v.stun_time, Data.TUNE["carry_drop_stun"] * 0.5)
 			stun_time = maxf(stun_time, Data.TUNE["carry_drop_stun"])
-			Sfx.play("scream", v.global_position, -3.0, 1.15)
 			Game.raise_alarm(v.global_position, 12.0, "attack")
 			if is_player:
 				Game.say("Вырвался!", true)
@@ -1288,7 +1285,6 @@ func _grabbable() -> Actor:
 	return best
 
 func _land_attack() -> void:
-	Sfx.play("swish", global_position + Vector3(0, 1.2, 0), -8.0, randf_range(0.9, 1.15))
 	var w: Dictionary = Data.weapon_of(char_id)
 	if w.is_empty():
 		return
@@ -1662,7 +1658,6 @@ func try_noise_lure(point: Vector3) -> bool:
 	look_dir = (aim - global_position).normalized()
 	return _begin_gesture("throw", 0.7, 0.62, func():
 		Fx.blood_drip(get_parent(), aim, 0.2)
-		Sfx.play("glass", aim, 2.0)
 		Game.raise_alarm(aim, Data.TUNE["noise_radius"], "mob")
 		if is_player:
 			Game.say("Звон стекла — все обернулись туда"))
@@ -1878,11 +1873,13 @@ func take_damage(amount: float, from: Actor = null, at: Vector3 = Vector3.INF,
 	if point == Vector3.INF:
 		point = global_position + Vector3(0, 1.2, 0)
 	var zone: int = Damage.zone_at(self, point, rig)
+	# откуда ударили — по этому потом выбирается, в какую сторону падать
+	if from != null and is_instance_valid(from):
+		var hd := global_position - from.global_position
+		hd.y = 0.0
+		if hd.length() > 0.05:
+			last_hit_dir = hd.normalized()
 	var real: float = dmg.apply(zone, amount)
-	Sfx.play("hit", point, linear_to_db(clampf(0.4 + real / 90.0, 0.1, 1.2)),
-		randf_range(0.85, 1.15))
-	if real > 25.0 and side == Data.Side.HUMAN:
-		Sfx.play("scream", global_position + Vector3(0, 1.4, 0), -6.0, randf_range(0.9, 1.2))
 	# серп рвёт: урона меньше, крови больше, и по этой крови жертву найдут
 	if kind != "":
 		var w: Dictionary = Data.WEAPONS.get(kind, {})
@@ -2115,16 +2112,18 @@ func die(killer: Actor = null) -> void:
 		return
 	alive = false
 	Game.invalidate_roster()
-	# дубль смерти и его разброс — чтобы два трупа подряд не легли одинаково
+	# Скорость запоминаем ДО того, как обнулим её ниже: по ней выбирается
+	# падение с пробежкой, и без этого дубль `stumble` не мог сыграть никогда —
+	# к моменту выбора скорость всегда была нулевой.
+	_death_move = Vector3(velocity.x, 0.0, velocity.z)
+	# разброс: два одинаковых падения всё равно лягут не под копирку
 	if rig != null:
-		rig.death_take = randi() % 3
 		rig.death_seed = randf()
 	dmg.bleed = 0.0
 	cancel_channel()
 	summoned_by = null
 	velocity = Vector3.ZERO
 	Game.raise_alarm(global_position, Data.TUNE["corpse_alarm_radius"], "death")
-	Sfx.play("scream", global_position + Vector3(0, 1.4, 0), -1.0, randf_range(0.85, 1.05))
 
 	# лич кормит психоз каждой жертвой — включая гостей, поэтому ему выгодно
 	# резать бал, а не гоняться за одним человеком
@@ -2178,25 +2177,64 @@ func die(killer: Actor = null) -> void:
 ## перелётом и отскоком в конце (человек падает не как доска: сначала
 ## подламывается, потом ударяется), а кости в это время играют свою позу
 ## смерти. Физику мы не выключаем до конца падения, иначе оно не пойдёт.
-const FALL_TIME := 1.1
+const FALL_TIME := 1.15
 
 var _falling: float = -1.0
-var _fall_dir: float = 1.0
 var _fall_side: float = 0.0
+var _fall_drift: Vector3 = Vector3.ZERO
+
+## КАКИМ ПАДЕНИЕМ ПАДАТЬ — РЕШАЕТ ОБСТАНОВКА, а не жребий и не оружие.
+##
+## Прошлая версия крутила корпус на девяносто градусов вокруг ног, и всё.
+## Смотрелось это так, будто тело вращают за середину в воздухе: земли под
+## ним не было — мёртвый актёр переставал считать гравитацию, — и падать ему
+## было некуда. Отсюда и «ты её не исправил».
+##
+## Падений теперь шесть, и выбираются они по тому, что было с человеком в
+## последнюю секунду:
+##
+##   back    — ударили спереди: опрокидывает НАЗАД, через пятки;
+##   forward — ударили в спину: роняет ЛИЦОМ ВНИЗ, руки не успевают;
+##   side_l / side_r — ударили сбоку: складывает через плечо;
+##   stumble — бежал: по инерции проезжает ещё пару шагов и падает вперёд;
+##   knees   — точный укол, выпит или вырван из захвата: не роняет, а
+##             подламывает колени, тело оседает на месте почти прямо;
+##   flat    — уже лежал (добили ползущего): падать неоткуда, просто затих.
+func _choose_fall() -> void:
+	_fall_side = randf_range(-0.22, 0.22)
+	_fall_drift = Vector3.ZERO
+
+	if downed:
+		fall_kind = "flat"
+		return
+	if carried_by != null or drained_by != null \
+			or death_kind == "rapier" or death_kind == "drain":
+		fall_kind = "knees"
+		return
+
+	if _death_move.length() > 2.6:
+		fall_kind = "stumble"
+		_fall_drift = _death_move.normalized()
+		return
+
+	if last_hit_dir.length() < 0.1:
+		fall_kind = "back"
+		return
+	# куда толкнуло относительно того, куда человек смотрел
+	var face := -global_transform.basis.z
+	var ahead: float = face.dot(last_hit_dir)      # +1 — толкнуло вперёд, били в спину
+	var side: float = face.cross(Vector3.UP).dot(last_hit_dir)
+	if absf(ahead) > absf(side):
+		fall_kind = "forward" if ahead > 0.0 else "back"
+	else:
+		fall_kind = "side_r" if side > 0.0 else "side_l"
 
 func _lie_down() -> void:
-	collision_layer = 0
+	collision_layer = 0                # сквозь труп ходят
+	_choose_fall()
 	_falling = 0.0
-	# куда валится — зависит от того, откуда прилетело: назад от удара
-	# спереди, вперёд с гарпуна, набок от серпа
-	match death_kind:
-		"axe", "finish", "rapier", "mori":
-			_fall_dir = -1.0
-		"harpoon":
-			_fall_dir = 1.0
-		_:
-			_fall_dir = 1.0
-	_fall_side = randf_range(-0.35, 0.35)
+	if rig != null:
+		rig.fall_kind = fall_kind
 	set_physics_process(true)
 
 func _tick_fall(delta: float) -> void:
@@ -2204,14 +2242,55 @@ func _tick_fall(delta: float) -> void:
 		return
 	_falling += delta
 	var t: float = clampf(_falling / FALL_TIME, 0.0, 1.0)
-	# ускорение к земле, потом короткий отскок и оседание
+
+	# ТЕЛО ПАДАЕТ НА ПОЛ. Пока идёт падение, гравитация продолжает работать,
+	# поэтому труп ложится на ту поверхность, над которой умер, — на пол, на
+	# сцену, на ступени, — а не остаётся висеть на высоте смерти. Ни одного
+	# числа про высоту здесь нет и не нужно.
+	if not is_on_floor():
+		velocity.y -= Data.TUNE["gravity"] * delta
+	else:
+		velocity.y = 0.0
+	var slide: float = maxf(0.0, 1.0 - t * 2.2)     # инерция бега гаснет
+	velocity.x = _fall_drift.x * 3.4 * slide
+	velocity.z = _fall_drift.z * 3.4 * slide
+	move_and_slide()
+
 	var e: float = t * t * (3.0 - 2.0 * t)
-	var over: float = sin(clampf((t - 0.72) / 0.28, 0.0, 1.0) * PI) * 0.12
-	_body_root.rotation.x = _fall_dir * (PI / 2.0) * e - _fall_dir * over
-	_body_root.rotation.z = _fall_side * e
-	_body_root.position.y = 0.25 * e
+	# короткий доворот в конце: человек падает не как доска, его доворачивает
+	var settle: float = sin(clampf((t - 0.7) / 0.3, 0.0, 1.0) * PI) * 0.10
+
+	var pitch := 0.0
+	var roll := 0.0
+	var sink := 0.0
+	match fall_kind:
+		"back":
+			pitch = (PI * 0.5) * e - settle
+			sink = 0.22
+		"forward", "stumble":
+			pitch = -(PI * 0.5) * e + settle
+			sink = 0.22
+		"side_l":
+			roll = -(PI * 0.5) * e + settle
+			sink = 0.20
+		"side_r":
+			roll = (PI * 0.5) * e - settle
+			sink = 0.20
+		"knees":
+			# оседает почти прямо: корпус только заваливается набок
+			pitch = (PI * 0.16) * e
+			roll = _fall_side * e * 2.0
+			sink = 0.0
+		"flat":
+			pitch = (PI * 0.5) * minf(1.0, e * 1.7)
+			sink = 0.22
+	_body_root.rotation.x = pitch
+	_body_root.rotation.z = roll + _fall_side * e * 0.35
+	_body_root.position.y = sink * e
+
 	if t >= 1.0:
 		_falling = -1.0
+		velocity = Vector3.ZERO
 		set_physics_process(false)
 
 ## Обращение: тот же узел продолжает играть, но уже за другую сторону.

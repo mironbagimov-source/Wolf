@@ -559,187 +559,126 @@ func _pose_activity() -> void:
 ## навзничь, от серпа — заваливается набок, зажимая живот, от гарпуна —
 ## вперёд, на линь, от шпаги — оседает почти прямо, от клыков — мягко, без
 ## сопротивления. Ragdoll здесь избыточен: тело всё равно лежит секунды.
-## Смерть. Не одна поза на причину, а НЕСКОЛЬКО дублей на каждую: одна и та
-## же поза на всех гостях подряд выдаёт себя за пару минут, а гостей за ночь
-## умирает много.
+## СМЕРТЬ. Поза выбирается по тому, КАК тело падает, а не по тому, чем убили.
 ##
-## Дубль выбирается из `death_take` — его выставляет актёр случайно в момент
-## смерти, — и внутри дубля поза ещё и разъезжается по `death_seed`, поэтому
-## два одинаковых дубля всё равно ложатся по-разному.
+## Раньше здесь был жребий: три дубля на причину смерти, `randi() % 3`. Это
+## неправильно по сути — поза падения обязана согласовываться с направлением
+## падения, иначе тело валится назад, а руки при этом выставлены вперёд.
 ##
-## Ragdoll здесь избыточен: тело лежит секунды, а падение отыгрывает корпус
-## (`_tick_fall` в актёре), пока кости доигрывают свою позу.
-var death_take: int = 0
+## Теперь ведущее — `fall_kind` (куда валимся, см. `Actor._choose_fall`), а
+## `death_kind` только докладывает деталь поверх: серп — руки к животу, толпа —
+## руки над головой, гарпун — руки за линём.
+##
+## `death_seed` разводит одинаковые падения между собой: два гостя, упавшие
+## одинаково, всё равно лягут не под копирку.
+var fall_kind: String = "back"
 var death_seed: float = 0.0
 
 func _pose_dead() -> void:
 	var t: float = clampf(dead, 0.0, 1.0)
-	# разброс: у одного рука подвёрнута сильнее, у другого голова свёрнута
 	var j: float = sin(death_seed * 12.9898) * 0.5
-	match death_kind:
-		"axe", "finish":
-			if death_take == 0:
-				# опрокинуло назад, руки в стороны
-				_spin("spine", AX, -t * 0.55)
-				_spin("spine1", AX, -t * 0.35)
-				_spin("neck", AX, -t * 0.6)
-				_spin("arm_l", AZ, -t * (0.55 + j * 0.3))
-				_spin("arm_r", AZ, t * 0.55)
-				_spin("upleg_l", AX, t * 0.35)
-				_spin("upleg_r", AX, t * 0.2)
-			elif death_take == 1:
-				# сложило пополам: удар пришёлся в корпус
-				_spin("spine", AX, t * 0.9)
-				_spin("spine1", AX, t * 0.5)
-				_spin("neck", AX, t * 0.4)
-				_spin("arm_l", AZ, -t * 0.9)
-				_spin("arm_r", AZ, t * 0.9)
-				_spin("fore_l", AX, -t * 1.2)
-				_spin("fore_r", AX, -t * 1.2)
-				_spin("upleg_l", AX, -t * 0.6)
-				_spin("leg_l", AX, -t * 1.1)
-			else:
-				# развернуло вокруг оси и уронило через плечо
-				_spin("hips", AY, -t * 0.8)
-				_spin("spine1", AY, -t * 0.5)
-				_spin("spine", AZ, t * 0.4)
-				_spin("neck", AZ, t * 0.5)
-				_spin("arm_r", AZ, t * 1.4)
-				_spin("arm_l", AX, -t * 0.9)
-				_spin("upleg_r", AX, -t * 0.8)
-				_spin("leg_r", AX, -t * 1.3)
-		"sickle":
-			if death_take == 0:
-				# набок, руками к животу
-				_spin("hips", AY, t * 0.5)
-				_spin("spine", AX, t * 0.6)
-				_spin("spine1", AY, t * 0.4)
-				_spin("neck", AX, t * 0.35)
-				_spin("arm_l", AZ, -t * 1.35)
-				_spin("arm_r", AZ, t * 1.35)
-				_spin("fore_l", AX, t * 1.5)
-				_spin("fore_r", AX, t * 1.5)
-				_spin("upleg_l", AX, -t * 1.1)
-				_spin("leg_l", AX, -t * 1.5)
-				_spin("leg_r", AX, -t * 0.9)
-			else:
-				# осел на колени, зажимая горло, и завалился лицом вниз
-				_spin("spine", AX, t * 1.05)
-				_spin("neck", AX, -t * 0.25)
-				_spin("arm_l", AZ, -t * 1.1)
-				_spin("arm_r", AZ, t * 0.6)
-				_spin("fore_l", AX, -t * 1.9)      # рука у горла
-				_spin("fore_r", AX, -t * 0.7)
-				_spin("upleg_l", AX, -t * 1.5)
-				_spin("upleg_r", AX, -t * 1.45)
-				_spin("leg_l", AX, -t * 2.1)
-				_spin("leg_r", AX, -t * 2.0)
-		"harpoon":
-			if death_take == 0:
-				# выдернуло вперёд, руки за линём
-				_spin("spine", AX, t * 0.85)
-				_spin("spine1", AX, t * 0.5)
-				_spin("neck", AX, -t * 0.3)
-				_spin("arm_l", AZ, -t * 0.35)
-				_spin("arm_r", AZ, t * 0.35)
-				_spin("arm_l", AX, -t * 1.2)
-				_spin("arm_r", AX, -t * 1.2)
-				_spin("upleg_l", AX, -t * 0.5)
-				_spin("upleg_r", AX, -t * 0.3)
-			else:
-				# протащило и бросило: тело развёрнуто, одна рука вывернута
-				_spin("hips", AY, t * (0.9 + j))
-				_spin("spine", AX, t * 0.55)
-				_spin("spine1", AY, t * 0.6)
-				_spin("neck", AY, -t * 0.7)
-				_spin("arm_l", AX, -t * 2.0)
-				_spin("arm_r", AZ, t * 1.2)
-				_spin("upleg_r", AX, -t * 0.9)
-				_spin("leg_r", AX, -t * 1.2)
-		"rapier":
-			if death_take == 0:
-				# осел на колени, почти прямо
-				_spin("spine", AX, t * 0.3)
-				_spin("neck", AX, -t * 0.45)
-				_spin("arm_l", AZ, -t * 1.0)
-				_spin("arm_r", AZ, t * 1.0)
-				_spin("upleg_l", AX, -t * 1.3)
-				_spin("upleg_r", AX, -t * 1.25)
-				_spin("leg_l", AX, -t * 2.0)
-				_spin("leg_r", AX, -t * 1.95)
-			else:
-				# стоял, шагнул и осел боком: укол не роняет, он выключает
-				_spin("spine", AZ, t * 0.55)
-				_spin("spine1", AZ, t * 0.3)
-				_spin("neck", AZ, t * 0.6)
-				_spin("head", AX, t * 0.4)
-				_spin("arm_l", AZ, -t * 0.7)
-				_spin("arm_r", AZ, t * 1.3)
-				_spin("upleg_l", AX, -t * 1.0)
-				_spin("upleg_r", AX, -t * 1.6)
-				_spin("leg_l", AX, -t * 1.7)
-				_spin("leg_r", AX, -t * 2.2)
-		"mori":
-			# после казни тело роняют: оно падает мешком, ничем не смягчая
-			_spin("hips", AY, t * 0.7)
-			_spin("spine", AX, t * 0.75)
-			_spin("spine1", AZ, t * 0.35)
-			_spin("neck", AX, -t * 0.85)
-			_spin("head", AZ, t * 0.55)
-			_spin("arm_l", AZ, -t * 1.45)
+
+	match fall_kind:
+		"back":
+			# опрокинуло через пятки: спина прогнута, руки разбросаны,
+			# голова запрокинута назад и ударяется последней
+			_spin("spine", AX, -t * 0.45)
+			_spin("spine1", AX, -t * 0.30)
+			_spin("neck", AX, -t * (0.65 + j * 0.2))
+			_spin("arm_l", AZ, -t * (0.85 + j * 0.3))
 			_spin("arm_r", AZ, t * 0.95)
-			_spin("arm_r", AX, -t * 0.85)
-			_spin("upleg_l", AX, -t * 0.85)
-			_spin("upleg_r", AX, t * 0.45)
-			_spin("leg_l", AX, -t * 1.7)
-			_spin("leg_r", AX, -t * 0.6)
-		"drain":
-			if death_take == 0:
-				# выпитый складывается мягко, без единого рывка
-				_spin("spine", AX, t * 0.4)
-				_spin("spine1", AX, t * 0.4)
-				_spin("neck", AX, t * 0.7)
-				_spin("arm_l", AZ, -t * 1.25)
-				_spin("arm_r", AZ, t * 1.25)
-				_spin("upleg_l", AX, -t * 1.2)
-				_spin("upleg_r", AX, -t * 1.1)
-				_spin("leg_l", AX, -t * 1.6)
-				_spin("leg_r", AX, -t * 1.5)
-			else:
-				# выпустили из рук: голова запрокинута, руки раскинуты
-				_spin("spine", AX, -t * 0.35)
-				_spin("neck", AX, -t * 1.0)
-				_spin("head", AZ, t * 0.45)
-				_spin("arm_l", AZ, -t * 1.5)
-				_spin("arm_r", AZ, t * 1.5)
-				_spin("arm_l", AX, t * 0.5)
-				_spin("upleg_l", AX, -t * 0.5)
-				_spin("upleg_r", AX, -t * 0.35)
-				_spin("leg_l", AX, -t * 0.9)
-		"garlic", "mob":
-			# забили толпой: свернулся, закрывая голову
-			_spin("spine", AX, t * 1.0)
-			_spin("neck", AX, t * 0.5)
-			_spin("arm_l", AZ, -t * 0.5)
+			_spin("arm_l", AX, t * 0.35)
+			_spin("upleg_l", AX, t * 0.40)
+			_spin("upleg_r", AX, t * 0.22)
+			_spin("leg_l", AX, -t * 0.35)
+		"forward":
+			# лицом вниз: руки не успели, они остались позади корпуса
+			_spin("spine", AX, t * 0.35)
+			_spin("spine1", AX, t * 0.20)
+			_spin("neck", AX, -t * 0.30)          # голова задрана: подбородок в пол
+			_spin("arm_l", AZ, -t * 0.55)
+			_spin("arm_r", AZ, t * 0.55)
+			_spin("arm_l", AX, t * (1.15 + j * 0.3))
+			_spin("arm_r", AX, t * 1.05)
+			_spin("upleg_l", AX, -t * 0.25)
+			_spin("upleg_r", AX, -t * 0.15)
+		"stumble":
+			# бежал и упал: одна нога вынесена вперёд, руки выброшены,
+			# корпус скручен — он ещё пытался бежать
+			_spin("hips", AY, t * (0.35 + j))
+			_spin("spine", AX, t * 0.55)
+			_spin("spine1", AY, -t * 0.35)
+			_spin("neck", AX, -t * 0.25)
+			_spin("arm_l", AZ, -t * 0.9)
 			_spin("arm_r", AZ, t * 0.5)
-			_spin("arm_l", AX, -t * 1.9)      # руки над головой
-			_spin("arm_r", AX, -t * 1.9)
-			_spin("fore_l", AX, -t * 2.0)
-			_spin("fore_r", AX, -t * 2.0)
-			_spin("upleg_l", AX, -t * 1.7)
-			_spin("upleg_r", AX, -t * 1.6)
-			_spin("leg_l", AX, -t * 2.2)
-			_spin("leg_r", AX, -t * 2.1)
-		_:
-			_spin("spine", AX, t * 0.5)
-			_spin("spine1", AX, t * 0.45)
-			_spin("neck", AX, t * (0.5 + j * 0.4))
-			_spin("arm_l", AZ, -t * 1.1)
-			_spin("arm_r", AZ, t * 1.1)
-			_spin("upleg_l", AX, -t * 0.9)
-			_spin("upleg_r", AX, -t * 0.7)
-			_spin("leg_l", AX, -t * 1.3)
+			_spin("arm_l", AX, -t * 1.35)         # рука выброшена вперёд
+			_spin("arm_r", AX, t * 0.9)
+			_spin("upleg_l", AX, -t * 0.85)
+			_spin("leg_l", AX, -t * 0.5)
+			_spin("upleg_r", AX, t * 0.35)
+		"side_l", "side_r":
+			var sgn: float = -1.0 if fall_kind == "side_l" else 1.0
+			# сложило через плечо: колени подтянуты, руки сошлись к груди
+			_spin("hips", AY, sgn * t * 0.45)
+			_spin("spine", AZ, sgn * t * 0.35)
+			_spin("spine1", AY, sgn * t * 0.30)
+			_spin("neck", AZ, sgn * t * 0.45)
+			_spin("arm_l", AZ, -t * 1.15)
+			_spin("arm_r", AZ, t * 1.15)
+			_spin("fore_l", AX, -t * 1.35)
+			_spin("fore_r", AX, -t * 1.25)
+			_spin("upleg_l", AX, -t * (1.0 + j * 0.4))
+			_spin("upleg_r", AX, -t * 0.75)
+			_spin("leg_l", AX, -t * 1.35)
 			_spin("leg_r", AX, -t * 1.1)
+		"knees":
+			# не роняет, а выключает: колени подламываются, тело оседает
+			# почти прямо и только потом заваливается набок
+			_spin("upleg_l", AX, -t * 1.45)
+			_spin("upleg_r", AX, -t * 1.40)
+			_spin("leg_l", AX, -t * 2.15)
+			_spin("leg_r", AX, -t * 2.10)
+			_spin("spine", AX, t * 0.30)
+			_spin("spine1", AZ, t * (0.2 + j * 0.3))
+			_spin("neck", AX, t * 0.55)           # голова упала на грудь
+			_spin("arm_l", AZ, -t * 1.05)
+			_spin("arm_r", AZ, t * 1.05)
+		"flat":
+			# уже лежал: ничего не падает, всё просто перестаёт держаться
+			_spin("spine", AX, t * 0.20)
+			_spin("neck", AX, t * 0.35)
+			_spin("arm_l", AZ, -t * 0.75)
+			_spin("arm_r", AZ, t * 0.75)
+			_spin("arm_l", AX, -t * 0.4)
+			_spin("upleg_l", AX, -t * 0.30)
+			_spin("upleg_r", AX, -t * 0.20)
+
+	# ---- деталь от того, ЧЕМ убили. Ложится поверх падения и не спорит с ним.
+	match death_kind:
+		"sickle":
+			# зажимает живот обеими руками
+			_spin("fore_l", AX, -t * 1.6)
+			_spin("fore_r", AX, -t * 1.5)
+			_spin("spine", AX, t * 0.25)
+		"harpoon":
+			# руки ушли за линём вперёд
+			_spin("arm_l", AX, -t * 0.9)
+			_spin("arm_r", AX, -t * 0.9)
+		"garlic", "mob":
+			# закрывал голову, когда били
+			_spin("arm_l", AX, -t * 1.5)
+			_spin("arm_r", AX, -t * 1.5)
+			_spin("fore_l", AX, -t * 1.8)
+			_spin("fore_r", AX, -t * 1.8)
+		"mori":
+			# после казни тело роняют мешком: шея свёрнута, рука вывернута
+			_spin("neck", AZ, t * 0.6)
+			_spin("arm_r", AX, -t * 0.7)
+		"drain":
+			# выпитый складывается мягко, без единого рывка
+			_spin("neck", AX, t * 0.45)
+			_spin("fore_l", AX, -t * 0.4)
+			_spin("fore_r", AX, -t * 0.4)
 
 	# Последний вздох. Первые полсекунды тело ещё не мёртвое: оно дёргается,
 	# и именно это отличает падение человека от падения манекена.

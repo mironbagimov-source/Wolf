@@ -96,7 +96,6 @@ func use(a: Actor) -> void:
 		closed = true
 		barred = a.role == Data.Role.HUMAN
 		_set_solid(true)
-		Sfx.play("clang", global_position, -4.0, 0.8)
 		Game.raise_alarm(global_position, 9.0, "door")
 		if a.is_player:
 			Game.say("Дверь закрыта" + (" на засов" if barred else ""))
@@ -105,7 +104,6 @@ func _open() -> void:
 	closed = false
 	barred = false
 	_set_solid(false)
-	Sfx.play("clang", global_position, -8.0, 1.2)
 	opened.emit()
 
 func _set_solid(on: bool) -> void:
@@ -130,7 +128,6 @@ func _hammer(a: Actor) -> void:
 		if a.global_position.distance_to(global_position) > 3.0:
 			breaking = 0.0            # ушёл — дверь цела
 			break
-		Sfx.play("hit", global_position, 2.0, 0.7)
 		a.gesture = "throw"           # видно, что он бьёт, а не стоит
 		await get_tree().create_timer(0.45).timeout
 		breaking -= 0.45
@@ -139,5 +136,4 @@ func _hammer(a: Actor) -> void:
 	if breaking <= 0.0 and closed:
 		_open()
 		broken.emit()
-		Sfx.play("glass", global_position, 3.0, 0.6)
 		Game.raise_alarm(global_position, 26.0, "attack")
