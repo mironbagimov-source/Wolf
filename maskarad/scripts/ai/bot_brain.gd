@@ -86,7 +86,10 @@ func _physics_process(delta: float) -> void:
 		think_timer += 1.0 / THINK_HZ
 		if think_timer < 0.0:
 			think_timer = 1.0 / THINK_HZ          # после лага не догоняем пачкой
+		var _tb: int = Time.get_ticks_usec() if Prof.on else 0
 		think(slice + delta)
+		if Prof.on:
+			Prof.brains += Time.get_ticks_usec() - _tb
 	else:
 		_think_dt += delta
 	_drive(delta)

@@ -44,6 +44,7 @@ var _mat_brick: StandardMaterial3D
 var _mat_grass: StandardMaterial3D
 
 var _club_lights: Array = []
+var _env: Environment = null
 var _t: float = 0.0
 
 func build() -> void:
@@ -100,6 +101,9 @@ func _build_club() -> void:
 	_club_toilets()
 	_club_light_rig()
 	_points_club()
+
+func _on_quality(_level: int) -> void:
+	Quality.apply(_env)
 
 func _process(delta: float) -> void:
 	_t += delta
@@ -185,8 +189,15 @@ func _make_environment() -> void:
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
+	# Ступень качества решает, что из тяжёлого останется включённым, и она же
+	# может опустить его сама посреди матча, если игра не тянет.
+	Quality.apply(env)
+	if not Quality.changed.is_connected(_on_quality):
+		Quality.changed.connect(_on_quality)
+	_env = env
 
 	var moon := DirectionalLight3D.new()
+	moon.add_to_group("sun")
 	moon.light_color = Color(0.55, 0.65, 0.95)
 	moon.light_energy = 0.7
 	moon.rotation_degrees = Vector3(-55, 35, 0)

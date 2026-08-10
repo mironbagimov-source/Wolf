@@ -99,6 +99,21 @@ var dead: float = 0.0
 var armed: bool = false
 var offhand: bool = false
 
+## ЖЕСТ. Всё, что монстр делает на расстоянии, делается рукой.
+##
+## Раньше приёмы срабатывали мгновенно и без единого движения: вампир звал
+## жертву через полкомнаты, лич вселял духа за двадцать метров, прожектор
+## гас сам собой. Со стороны это выглядело телекинезом — и, что хуже, по
+## монстру нельзя было понять, что он сейчас что-то делает.
+##
+## Теперь у каждого приёма есть замах и кульминация, и эффект наступает
+## именно в кульминации. Это не украшение: пока идёт замах, монстра видно, и
+## именно в это окно его успевают заметить.
+##
+## Пусто — жеста нет; иначе имя из `_pose_gesture` и доля 0..1.
+var gesture: String = ""
+var gesture_t: float = 0.0
+
 ## Казнь лича: своя, длинная, необратимая. 0..1 по ходу приёма.
 var mori: float = 0.0
 var mori_kind: String = ""
@@ -382,6 +397,11 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 	if activity != "" and gait < 0.15 and strike == 0.0 and reach == 0.0:
 		_pose_activity()
 
+	# Жест кладётся ПОВЕРХ всего: он важнее занятия и походки, потому что
+	# именно по нему со стороны читается, что человек сейчас что-то делает.
+	if gesture != "":
+		_pose_gesture(gesture, gesture_t)
+
 	_hands(gait, s)
 	_face(dt)
 
@@ -504,54 +524,128 @@ func _pose_activity() -> void:
 ## навзничь, от серпа — заваливается набок, зажимая живот, от гарпуна —
 ## вперёд, на линь, от шпаги — оседает почти прямо, от клыков — мягко, без
 ## сопротивления. Ragdoll здесь избыточен: тело всё равно лежит секунды.
+## Смерть. Не одна поза на причину, а НЕСКОЛЬКО дублей на каждую: одна и та
+## же поза на всех гостях подряд выдаёт себя за пару минут, а гостей за ночь
+## умирает много.
+##
+## Дубль выбирается из `death_take` — его выставляет актёр случайно в момент
+## смерти, — и внутри дубля поза ещё и разъезжается по `death_seed`, поэтому
+## два одинаковых дубля всё равно ложатся по-разному.
+##
+## Ragdoll здесь избыточен: тело лежит секунды, а падение отыгрывает корпус
+## (`_tick_fall` в актёре), пока кости доигрывают свою позу.
+var death_take: int = 0
+var death_seed: float = 0.0
+
 func _pose_dead() -> void:
 	var t: float = clampf(dead, 0.0, 1.0)
+	# разброс: у одного рука подвёрнута сильнее, у другого голова свёрнута
+	var j: float = sin(death_seed * 12.9898) * 0.5
 	match death_kind:
 		"axe", "finish":
-			# опрокинуло назад, руки в стороны
-			_spin("spine", AX, -t * 0.55)
-			_spin("spine1", AX, -t * 0.35)
-			_spin("neck", AX, -t * 0.6)
-			_spin("arm_l", AZ, -t * 0.55)
-			_spin("arm_r", AZ, t * 0.55)
-			_spin("upleg_l", AX, t * 0.35)
-			_spin("upleg_r", AX, t * 0.2)
+			if death_take == 0:
+				# опрокинуло назад, руки в стороны
+				_spin("spine", AX, -t * 0.55)
+				_spin("spine1", AX, -t * 0.35)
+				_spin("neck", AX, -t * 0.6)
+				_spin("arm_l", AZ, -t * (0.55 + j * 0.3))
+				_spin("arm_r", AZ, t * 0.55)
+				_spin("upleg_l", AX, t * 0.35)
+				_spin("upleg_r", AX, t * 0.2)
+			elif death_take == 1:
+				# сложило пополам: удар пришёлся в корпус
+				_spin("spine", AX, t * 0.9)
+				_spin("spine1", AX, t * 0.5)
+				_spin("neck", AX, t * 0.4)
+				_spin("arm_l", AZ, -t * 0.9)
+				_spin("arm_r", AZ, t * 0.9)
+				_spin("fore_l", AX, -t * 1.2)
+				_spin("fore_r", AX, -t * 1.2)
+				_spin("upleg_l", AX, -t * 0.6)
+				_spin("leg_l", AX, -t * 1.1)
+			else:
+				# развернуло вокруг оси и уронило через плечо
+				_spin("hips", AY, -t * 0.8)
+				_spin("spine1", AY, -t * 0.5)
+				_spin("spine", AZ, t * 0.4)
+				_spin("neck", AZ, t * 0.5)
+				_spin("arm_r", AZ, t * 1.4)
+				_spin("arm_l", AX, -t * 0.9)
+				_spin("upleg_r", AX, -t * 0.8)
+				_spin("leg_r", AX, -t * 1.3)
 		"sickle":
-			# набок, руками к животу
-			_spin("hips", AY, t * 0.5)
-			_spin("spine", AX, t * 0.6)
-			_spin("spine1", AY, t * 0.4)
-			_spin("neck", AX, t * 0.35)
-			_spin("arm_l", AZ, -t * 1.35)
-			_spin("arm_r", AZ, t * 1.35)
-			_spin("fore_l", AX, t * 1.5)
-			_spin("fore_r", AX, t * 1.5)
-			_spin("upleg_l", AX, -t * 1.1)
-			_spin("leg_l", AX, -t * 1.5)
-			_spin("leg_r", AX, -t * 0.9)
+			if death_take == 0:
+				# набок, руками к животу
+				_spin("hips", AY, t * 0.5)
+				_spin("spine", AX, t * 0.6)
+				_spin("spine1", AY, t * 0.4)
+				_spin("neck", AX, t * 0.35)
+				_spin("arm_l", AZ, -t * 1.35)
+				_spin("arm_r", AZ, t * 1.35)
+				_spin("fore_l", AX, t * 1.5)
+				_spin("fore_r", AX, t * 1.5)
+				_spin("upleg_l", AX, -t * 1.1)
+				_spin("leg_l", AX, -t * 1.5)
+				_spin("leg_r", AX, -t * 0.9)
+			else:
+				# осел на колени, зажимая горло, и завалился лицом вниз
+				_spin("spine", AX, t * 1.05)
+				_spin("neck", AX, -t * 0.25)
+				_spin("arm_l", AZ, -t * 1.1)
+				_spin("arm_r", AZ, t * 0.6)
+				_spin("fore_l", AX, -t * 1.9)      # рука у горла
+				_spin("fore_r", AX, -t * 0.7)
+				_spin("upleg_l", AX, -t * 1.5)
+				_spin("upleg_r", AX, -t * 1.45)
+				_spin("leg_l", AX, -t * 2.1)
+				_spin("leg_r", AX, -t * 2.0)
 		"harpoon":
-			# выдернуло вперёд, руки за линём
-			_spin("spine", AX, t * 0.85)
-			_spin("spine1", AX, t * 0.5)
-			_spin("neck", AX, -t * 0.3)
-			_spin("arm_l", AZ, -t * 0.35)
-			_spin("arm_r", AZ, t * 0.35)
-			_spin("arm_l", AX, -t * 1.2)
-			_spin("arm_r", AX, -t * 1.2)
-			_spin("upleg_l", AX, -t * 0.5)
-			_spin("upleg_r", AX, -t * 0.3)
+			if death_take == 0:
+				# выдернуло вперёд, руки за линём
+				_spin("spine", AX, t * 0.85)
+				_spin("spine1", AX, t * 0.5)
+				_spin("neck", AX, -t * 0.3)
+				_spin("arm_l", AZ, -t * 0.35)
+				_spin("arm_r", AZ, t * 0.35)
+				_spin("arm_l", AX, -t * 1.2)
+				_spin("arm_r", AX, -t * 1.2)
+				_spin("upleg_l", AX, -t * 0.5)
+				_spin("upleg_r", AX, -t * 0.3)
+			else:
+				# протащило и бросило: тело развёрнуто, одна рука вывернута
+				_spin("hips", AY, t * (0.9 + j))
+				_spin("spine", AX, t * 0.55)
+				_spin("spine1", AY, t * 0.6)
+				_spin("neck", AY, -t * 0.7)
+				_spin("arm_l", AX, -t * 2.0)
+				_spin("arm_r", AZ, t * 1.2)
+				_spin("upleg_r", AX, -t * 0.9)
+				_spin("leg_r", AX, -t * 1.2)
 		"rapier":
-			# осел на колени, почти прямо
-			_spin("spine", AX, t * 0.3)
-			_spin("neck", AX, -t * 0.45)
-			_spin("arm_l", AZ, -t * 1.0)
-			_spin("arm_r", AZ, t * 1.0)
-			_spin("upleg_l", AX, -t * 1.3)
-			_spin("upleg_r", AX, -t * 1.25)
-			_spin("leg_l", AX, -t * 2.0)
-			_spin("leg_r", AX, -t * 1.95)
+			if death_take == 0:
+				# осел на колени, почти прямо
+				_spin("spine", AX, t * 0.3)
+				_spin("neck", AX, -t * 0.45)
+				_spin("arm_l", AZ, -t * 1.0)
+				_spin("arm_r", AZ, t * 1.0)
+				_spin("upleg_l", AX, -t * 1.3)
+				_spin("upleg_r", AX, -t * 1.25)
+				_spin("leg_l", AX, -t * 2.0)
+				_spin("leg_r", AX, -t * 1.95)
+			else:
+				# стоял, шагнул и осел боком: укол не роняет, он выключает
+				_spin("spine", AZ, t * 0.55)
+				_spin("spine1", AZ, t * 0.3)
+				_spin("neck", AZ, t * 0.6)
+				_spin("head", AX, t * 0.4)
+				_spin("arm_l", AZ, -t * 0.7)
+				_spin("arm_r", AZ, t * 1.3)
+				_spin("upleg_l", AX, -t * 1.0)
+				_spin("upleg_r", AX, -t * 1.6)
+				_spin("leg_l", AX, -t * 1.7)
+				_spin("leg_r", AX, -t * 2.2)
 		"mori":
-			# после казни тело роняют: оно падает как мешок, ничем не смягчая
+			# после казни тело роняют: оно падает мешком, ничем не смягчая
 			_spin("hips", AY, t * 0.7)
 			_spin("spine", AX, t * 0.75)
 			_spin("spine1", AZ, t * 0.35)
@@ -565,26 +659,59 @@ func _pose_dead() -> void:
 			_spin("leg_l", AX, -t * 1.7)
 			_spin("leg_r", AX, -t * 0.6)
 		"drain":
-			# выпитый складывается мягко, без единого рывка
-			_spin("spine", AX, t * 0.4)
-			_spin("spine1", AX, t * 0.4)
-			_spin("neck", AX, t * 0.7)
-			_spin("arm_l", AZ, -t * 1.25)
-			_spin("arm_r", AZ, t * 1.25)
-			_spin("upleg_l", AX, -t * 1.2)
-			_spin("upleg_r", AX, -t * 1.1)
-			_spin("leg_l", AX, -t * 1.6)
-			_spin("leg_r", AX, -t * 1.5)
+			if death_take == 0:
+				# выпитый складывается мягко, без единого рывка
+				_spin("spine", AX, t * 0.4)
+				_spin("spine1", AX, t * 0.4)
+				_spin("neck", AX, t * 0.7)
+				_spin("arm_l", AZ, -t * 1.25)
+				_spin("arm_r", AZ, t * 1.25)
+				_spin("upleg_l", AX, -t * 1.2)
+				_spin("upleg_r", AX, -t * 1.1)
+				_spin("leg_l", AX, -t * 1.6)
+				_spin("leg_r", AX, -t * 1.5)
+			else:
+				# выпустили из рук: голова запрокинута, руки раскинуты
+				_spin("spine", AX, -t * 0.35)
+				_spin("neck", AX, -t * 1.0)
+				_spin("head", AZ, t * 0.45)
+				_spin("arm_l", AZ, -t * 1.5)
+				_spin("arm_r", AZ, t * 1.5)
+				_spin("arm_l", AX, t * 0.5)
+				_spin("upleg_l", AX, -t * 0.5)
+				_spin("upleg_r", AX, -t * 0.35)
+				_spin("leg_l", AX, -t * 0.9)
+		"garlic", "mob":
+			# забили толпой: свернулся, закрывая голову
+			_spin("spine", AX, t * 1.0)
+			_spin("neck", AX, t * 0.5)
+			_spin("arm_l", AZ, -t * 0.5)
+			_spin("arm_r", AZ, t * 0.5)
+			_spin("arm_l", AX, -t * 1.9)      # руки над головой
+			_spin("arm_r", AX, -t * 1.9)
+			_spin("fore_l", AX, -t * 2.0)
+			_spin("fore_r", AX, -t * 2.0)
+			_spin("upleg_l", AX, -t * 1.7)
+			_spin("upleg_r", AX, -t * 1.6)
+			_spin("leg_l", AX, -t * 2.2)
+			_spin("leg_r", AX, -t * 2.1)
 		_:
 			_spin("spine", AX, t * 0.5)
 			_spin("spine1", AX, t * 0.45)
-			_spin("neck", AX, t * 0.5)
+			_spin("neck", AX, t * (0.5 + j * 0.4))
 			_spin("arm_l", AZ, -t * 1.1)
 			_spin("arm_r", AZ, t * 1.1)
 			_spin("upleg_l", AX, -t * 0.9)
 			_spin("upleg_r", AX, -t * 0.7)
 			_spin("leg_l", AX, -t * 1.3)
 			_spin("leg_r", AX, -t * 1.1)
+
+	# Последний вздох. Первые полсекунды тело ещё не мёртвое: оно дёргается,
+	# и именно это отличает падение человека от падения манекена.
+	if t < 0.55:
+		var twitch: float = (1.0 - t / 0.55) * sin(dead * 42.0) * 0.06
+		_spin("spine1", AZ, twitch)
+		_spin("head", AY, twitch * 2.0)
 
 ## Сбит с ног: лежит на животе и ползёт, подтягиваясь руками.
 func _pose_downed(dt: float) -> void:
@@ -722,6 +849,29 @@ func _hands(gait: float, s: float) -> void:
 		curl_r = lerp(curl_r, 0.22, dead) if not armed else curl_r
 		spread_l = lerp(spread_l, 0.3, dead)
 
+	match gesture:
+		"call":
+			# подзывающие пальцы — суть жеста именно в них
+			curl_r = 0.25 + maxf(0.0, sin(gesture_t * PI * 6.0)) * 0.6
+			spread_r = 0.6
+		"reach":
+			curl_r = clampf(gesture_t * 1.6, 0.0, 1.0)      # тянется и сжимает
+			thumb_r = curl_r
+		"throw":
+			curl_r = 0.85 if gesture_t < 0.5 else 0.15      # разжал на броске
+			thumb_r = curl_r
+		"cast":
+			curl_l = 0.15 + gesture_t * 0.5                  # растопырены, потом хватка
+			curl_r = 0.15 + gesture_t * 0.5
+			spread_l = 1.0
+			spread_r = 1.0
+		"bow":
+			curl_l = 0.08                                    # раскрытая ладонь
+			spread_l = 0.9
+		"clutch":
+			curl_r = 0.8
+			curl_l = 0.5
+
 	match activity:
 		"dj":
 			# пальцы на пластинке — левая на наушнике, правая работает
@@ -756,6 +906,89 @@ func _face(dt: float) -> void:
 		return
 	face.visible = true
 	face.drive(dt, self)
+
+## Позы приёмов. У каждой одна и та же трёхчастная форма: замах (рука идёт
+## назад или вверх, корпус подаётся), кульминация (резкое движение вперёд —
+## в этот момент и срабатывает сам приём) и возврат.
+##
+## `t` — 0..1 по всей длине жеста.
+func _pose_gesture(kind: String, t: float) -> void:
+	var up: float = sin(clampf(t, 0.0, 1.0) * PI)          # горб посередине
+	match kind:
+		"call":
+			# ПОЗВАТЬ: приподнятая ладонь и подзывающее движение пальцами.
+			# Спокойный жест — вампир не хочет, чтобы это выглядело угрозой.
+			_spin("arm_r", AZ, -0.55 * up)
+			_spin("arm_r", AX, -0.75 * up)
+			_spin("fore_r", AX, -1.15 * up)
+			_spin("spine1", AY, -0.14 * up)
+			_spin("head", AX, 0.08 * up)
+		"bow":
+			# ПРИГЛАСИТЬ НА ТАНЕЦ: поклон и вытянутая раскрытая рука.
+			_spin("spine", AX, 0.42 * up)
+			_spin("spine1", AX, 0.18 * up)
+			_spin("neck", AX, -0.30 * up)
+			_spin("arm_l", AZ, -0.85 * up)
+			_spin("arm_l", AX, -0.95 * up)
+			_spin("fore_l", AX, -0.35 * up)
+			_spin("arm_r", AX, 0.45 * up)          # вторая за спину
+			_spin("fore_r", AX, -0.85 * up)
+		"cast":
+			# ОДЕРЖИМОСТЬ: обе руки идут вверх и назад, потом резкий выброс
+			# вперёд. Самый размашистый жест в игре — и самый заметный.
+			var wind: float = clampf(t / 0.55, 0.0, 1.0)
+			var push: float = clampf((t - 0.55) / 0.45, 0.0, 1.0)
+			_spin("spine", AX, -0.35 * wind + 0.55 * push)
+			_spin("spine1", AX, -0.20 * wind + 0.30 * push)
+			_spin("neck", AX, -0.40 * wind + 0.45 * push)
+			for side in ["l", "r"]:
+				var sgn: float = -1.0 if side == "l" else 1.0
+				_spin("arm_%s" % side, AZ, sgn * (-1.32 + 0.75 * wind + 0.25 * push))
+				_spin("arm_%s" % side, AX, 0.85 * wind - 2.10 * push)
+				_spin("fore_%s" % side, AX, -1.45 * wind + 1.15 * push)
+				_spin("shoulder_%s" % side, AX, 0.30 * wind - 0.45 * push)
+		"reach":
+			# ПОГАСИТЬ: рука тянется к прожектору и сжимается в кулак.
+			_spin("arm_r", AZ, -0.35 * up)
+			_spin("arm_r", AX, -1.35 * up)
+			_spin("fore_r", AX, -0.25 * up)
+			_spin("spine1", AY, -0.22 * up)
+			_spin("spine", AX, 0.12 * up)
+		"throw":
+			# ШВЫРНУТЬ: занос за плечо и бросок. Здесь замах и бросок разной
+			# длины — иначе бросок читается как отмашка.
+			var wind2: float = clampf(t / 0.45, 0.0, 1.0)
+			var fling: float = clampf((t - 0.45) / 0.55, 0.0, 1.0)
+			_spin("spine1", AY, -0.42 * wind2 + 0.55 * fling)
+			_spin("hips", AY, -0.16 * wind2 + 0.22 * fling)
+			_spin("arm_r", AZ, 0.30 * wind2 - 0.55 * fling)
+			_spin("arm_r", AX, 1.45 * wind2 - 2.60 * fling)
+			_spin("fore_r", AX, -1.75 * wind2 + 1.35 * fling)
+			_spin("shoulder_r", AX, 0.40 * wind2 - 0.30 * fling)
+		"clutch":
+			# «МНЕ ПЛОХО»: складывается пополам, рука к груди, вторая ищет
+			# опору. Единственный жест, который должен выглядеть НЕ уверенно.
+			var fold: float = 0.35 + up * 0.65
+			_spin("spine", AX, 0.55 * fold)
+			_spin("spine1", AX, 0.30 * fold)
+			_spin("neck", AX, 0.35 * fold)
+			_spin("arm_r", AZ, -0.75 * fold)
+			_spin("fore_r", AX, -1.85 * fold)
+			_spin("arm_l", AZ, 0.45 * fold)
+			_spin("arm_l", AX, -0.55 * fold)
+			_spin("upleg_l", AX, -0.22 * fold)
+			_spin("leg_l", AX, -0.35 * fold)
+		"work":
+			# ЗАЖЕЧЬ ПРОЖЕКТОР: работа обеими руками у щитка, с усилием.
+			var push2: float = 0.5 + sin(breathe * 5.5) * 0.5
+			_spin("spine", AX, 0.30)
+			_spin("neck", AX, -0.18)
+			_spin("arm_l", AZ, -0.45)
+			_spin("arm_l", AX, -1.15 - push2 * 0.25)
+			_spin("fore_l", AX, -0.85)
+			_spin("arm_r", AZ, 0.45)
+			_spin("arm_r", AX, -1.15 - push2 * 0.25)
+			_spin("fore_r", AX, -0.85)
 
 ## КАЗНЬ. Не добивание: добивание — работа, а это представление.
 ##

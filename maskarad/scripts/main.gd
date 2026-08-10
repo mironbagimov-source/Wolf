@@ -94,6 +94,7 @@ func _maybe_autotest() -> void:
 		elif a.begins_with("--yaw="):
 			_place_yaw = deg_to_rad(float(a.substr(6)))
 	_perf = "--perf" in args
+	Prof.on = _perf
 	if _perf:
 		process_priority = -1000
 		process_physics_priority = -1000
@@ -139,6 +140,8 @@ func _maybe_autotest() -> void:
 		_hands_test.call_deferred()
 	if "--newtest" in args:
 		_new_features_test.call_deferred()
+	if "--gesturetest" in args:
+		_gesture_test.call_deferred()
 
 ## Проверка боя и повреждений в отрыве от навигации: ставим лича вплотную
 ## к гостю и смотрим, доходит ли удар и что он ломает.
@@ -806,6 +809,59 @@ func _bite_bench() -> void:
 	print("[укус] канал «%s», прогресс жертвы %.2f" % [v.channel_kind, prey.bite_progress])
 	await _bench_shot("укус")
 
+## ТЕЛЕКИНЕЗ. Проверяем, что у каждого дистанционного приёма есть замах и что
+## эффект наступает не в момент нажатия, а в кульминации. Меряем две вещи:
+## сколько кадров шёл жест и на сколько кисть уехала от покоя — жест, который
+## не двигает руку, ничем не лучше отсутствующего.
+func _gesture_test() -> void:
+	for i in 60:
+		await get_tree().physics_frame
+	var lich: Actor = _spawn("karl", Vector3(0, 0.2, 4), false)
+	var vamp: Actor = _spawn("moira", Vector3(3, 0.2, 4), false)
+	var prey: Actor = null
+	for a in Game.living(Data.Side.HUMAN):
+		if a.role == Data.Role.GUEST:
+			prey = a
+			break
+	if prey == null:
+		print("[жесты] некого звать"); get_tree().quit(); return
+	for who in [lich, vamp, prey]:
+		var b: Node = who.get_node_or_null("Brain")
+		if b: b.set_physics_process(false)
+	prey.global_position = lich.global_position + Vector3(0, 0, -6)
+	lich.psychosis = Data.TUNE["psychosis_max"]
+	await get_tree().physics_frame
+
+	for probe in [["одержимость", lich, "cast"], ["швырнуть", vamp, "throw"],
+				  ["«мне плохо»", vamp, "clutch"]]:
+		var who: Actor = probe[1]
+		who.lure_cd = 0.0
+		# Одержимость поднимает тревогу «его видели», и гости честно метят
+		# вампира по соседству как вскрытого — а вскрытый не работает. Это
+		# правило игры, а не помеха: чистим метку между пробами.
+		Game.exposed.clear()
+		who.revealed_time = 0.0
+		var started: bool = false
+		if probe[0] == "одержимость":
+			started = who.try_possess(prey)
+		elif probe[0] == "швырнуть":
+			started = who.try_noise_lure(who.global_position + Vector3(6, 0, 0))
+		else:
+			started = who.try_help_lure()
+		var frames := 0
+		var reach := 0.0
+		var base: Vector3 = who.rig.bone_point("hand_r") - who.global_position if who.rig else Vector3.ZERO
+		while who.gesture != "" and frames < 200:
+			await get_tree().physics_frame
+			frames += 1
+			if who.rig != null and who.rig.ok:
+				var now: Vector3 = who.rig.bone_point("hand_r") - who.global_position
+				reach = maxf(reach, now.distance_to(base))
+		print("[жесты] %s: начат=%s, кадров %d, кисть ушла на %.2f м" % [
+			probe[0], started, frames, reach])
+		await get_tree().physics_frame
+	get_tree().quit()
+
 ## Новые приёмы разом: пальцы, захват вампира на ЛКМ и КАЗНЬ лича.
 ##
 ## Всё три легко «сделать» и не заметить, что они ни к чему не приводят:
@@ -856,6 +912,7 @@ func _new_features_test() -> void:
 		await get_tree().physics_frame
 		print("[захват] ЛКМ вплотную: начат=%s, канал «%s», жертва схвачена=%s" % [
 			grabbed, vamp.channel_kind, prey.drained_by == vamp])
+
 		vamp.cancel_channel()
 
 	# ---- КАЗНЬ: полный психоз + лежащий = приём, после которого не поднимают
@@ -1146,8 +1203,12 @@ func _report() -> void:
 		# Худший кадр важнее среднего: виснет не тот, у кого средние 8 мс, а
 		# тот, у кого раз в секунду прилетает кадр на 60.
 		var avg: float = _perf_sum / maxf(1.0, float(_perf_n))
+		var by: Dictionary = Prof.take()
+		var n: float = maxf(1.0, float(_perf_n))
 		print("[кадр] физика: средняя %.2f мс, худшая %.2f мс (%d кадров), лучей %.0f/с, актёров %d" % [
 			avg, _perf_worst, _perf_n, Actor.rays_per_second, Game.living().size()])
+		print("[кадр]   из них: мозги %.2f мс, актёры %.2f мс, анимация %.2f мс | пересборок тела: %d" % [
+			by["brains"] / n, by["actors"] / n, by["rig"] / n, Actor.rebuilds])
 		_perf_sum = 0.0
 		_perf_worst = 0.0
 		_perf_n = 0
@@ -1160,6 +1221,10 @@ func _guest_count() -> int:
 	return n
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("quality"):
+		Quality.cycle()
+		Game.say("Качество картинки: %s" % Quality.NAMES[Quality.level])
+		return
 	if event.is_action_pressed("pause") and Game.state == Game.State.PLAYING:
 		Game.cursor_free = not Game.cursor_free
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if Game.cursor_free \

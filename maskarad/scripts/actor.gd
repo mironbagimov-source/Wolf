@@ -135,6 +135,23 @@ var mood_power: float = 1.0
 var forced_mood: String = ""
 var forced_detail: int = -1
 
+## ЖЕСТ. Приём сначала показывают, и только потом он срабатывает.
+##
+## Все дистанционные приёмы раньше выполнялись мгновенно: нажал — и жертва
+## пошла, прожектор погас, в человека вошёл дух. Со стороны это выглядело
+## телекинезом, а главное — по монстру нельзя было понять, что он сейчас
+## что-то делает, и значит, поймать его на этом было нельзя.
+##
+## Теперь между нажатием и эффектом стоит анимация: рука идёт назад, потом
+## вперёд, и приём срабатывает в кульминации (`_gesture_at`). Пока идёт замах,
+## монстр стоит на месте и его видно — это и есть цена приёма.
+var gesture: String = ""
+var _gesture_t: float = 0.0
+var _gesture_len: float = 0.0
+var _gesture_at: float = 0.6
+var _gesture_fired: bool = false
+var _gesture_action: Callable = Callable()
+
 var want_jump: bool = false
 ## На сколько голова повёрнута относительно плеч. Пишет мозг; по этому же
 ## числу видно со стороны, что человек смотрит не туда, куда идёт.
@@ -215,7 +232,40 @@ func _shows_true_form() -> bool:
 		_:
 			return false
 
+## Что уже собрано. По этим двум полям решается, надо ли вообще пересобирать.
+var _built_model: String = "<нет>"
+var _built_monstrous: bool = false
+
+## Сцены моделей держим загруженными: за ночь тело пересобирается не раз
+## (обращение, чужое лицо), и каждый раз читать FBX с диска незачем.
+static var _scene_cache: Dictionary = {}
+## Сколько раз за матч тело собиралось заново. В норме — по одному на
+## персонажа при спавне плюс редкие обращения; всё сверх этого и есть рывки.
+static var rebuilds: int = 0
+
 func _rebuild_body() -> void:
+	var look: Dictionary = Data.character(appearance_id)
+	var monstrous := _shows_true_form()
+	var model_path: String = look.get("model", "")
+
+	# ТЕЛО НЕ ПЕРЕСОБИРАЕТСЯ, ЕСЛИ СОБИРАТЬ НЕЧЕГО ЗАНОВО.
+	#
+	# Это была главная причина рывков посреди игры. `set_appearance` зовётся
+	# при каждом укусе (вампир показывает истинную форму), при каждом
+	# вскрытии чесноком и когда вскрытие спадает, — и каждый раз полностью
+	# сносил тело и инстанцировал модель заново. Модель — это FBX на
+	# семь-пятнадцать мегабайт со скелетом на семьдесят костей; на укус
+	# приходилось ДВЕ такие пересборки, в самый неподходящий момент.
+	#
+	# При этом для персонажей со своей моделью «истинная форма» не меняет
+	# ровным счётом ничего: `monstrous` используется только сборщиком тел из
+	# примитивов. Клыки и бледность показывает мимика, а не пересборка.
+	var same_model: bool = model_path != "" and model_path == _built_model
+	var same_parts: bool = model_path == "" and _built_model == "" and monstrous == _built_monstrous
+	if _body_root != null and is_instance_valid(_body_root) and (same_model or same_parts):
+		return
+
+	rebuilds += 1
 	if _body_root != null and is_instance_valid(_body_root):
 		_body_root.queue_free()
 	_body_root = null
@@ -224,18 +274,20 @@ func _rebuild_body() -> void:
 	_anim = null
 	_weapon_mesh = null
 	_offhand_mesh = null
+	rig = null
 
 	var holder := Node3D.new()
 	add_child(holder)
 	_body_root = holder
-
-	var look: Dictionary = Data.character(appearance_id)
-	var monstrous := _shows_true_form()
+	_built_model = model_path
+	_built_monstrous = monstrous
 
 	# своя модель, если её положили в assets/ и прописали в Data
-	var model_path: String = look.get("model", "")
 	if model_path != "" and ResourceLoader.exists(model_path):
-		var packed = load(model_path)
+		var packed = _scene_cache.get(model_path)
+		if packed == null:
+			packed = load(model_path)
+			_scene_cache[model_path] = packed
 		if packed != null:
 			_external_model = packed.instantiate() if packed is PackedScene else null
 			if _external_model != null:
@@ -249,6 +301,7 @@ func _rebuild_body() -> void:
 				_apply_self_visibility()
 				return
 
+	_built_model = ""
 	_parts = Body.build(holder, look, monstrous)
 	if appearance_seed != 0 and role == Data.Role.GUEST:
 		_vary_appearance()
@@ -507,7 +560,12 @@ func _hand_holder(body_holder: Node3D, right: bool) -> Node3D:
 # ================================================================== кадр
 func _physics_process(delta: float) -> void:
 	if not alive:
+		_tick_fall(delta)
+		if rig != null and rig.ok:
+			rig.dead = minf(1.0, rig.dead + delta * 1.6)
+			rig.update(delta, 0.0, false)
 		return
+	var _t_all: int = Time.get_ticks_usec() if Prof.on else 0
 
 	attack_cd = max(0.0, attack_cd - delta)
 	lure_cd = max(0.0, lure_cd - delta)
@@ -535,10 +593,16 @@ func _physics_process(delta: float) -> void:
 	_tick_downed(delta)
 	_tick_finish(delta)
 	_tick_mori(delta)
+	_tick_gesture(delta)
 	if scared_time > 0.0:
 		scared_time -= delta
 	_tick_move(delta)
+	if Prof.on:
+		Prof.actors += Time.get_ticks_usec() - _t_all
+	var t0: int = Time.get_ticks_usec() if Prof.on else 0
 	_tick_visuals(delta)
+	if Prof.on:
+		Prof.rig += Time.get_ticks_usec() - t0
 
 func _tick_role(delta: float) -> void:
 	match role:
@@ -832,6 +896,26 @@ func _drive_rig(delta: float, speed2d: float) -> void:
 	rig.arm_hurt_r = dmg.arm_hurt_right()
 	rig.armed = _weapon_mesh != null
 	rig.offhand = _offhand_mesh != null
+	# Жест либо свой (приём с замахом), либо продиктован каналом: зовущий
+	# подзывает рукой всё время, пока зовёт, а зажигающий прожектор работает
+	# у щитка. Раньше и то и другое выглядело так, будто человек стоит столбом,
+	# а лампа зажигается сама.
+	rig.gesture = gesture
+	rig.gesture_t = clampf(_gesture_t / maxf(0.01, _gesture_len), 0.0, 1.0)
+	if gesture == "" and channel_kind != "":
+		var frac: float = clampf(channel_time / maxf(0.01, channel_total), 0.0, 1.0)
+		match channel_kind:
+			"invite", "talk":
+				rig.gesture = "call"
+				rig.gesture_t = frac
+			"brazier":
+				rig.gesture = "work"
+				rig.gesture_t = frac
+			"dance":
+				# поклон только в начале — дальше уже танцуют
+				if frac < 0.25:
+					rig.gesture = "bow"
+					rig.gesture_t = frac / 0.25
 	rig.mori = mori_progress
 	rig.mori_kind = mori_role
 	rig.mood = _mood()
@@ -879,8 +963,9 @@ func _detail_level() -> int:
 	# смотрят, а не пробегают мимо
 	if channel_kind == "drain" or drained_by != null or mori_progress > 0.0:
 		return 0 if d < 900.0 else 1
-	if d < 64.0:
-		return 0                        # восемь метров — лицо ещё читается
+	var near: float = Quality.detail_range()
+	if d < near * near:
+		return 0                        # лицо ещё читается
 	if d < 900.0:
 		return 1
 	return 2
@@ -980,6 +1065,40 @@ func try_attack() -> bool:
 	_attack_windup = w["windup"]
 	_attack_len = float(w["windup"]) + STRIKE_TIME + 0.34
 	return true
+
+## Начать жест. Сам приём произойдёт в кульминации — телом, а не мыслью.
+func _begin_gesture(kind: String, length: float, at: float, action: Callable) -> bool:
+	if gesture != "" or stun_time > 0.0 or downed or mori_progress > 0.0:
+		return false
+	gesture = kind
+	_gesture_t = 0.0
+	_gesture_len = maxf(0.1, length)
+	_gesture_at = clampf(at, 0.05, 1.0)
+	_gesture_fired = false
+	_gesture_action = action
+	return true
+
+func _tick_gesture(delta: float) -> void:
+	if gesture == "":
+		return
+	# Сбили — жест пропадает вместе с приёмом. Поэтому замах и есть окно,
+	# в которое монстра можно остановить.
+	if stun_time > 0.0 or downed or not alive:
+		_end_gesture()
+		return
+	_gesture_t += delta
+	var f: float = _gesture_t / _gesture_len
+	if not _gesture_fired and f >= _gesture_at:
+		_gesture_fired = true
+		if _gesture_action.is_valid():
+			_gesture_action.call()
+	if f >= 1.0:
+		_end_gesture()
+
+func _end_gesture() -> void:
+	gesture = ""
+	_gesture_t = 0.0
+	_gesture_action = Callable()
 
 ## Кого можно взять в захват прямо сейчас: тот, кто перед лицом и вплотную.
 ## Угол узкий намеренно — захват не должен срабатывать на того, кто сбоку.
@@ -1206,7 +1325,22 @@ func try_possess(target: Actor) -> bool:
 			Game.say("Его надо видеть", true)
 		return false
 
+	# Психоз списывается сразу — приём начат, — а входит дух в кульминации
+	# броска. Между этими мгновениями лича видно, и он стоит на месте.
 	psychosis = maxf(0.0, psychosis - Data.TUNE["possess_cost"])
+	if not _begin_gesture("cast", 1.1, 0.72, _land_possess.bind(target)):
+		psychosis = minf(Data.TUNE["psychosis_max"], psychosis + Data.TUNE["possess_cost"])
+		return false
+	look_dir = (target.global_position - global_position).normalized()
+	if is_player:
+		Game.say("Ты тянешь к нему руки")
+	return true
+
+func _land_possess(target: Actor) -> void:
+	if target == null or not is_instance_valid(target) or not target.alive:
+		return
+	if global_position.distance_to(target.global_position) > Data.TUNE["possess_range"] * 1.3:
+		return
 	target.possessed_by = self
 	target.possessed_left = Data.TUNE["possess_time"]
 	target.possess_kind = "self" if randf() < Data.TUNE["possess_self_chance"] else "berserk"
@@ -1218,7 +1352,6 @@ func try_possess(target: Actor) -> bool:
 		Game.say("В тебя что-то вошло. Руки не твои", true)
 	else:
 		Game.say("%s держится за голову" % target.appearance_name, true)
-	return true
 
 func _tick_possessed(delta: float) -> void:
 	if possessed_left <= 0.0:
@@ -1306,7 +1439,9 @@ func try_help_lure() -> bool:
 	if lure_cd > 0.0:
 		return false
 	lure_cd = Data.TUNE["lure_cooldown"]
-	activity = "sleep"                        # оседает, будто ему дурно
+	return _begin_gesture("clutch", 1.3, 0.45, _land_help_lure)
+
+func _land_help_lure() -> void:
 	var called := 0
 	for a: Actor in Game.living(Data.Side.HUMAN):
 		if a == self or a.has_meta("helped_once"):
@@ -1322,7 +1457,6 @@ func try_help_lure() -> bool:
 		if called >= 2:
 			break
 	Game.say("«Мне плохо… помогите»" if called > 0 else "Никто не услышал", called == 0)
-	return called > 0
 
 ## Погасить ближайший свет. Кормиться на свету нельзя — увидят; в темноте
 ## свидетелем становится только тот, кто стоит вплотную. Тушить умеет только
@@ -1346,9 +1480,11 @@ func try_douse() -> bool:
 			Game.say("Рядом нечего гасить", true)
 		return false
 	lure_cd = Data.TUNE["lure_cooldown"]
-	best.call("douse")
-	Game.say("Стало темнее")
-	return true
+	look_dir = (best.global_position - global_position).normalized()
+	return _begin_gesture("reach", 0.85, 0.7, func():
+		if is_instance_valid(best) and best.lit:
+			best.call("douse")
+			Game.say("Стало темнее"))
 
 ## Швырнуть что-нибудь в сторону: гости идут смотреть на шум ТУДА, а не
 ## сюда. Это лура наоборот — уводит свидетелей, а не подводит жертву.
@@ -1356,11 +1492,13 @@ func try_noise_lure(point: Vector3) -> bool:
 	if side != Data.Side.UNDEAD or lure_cd > 0.0:
 		return false
 	lure_cd = Data.TUNE["lure_cooldown"]
-	Fx.blood_drip(get_parent(), point, 0.2)
-	Game.raise_alarm(point, Data.TUNE["noise_radius"], "mob")
-	if is_player:
-		Game.say("Звон стекла — все обернулись туда")
-	return true
+	var aim := point
+	look_dir = (aim - global_position).normalized()
+	return _begin_gesture("throw", 0.7, 0.62, func():
+		Fx.blood_drip(get_parent(), aim, 0.2)
+		Game.raise_alarm(aim, Data.TUNE["noise_radius"], "mob")
+		if is_player:
+			Game.say("Звон стекла — все обернулись туда"))
 
 ## Засада из нычки. Сидя в укрытии вампир невидим, и первый удар из него
 ## валит с ног сразу: жертва не успевает ни закричать, ни развернуться.
@@ -1798,6 +1936,10 @@ func die(killer: Actor = null) -> void:
 		return
 	alive = false
 	Game.invalidate_roster()
+	# дубль смерти и его разброс — чтобы два трупа подряд не легли одинаково
+	if rig != null:
+		rig.death_take = randi() % 3
+		rig.death_seed = randf()
 	dmg.bleed = 0.0
 	cancel_channel()
 	summoned_by = null
@@ -1848,12 +1990,49 @@ func die(killer: Actor = null) -> void:
 		if _name_tag:
 			_name_tag.visible = false
 
+## ПАДЕНИЕ. Раньше труп ложился одним кадром: корпус мгновенно
+## поворачивался на девяносто градусов и проваливался в пол. Со стороны это
+## читалось как выключение персонажа, а не как смерть.
+##
+## Теперь падение — это время. Тело заваливается по дуге за `FALL_TIME`, с
+## перелётом и отскоком в конце (человек падает не как доска: сначала
+## подламывается, потом ударяется), а кости в это время играют свою позу
+## смерти. Физику мы не выключаем до конца падения, иначе оно не пойдёт.
+const FALL_TIME := 1.1
+
+var _falling: float = -1.0
+var _fall_dir: float = 1.0
+var _fall_side: float = 0.0
+
 func _lie_down() -> void:
 	collision_layer = 0
-	if _body_root:
-		_body_root.rotation.x = -PI / 2
-		_body_root.position.y = 0.25
-	set_physics_process(false)
+	_falling = 0.0
+	# куда валится — зависит от того, откуда прилетело: назад от удара
+	# спереди, вперёд с гарпуна, набок от серпа
+	match death_kind:
+		"axe", "finish", "rapier", "mori":
+			_fall_dir = -1.0
+		"harpoon":
+			_fall_dir = 1.0
+		_:
+			_fall_dir = 1.0
+	_fall_side = randf_range(-0.35, 0.35)
+	set_physics_process(true)
+
+func _tick_fall(delta: float) -> void:
+	if _falling < 0.0 or _body_root == null:
+		return
+	_falling += delta
+	var t: float = clampf(_falling / FALL_TIME, 0.0, 1.0)
+	# ускорение к земле, потом короткий отскок и оседание
+	var e: float = t * t * (3.0 - 2.0 * t)
+	var over: float = sin(clampf((t - 0.72) / 0.28, 0.0, 1.0) * PI) * 0.12
+	_body_root.rotation.x = _fall_dir * (PI / 2.0) * e - _fall_dir * over
+	_body_root.rotation.z = _fall_side * e
+	_body_root.position.y = 0.25 * e
+	if t >= 1.0:
+		_falling = -1.0
+		set_physics_process(false)
 
 ## Обращение: тот же узел продолжает играть, но уже за другую сторону.
 ## Если это был игрок — он остаётся в матче низшим вампиром или гулем.
