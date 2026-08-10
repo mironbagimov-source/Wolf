@@ -70,6 +70,13 @@ var _anim: AnimationPlayer = null
 var _name_tag: Label3D
 var _weapon_mesh: Node3D
 var _offhand_mesh: Node3D          # нож во второй руке — только у Карла
+## Кости, к которым привязаны держатели оружия и лица. Держим индексы сами:
+## подвес `BoneAttachment3D` заменён обычным узлом, см. `_hand_holder`.
+var _weapon_bone: int = -1
+var _offhand_bone: int = -1
+var _face_holder: Node3D = null
+var _face_bone: int = -1
+var _face_offset: Transform3D = Transform3D.IDENTITY
 var _walk_phase := 0.0
 var _breathe := 0.0
 
@@ -407,16 +414,14 @@ func _build_face() -> void:
 	if rig == null or not rig.ok or not rig.idx.has("head"):
 		return
 	var head: int = rig.idx["head"]
-	# Кость назначается ПОСЛЕ добавления в скелет. Наоборот — и на каждого
-	# персонажа в лог летит «Attempt to disconnect a nonexistent connection»:
-	# подвес отписывается от сигнала, на который ещё не подписался, потому что
-	# подписка происходит при входе в дерево.
-	var att := BoneAttachment3D.new()
-	rig.skeleton.add_child(att)
-	att.bone_idx = head
 
+	# Держатель лица — обычный узел под скелетом, как и держатели оружия:
+	# `BoneAttachment3D` давал ту же ошибку в лог при каждом создании, а
+	# нужен был только ради трансформа кости. Трансформ ставится вручную
+	# каждый кадр в `RigAnim._face`.
 	var holder := Node3D.new()
-	att.add_child(holder)
+	rig.skeleton.add_child(holder)
+
 	# Оси берём АКТЁРА, а не кости и не скелета. Модель повёрнута на 180°
 	# (`MODEL_YAW`) и ужата под рост, кость головы у Mixamo смотрит куда
 	# захотел экспортёр — в системе кости «вперёд» у каждой модели своё.
@@ -425,8 +430,10 @@ func _build_face() -> void:
 	var rest: Transform3D = rig.skeleton.get_bone_global_rest(head)
 	var att_rest: Transform3D = global_transform.affine_inverse() \
 		* rig.skeleton.global_transform * rest
-	holder.transform = att_rest.affine_inverse() \
-		* Transform3D(Basis.IDENTITY, att_rest.origin)
+	_face_offset = att_rest.affine_inverse() * Transform3D(Basis.IDENTITY, att_rest.origin)
+	_face_bone = head
+	_face_holder = holder
+	holder.transform = rest * _face_offset
 
 	# Длина головы — от её кости до макушки. По ней меряется всё лицо.
 	var head_len := 0.22
@@ -456,6 +463,9 @@ func _build_face() -> void:
 	if is_player:
 		f.visible = false
 	rig.face = f
+	rig.face_holder = holder
+	rig.face_bone = head
+	rig.face_offset = _face_offset
 
 ## Коробка ГОЛОВЫ по самому мешу, а не по кости.
 ##
@@ -549,14 +559,23 @@ func _hand_holder(body_holder: Node3D, right: bool) -> Node3D:
 	if not right and rig != null and rig.ok:
 		bone = rig.idx.get("hand_l", -1)
 	if bone >= 0:
-		var att := BoneAttachment3D.new()
-		rig.skeleton.add_child(att)
-		att.bone_idx = bone            # только после входа в дерево, см. _build_face
-		att.add_child(holder)
-		# Поворот не задаём: он ставится каждый кадр в `_aim_weapon`, в мировых
-		# осях. Подобрать его углом в системе кости нельзя — у кисти Mixamo
-		# +Y идёт вдоль пальцев, а её X и Z смотрят у каждой модели по-своему,
-		# и любая константа даёт клинок торчком вбок.
+		# Держатель — обычный узел под скелетом, а НЕ `BoneAttachment3D`.
+		#
+		# Подвес нужен был только как источник трансформа кости, а платили за
+		# него подпиской на `skeleton_updated` — и в упакованной сборке каждый
+		# подвес при создании писал в лог «Attempt to disconnect a nonexistent
+		# connection». В редакторе этого не было, в сборке было по строке на
+		# персонажа при старте матча.
+		#
+		# Трансформ кости и так берётся вручную каждый кадр (`_aim_weapon`
+		# ставит оружие в мировых осях: у кисти Mixamo +Y идёт вдоль пальцев, а
+		# X и Z смотрят у каждой модели по-своему, и любая константа даёт
+		# клинок торчком вбок). Значит, подвес не давал ничего, кроме ошибки.
+		rig.skeleton.add_child(holder)
+		if right:
+			_weapon_bone = bone
+		else:
+			_offhand_bone = bone
 		return holder
 	body_holder.add_child(holder)
 	holder.position = Vector3(0.36 if right else -0.36, 1.0, -0.15)
@@ -861,9 +880,12 @@ func _tick_visuals(delta: float) -> void:
 func _aim_weapon(holder: Node3D, main_hand: bool) -> void:
 	if holder == null or not is_instance_valid(holder):
 		return
-	var att := holder.get_parent() as Node3D
-	if att == null:
+	var bone: int = _weapon_bone if main_hand else _offhand_bone
+	if bone < 0 or rig == null or not rig.ok:
 		return
+	# мировой трансформ кости кисти — берём сами, без подвеса
+	var hand_global: Transform3D = rig.skeleton.global_transform \
+		* rig.skeleton.get_bone_global_pose(bone)
 
 	var c := attack_curve()
 	var arc: float = WeaponMesh.swing_factor(char_id) if main_hand else 0.5
@@ -871,9 +893,9 @@ func _aim_weapon(holder: Node3D, main_hand: bool) -> void:
 	var right: Vector3 = global_transform.basis.x
 	var b := Basis(right, tilt)
 
-	var hand := att.global_transform.basis.orthonormalized()
+	var hand := hand_global.basis.orthonormalized()
 	# кулак сжат не на запястье, а на ладонь дальше
-	holder.global_position = att.global_position + hand.y * 0.07
+	holder.global_position = hand_global.origin + hand.y * 0.07
 	holder.global_basis = b
 
 ## Где сейчас рука в ударе: +1 — оружие занесено за спину, −1 — прошло по
@@ -1993,10 +2015,6 @@ func try_mori(target: Actor) -> bool:
 	target.stun_time = Data.TUNE["mori_time"]
 
 	Game.raise_alarm(global_position, Data.TUNE["mori_alarm"], "mori")
-	# Казнь показывают со стороны — иначе от первого лица видно только
-	# собственную руку, а весь смысл приёма в том, что его ВИДНО.
-	if (is_player or target.is_player) and Game.cutscene != null:
-		Game.cutscene.call("play_mori", self, target)
 	if is_player:
 		Game.say("КАЗНЬ. Тебя видит весь зал", true)
 	else:

@@ -22,8 +22,6 @@ var cursor_free: bool = false
 var elapsed: float = 0.0
 var actors: Array = []                  ## все живые и мёртвые Actor
 var player: Node = null
-## Катсцены: их запускает кто угодно, а живут они в главной сцене.
-var cutscene: Node = null
 var braziers_lit: int = 0
 var braziers_total: int = 0
 var winner_side: int = -1

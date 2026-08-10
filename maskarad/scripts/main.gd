@@ -6,7 +6,6 @@ const HUMAN_IDS := ["helga", "jay", "chiara"]
 var ui: UI
 var world: World
 var actors_root: Node3D
-var cutscene: Cutscene
 
 ## Прогон без человека за рулём: `godot --headless -- --autotest --char=moira`.
 ## Матч запускается сам и печатает, что происходит — так игра проверяется
@@ -55,9 +54,6 @@ func _ready() -> void:
 	ui.start_pressed.connect(start_match)
 	ui.menu_pressed.connect(back_to_menu)
 
-	cutscene = Cutscene.new()
-	add_child(cutscene)
-	Game.cutscene = cutscene
 	Game.notice.connect(func(text, bad): ui.notice(text, bad))
 	Game.match_ended.connect(_on_match_ended)
 	Game.set_state(Game.State.MENU)
@@ -1305,10 +1301,6 @@ func start_match() -> void:
 	ui.show_hud()
 	ui.force_big_map = _hold_map
 	Game.set_state(Game.State.PLAYING)
-	# Облёт зала перед началом. В прогоне без игрока он не нужен — тесты
-	# не смотрят кино.
-	if not _autotest and Game.chosen_map == "club":
-		cutscene.play_intro()
 	Game.cursor_free = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	Game.say("Ночь началась. Прожекторов: %d" % Game.braziers_total)
@@ -1423,15 +1415,6 @@ func _on_actor_died(a: Actor, killer: Actor) -> void:
 
 func _on_match_ended(winner: int, reason: String) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	if not _autotest:
-		var star: Node3D = null
-		for a in Game.living():
-			if a.side == winner:
-				star = a
-				if a.is_player:
-					break
-		if star != null:
-			await cutscene.play_end(star)
 	ui.show_result(winner, reason)
 
 func back_to_menu() -> void:

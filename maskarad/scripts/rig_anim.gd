@@ -128,6 +128,11 @@ var mori_kind: String = ""
 ## отыгрывают шея и плечи. Одно и то же слово двигает и брови, и позу: испуг —
 ## это не только круглые глаза, но и вобранная в плечи голова.
 var face: FaceRig = null
+## Держатель лица едет за костью головы вручную: подвес `BoneAttachment3D`
+## заменён обычным узлом, чтобы не писать ошибку в лог при каждом создании.
+var face_holder: Node3D = null
+var face_bone: int = -1
+var face_offset: Transform3D = Transform3D.IDENTITY
 var mood: String = ""
 var mood_power: float = 0.0
 
@@ -931,6 +936,9 @@ func _hands(gait: float, s: float) -> void:
 func _face(dt: float) -> void:
 	if face == null or not is_instance_valid(face):
 		return
+	# лицо следует за костью головы — один трансформ на кадр
+	if face_holder != null and is_instance_valid(face_holder) and face_bone >= 0:
+		face_holder.transform = skeleton.get_bone_global_pose(face_bone) * face_offset
 	if detail > 0:
 		face.visible = false
 		return
