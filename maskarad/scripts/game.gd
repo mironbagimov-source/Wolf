@@ -22,6 +22,8 @@ var cursor_free: bool = false
 var elapsed: float = 0.0
 var actors: Array = []                  ## все живые и мёртвые Actor
 var player: Node = null
+## Катсцены: их запускает кто угодно, а живут они в главной сцене.
+var cutscene: Node = null
 var braziers_lit: int = 0
 var braziers_total: int = 0
 var winner_side: int = -1
@@ -156,7 +158,13 @@ func douse_brazier() -> void:
 	braziers_lit = maxi(0, braziers_lit - 1)
 	notice.emit("Прожектор погас — осталось %d" % (braziers_total - braziers_lit), true)
 
+## Тревога. Радиус УРЕЗАЕТСЯ музыкой: у сцены крик слышат только те, кто
+## стоит вплотную, в подсобке — половина этажа. Тот же множитель слышит и
+## игрок, поэтому громкие и тихие места одинаковы для обеих сторон.
 func raise_alarm(pos: Vector3, radius: float, kind: String) -> void:
+	var w = get_tree().get_first_node_in_group("world") if get_tree() else null
+	if w != null and w.has_method("music_loudness"):
+		radius *= 1.0 - 0.6 * float(w.call("music_loudness", pos))
 	alarm_raised.emit(pos, radius, kind)
 
 ## Кого видели за работой. Засвеченный монстр перестаёт быть частью толпы:

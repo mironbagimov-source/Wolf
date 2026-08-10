@@ -13,6 +13,12 @@ var victim: Actor = null
 func think(delta: float) -> void:
 	mode_time -= delta
 
+	# НЕСЁШЬ — неси. Всё остальное подождёт: с человеком на плече не зовут,
+	# не гасят свет и не танцуют.
+	if actor.carrying != null:
+		_haul()
+		return
+
 	# Вскрыли чесноком — переждать, пока не спадёт.
 	# А вот засветка — навсегда: прятаться больше не в чем, и вампир
 	# переходит к прямой охоте. Иначе он до утра стоит в углу.
@@ -123,7 +129,43 @@ func _call() -> void:
 	elif mode_time <= 0.0:
 		_enter(STALK, 6.0)
 
+## Донести добычу до тихого места. Вампир не пьёт там, где схватил: он
+## уносит. Ради этого на карте и есть гримёрки, подсобки и двор загрузки.
+func _haul() -> void:
+	var v: Actor = actor.carrying
+	var spot := _quiet_spot()
+	if spot == Vector3.INF:
+		actor.drop_carry()
+		return
+	go_to(spot)
+	if actor.global_position.distance_to(spot) < 2.5:
+		actor.drop_carry()
+		if is_instance_valid(v):
+			victim = v
+			_enter(CALL, 6.0)
+
+## Ближайшее место, где нет свидетелей: приватная комната или тёмный угол.
+func _quiet_spot() -> Vector3:
+	if world == null:
+		return Vector3.INF
+	var best := Vector3.INF
+	var best_score := INF
+	for p: Vector3 in world.private_spots:
+		var score: float = actor.global_position.distance_to(p) + _witness_count(p) * 25.0
+		if score < best_score:
+			best_score = score
+			best = p
+	return best
+
 func _feed() -> void:
+	stop()
+	# Схватил на людях — уноси. Это главное новое решение вампира: не «пить
+	# здесь и надеяться», а потратить десять секунд и увести из зала.
+	if actor.channel_kind == "drain" and actor.carrying == null:
+		if _witness_count(actor.global_position) > 0 and actor.channel_time > 0.5:
+			var prey: Actor = actor.channel_target as Actor
+			if prey != null and actor.try_carry(prey):
+				return
 	stop()
 	if actor.channel_kind != "drain":
 		# допили или сорвалось — в любом случае уходим с места

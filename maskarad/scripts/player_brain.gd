@@ -41,6 +41,7 @@ var looking_back: bool = false         # держат кнопку: тело з�
 var target_actor: Actor = null
 var target_brazier: Lamp = null
 var target_door: Node = null
+var target_cloakroom: Node = null
 var target_hide: Vector3 = Vector3.INF
 var prompt: String = ""
 
@@ -109,6 +110,7 @@ func _physics_process(delta: float) -> void:
 	_read_input(delta)
 	_place_camera(delta)
 	_find_target()
+	_tick_heartbeat(delta)
 
 ## Смерть: голова заваливается набок и оседает на пол.
 func _death_camera(delta: float) -> void:
@@ -289,12 +291,21 @@ func _handle_interact() -> void:
 	_holding_interact = held
 
 func _begin_interact() -> void:
+	# Несёшь — единственное действие это ПОСТАВИТЬ. Всё остальное подождёт:
+	# руки заняты человеком.
+	if actor.carrying != null:
+		actor.drop_carry()
+		Game.say("Поставил")
+		return
 	if target_door != null and target_door.has_method("use"):
 		target_door.call("use", actor)
 		return
 	# Сравнивать вектор с null нельзя: Vector3 не равен null НИКОГДА, и это
 	# условие срабатывало всегда. Из-за одной строки `E` уходил в «спрятаться»
 	# и не доходил ни до укуса, ни до разговора, ни до прожектора.
+	if target_cloakroom != null:
+		Dialogue.count_tags()
+		return
 	if target_hide != Vector3.INF:
 		actor.hidden = not actor.hidden
 		Game.say("Спрятался" if actor.hidden else "Вышел из укрытия")
@@ -304,6 +315,14 @@ func _begin_interact() -> void:
 		return
 	if target_actor == null:
 		return
+
+	# Схваченного или лежащего можно ВЗЯТЬ НА ПЛЕЧО и унести. Именно ради
+	# этого на карте есть гримёрки, подсобки и тёмный двор: жертву не
+	# обязательно уговаривать туда идти, её можно отнести.
+	if actor.side == Data.Side.UNDEAD and Input.is_action_pressed("sprint") \
+			and (target_actor.downed or target_actor.drained_by == actor):
+		if actor.try_carry(target_actor):
+			return
 
 	# лежащего добивают — это главное действие нечисти вблизи. С полным
 	# психозом Shift+E над лежащим — уже не добивание, а КАЗНЬ.
@@ -315,6 +334,10 @@ func _begin_interact() -> void:
 			return
 
 	if actor.side == Data.Side.HUMAN and actor.role == Data.Role.HUMAN:
+		# упавшего своего — поднять; это важнее любого разговора
+		if target_actor.downed and target_actor.side == Data.Side.HUMAN:
+			if actor.try_revive(target_actor):
+				return
 		Dialogue.talk(actor, target_actor)
 		return
 
@@ -327,6 +350,20 @@ func _begin_interact() -> void:
 			actor.try_dance(target_actor)
 		else:
 			actor.try_invite(target_actor)
+
+## Сердце. Единственная подсказка, которую человек получает НЕ ГЛАЗАМИ:
+## чем ближе монстр, тем чаще стучит. Работает и через стену — потому и
+## работает: увидеть за стеной нельзя, а почувствовать можно.
+##
+## У нечисти сердца нет — ей стучать не от чего.
+func _tick_heartbeat(delta: float) -> void:
+	if actor.side != Data.Side.HUMAN:
+		return
+	var closest := 999.0
+	for a: Actor in Game.living(Data.Side.UNDEAD):
+		closest = minf(closest, actor.global_position.distance_to(a.global_position))
+	# двадцать метров — ничего, пять — колотится
+	Sfx.tick_heartbeat(delta, clampf((20.0 - closest) / 15.0, 0.0, 1.0))
 
 ## Ближайшая нычка, если стоишь прямо в ней.
 func _nearest_hide() -> Vector3:
@@ -360,6 +397,7 @@ func _find_target() -> void:
 	target_actor = null
 	target_brazier = null
 	target_door = null
+	target_cloakroom = null
 	target_hide = Vector3.INF
 	prompt = ""
 
@@ -379,11 +417,40 @@ func _find_target() -> void:
 		target_actor = near
 		if actor.side == Data.Side.UNDEAD:
 			prompt = "E — добить: %s" % near.appearance_name
+			if actor.can_mori():
+				prompt += "   ·   Shift+E — КАЗНЬ"
+			else:
+				prompt += "   ·   Shift+E — унести"
 		else:
-			prompt = "%s сбит с ног" % near.appearance_name
+			prompt = "E — поднять: %s" % near.appearance_name
 		return
 
-	# двери и жаровни — по лучу
+	# ГАРДЕРОБ: пересчитать номерки.
+	if actor.side == Data.Side.HUMAN:
+		for m in actor.get_tree().get_nodes_in_group("cloakroom_spot"):
+			if actor.global_position.distance_to(m.global_position) < 2.6:
+				target_cloakroom = m
+				prompt = "E — пересчитать номерки"
+				return
+
+	# ДВЕРИ ищутся по близости, а не лучом: у открытой двери нет коллизии
+	# (иначе в навмеше на её месте была бы дыра и боты не ходили бы в проём
+	# вообще), и луч сквозь неё пролетает.
+	var best_door: Node = null
+	var best_dd := 2.6
+	for d in actor.get_tree().get_nodes_in_group("doors"):
+		var dd: float = actor.global_position.distance_to(d.global_position)
+		if dd < best_dd:
+			best_dd = dd
+			best_door = d
+	if best_door != null:
+		var txt: String = best_door.call("prompt_for", actor)
+		if txt != "":
+			target_door = best_door
+			prompt = txt
+			return
+
+	# жаровни — по лучу
 	var space := actor.get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 3.2, 1)
 	var hit := space.intersect_ray(q)

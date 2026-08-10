@@ -114,6 +114,11 @@ var offhand: bool = false
 var gesture: String = ""
 var gesture_t: float = 0.0
 
+## Переноска: несу (1) или несут меня (2).
+var carry: int = 0
+## Насколько жертва ещё бьётся, 0..1.
+var carry_fight: float = 0.0
+
 ## Казнь лича: своя, длинная, необратимая. 0..1 по ходу приёма.
 var mori: float = 0.0
 var mori_kind: String = ""
@@ -396,6 +401,31 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 
 	if activity != "" and gait < 0.15 and strike == 0.0 and reach == 0.0:
 		_pose_activity()
+
+	# Переноска: у несущего одна рука держит ношу, у ноши — своя сцена.
+	if carry == 1:
+		_spin("spine", AX, 0.16)
+		_spin("spine", AZ, -0.12)          # кренится под весом
+		_spin("neck", AX, -0.18)
+		_spin("arm_r", AZ, 0.55)
+		_spin("arm_r", AX, -1.65)          # рука закинута через ношу
+		_spin("fore_r", AX, -1.15)
+		_spin("shoulder_r", AZ, 0.30)
+		_spin("arm_l", AZ, -0.35)          # вторая балансирует
+		_spin("fore_l", AX, -0.55)
+	elif carry == 2:
+		var f: float = carry_fight
+		_spin("hips", AX, 1.35)            # тело поперёк плеча
+		_spin("spine", AX, 0.25)
+		_spin("neck", AX, -0.45)
+		_spin("arm_l", AZ, -0.85 - f * 0.5)
+		_spin("arm_r", AZ, 0.85 + f * 0.5)
+		_spin("arm_l", AX, sin(breathe * 13.0) * 0.55 * f)
+		_spin("arm_r", AX, -sin(breathe * 13.0) * 0.55 * f)
+		_spin("upleg_l", AX, -0.35 + sin(breathe * 11.0) * 0.6 * f)
+		_spin("upleg_r", AX, -0.25 - sin(breathe * 11.0) * 0.6 * f)
+		_spin("leg_l", AX, -0.55)
+		_spin("leg_r", AX, -0.5)
 
 	# Жест кладётся ПОВЕРХ всего: он важнее занятия и походки, потому что
 	# именно по нему со стороны читается, что человек сейчас что-то делает.

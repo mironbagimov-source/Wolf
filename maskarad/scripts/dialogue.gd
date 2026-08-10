@@ -81,6 +81,22 @@ const SCARED := [
 
 ## Что гость расскажет игроку. Порядок важен: сперва то, что он видел
 ## своими глазами, потом то, что просто заметил, потом ничего.
+## НОМЕРКИ. Пальто сдали все, кто вошёл; в зале остались не все. Разница и
+## есть счёт погибших — единственная улика, которую вампир не может убрать,
+## потому что тело он уносит, а номерок нет.
+static func count_tags() -> void:
+	var alive_guests := 0
+	for a: Actor in Game.living(Data.Side.HUMAN):
+		if a.role == Data.Role.GUEST:
+			alive_guests += 1
+	var gone: int = maxi(0, Game.guest_count - alive_guests)
+	if gone == 0:
+		Game.say("Номерки сходятся: все на месте")
+	elif gone == 1:
+		Game.say("Один номерок лишний. Кого-то уже нет", true)
+	else:
+		Game.say("Лишних номерков: %d. В зале работают" % gone, true)
+
 static func talk(asker: Actor, who: Actor) -> void:
 	if who == null or not is_instance_valid(who) or not who.alive:
 		return
@@ -100,6 +116,22 @@ static func talk(asker: Actor, who: Actor) -> void:
 				Game.say("%s: %s" % [who.appearance_name, SCARED[randi() % SCARED.size()]], true)
 				Game.say("%s косится на «%s»" % [who.appearance_name, seen.appearance_name], true)
 				return
+
+	# ОПРОС СВИДЕТЕЛЯ. Главное, что может дать гость, — не слух, а имя с
+	# местом: кого он видел и куда тот шёл. Это единственный способ выйти на
+	# вампира, не поймав его за кормлением, и именно поэтому вампиру теперь
+	# опасно просто мелькать у гримёрок.
+	if brain != null and brain.has_method("latest_note"):
+		var note: Dictionary = brain.call("latest_note")
+		if not note.is_empty():
+			var who_seen: String = str(note["name"])
+			var where: String = str(note["where"])
+			var ago: int = int(Game.elapsed - float(note["t"]))
+			Game.say("%s: «Видел %s — шёл в сторону «%s», минуту назад»"
+				% [who.appearance_name, who_seen, where] if ago < 60
+				else "%s: «%s тут ходил, к «%s». Давно уже»"
+				% [who.appearance_name, who_seen, where])
+			return
 
 	Game.say("%s: %s" % [who.appearance_name, GREETING[randi() % GREETING.size()]])
 	var hint := _hint(who)

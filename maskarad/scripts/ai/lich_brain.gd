@@ -9,8 +9,24 @@ var mode: int = PROWL
 var mode_time: float = 0.0
 var prey: Actor = null
 
+## Сколько бот стоит на месте, хотя идти ему есть куда. По этому и
+## опознаётся закрытая дверь: навмеш её не знает — он испечён по открытому
+## проёму, — а вот упереться в неё бот может.
+var _stuck: float = 0.0
+
 func think(delta: float) -> void:
 	mode_time -= delta
+
+	# Заперли дверь перед носом — выбить. Иначе человек, захлопнувший
+	# гримёрку, был бы в безопасности до утра.
+	if not agent.is_navigation_finished() \
+			and Vector2(actor.velocity.x, actor.velocity.z).length() < 0.4:
+		_stuck += delta
+		if _stuck > 0.6 and _break_door():
+			_stuck = 0.0
+			return
+	else:
+		_stuck = 0.0
 
 	if actor.psychosis >= Data.TUNE["psychosis_max"]:
 		actor.try_signature()
@@ -86,6 +102,18 @@ func think(delta: float) -> void:
 			if agent.is_navigation_finished() or mode_time <= 0.0:
 				mode = PROWL
 				mode_time = 3.0
+
+## Ближайшая запертая дверь на пути — её и выбиваем.
+func _break_door() -> bool:
+	for d in actor.get_tree().get_nodes_in_group("doors"):
+		if not d.closed:
+			continue
+		if actor.global_position.distance_to(d.global_position) > 2.6:
+			continue
+		actor.look_dir = (d.global_position - actor.global_position).normalized()
+		d.call("use", actor)
+		return true
+	return false
 
 ## Люди ценнее гостей, но не любой ценой: скидка множителем, а не вычитанием.
 ## Со скидкой в очках человек на другом конце зала когда-то перевешивал гостя

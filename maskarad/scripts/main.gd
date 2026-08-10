@@ -6,6 +6,7 @@ const HUMAN_IDS := ["helga", "jay", "chiara"]
 var ui: UI
 var world: World
 var actors_root: Node3D
+var cutscene: Cutscene
 
 ## Прогон без человека за рулём: `godot --headless -- --autotest --char=moira`.
 ## Матч запускается сам и печатает, что происходит — так игра проверяется
@@ -54,6 +55,9 @@ func _ready() -> void:
 	ui.start_pressed.connect(start_match)
 	ui.menu_pressed.connect(back_to_menu)
 
+	cutscene = Cutscene.new()
+	add_child(cutscene)
+	Game.cutscene = cutscene
 	Game.notice.connect(func(text, bad): ui.notice(text, bad))
 	Game.match_ended.connect(_on_match_ended)
 	Game.set_state(Game.State.MENU)
@@ -142,6 +146,8 @@ func _maybe_autotest() -> void:
 		_new_features_test.call_deferred()
 	if "--gesturetest" in args:
 		_gesture_test.call_deferred()
+	if "--carrytest" in args:
+		_carry_test.call_deferred()
 
 ## Проверка боя и повреждений в отрыве от навигации: ставим лича вплотную
 ## к гостю и смотрим, доходит ли удар и что он ломает.
@@ -809,6 +815,54 @@ func _bite_bench() -> void:
 	print("[укус] канал «%s», прогресс жертвы %.2f" % [v.channel_kind, prey.bite_progress])
 	await _bench_shot("укус")
 
+## ПЕРЕНОСКА. Проверяем три вещи, каждую из которых легко «сделать» вхолостую:
+## поднимается ли жертва на плечо (то есть едет ли за несущим), режет ли
+## переноска скорость, и вырывается ли жертва сама, если её не выпили.
+func _carry_test() -> void:
+	for i in 60:
+		await get_tree().physics_frame
+	var vamp: Actor = _spawn("moira", Vector3(0, 0.2, 6), false)
+	var prey: Actor = null
+	for a in Game.living(Data.Side.HUMAN):
+		if a.role == Data.Role.GUEST:
+			prey = a
+			break
+	if prey == null:
+		print("[переноска] некого нести"); get_tree().quit(); return
+	for who in [vamp, prey]:
+		var b: Node = who.get_node_or_null("Brain")
+		if b: b.set_physics_process(false)
+	prey.global_position = vamp.global_position + Vector3(0, 0, -1.0)
+	prey.stun_time = 30.0
+	await get_tree().physics_frame
+
+	var took := vamp.try_carry(prey)
+	for i in 12:
+		vamp.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+	var lifted: float = prey.global_position.y - vamp.global_position.y
+
+	# идём и смотрим, едет ли ноша с нами
+	var from := vamp.global_position
+	for i in 40:
+		vamp.move_input = Vector3(0, 0, -1)
+		await get_tree().physics_frame
+	var went := from.distance_to(vamp.global_position)
+	var gap := vamp.global_position.distance_to(prey.global_position)
+
+	# теперь даём ей вырываться: не выпита — должна вырваться сама
+	prey.bite_progress = 0.0
+	var broke := 0
+	for i in 600:
+		vamp.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+		if vamp.carrying == null:
+			broke = i
+			break
+	print("[переноска] взял=%s, поднял на %.2f м, прошёл %.1f м, ноша отстала на %.2f м, вырвалась через %d кадров" % [
+		took, lifted, went, gap, broke])
+	get_tree().quit()
+
 ## ТЕЛЕКИНЕЗ. Проверяем, что у каждого дистанционного приёма есть замах и что
 ## эффект наступает не в момент нажатия, а в кульминации. Меряем две вещи:
 ## сколько кадров шёл жест и на сколько кисть уехала от покоя — жест, который
@@ -1251,6 +1305,10 @@ func start_match() -> void:
 	ui.show_hud()
 	ui.force_big_map = _hold_map
 	Game.set_state(Game.State.PLAYING)
+	# Облёт зала перед началом. В прогоне без игрока он не нужен — тесты
+	# не смотрят кино.
+	if not _autotest and Game.chosen_map == "club":
+		cutscene.play_intro()
 	Game.cursor_free = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	Game.say("Ночь началась. Прожекторов: %d" % Game.braziers_total)
@@ -1365,6 +1423,15 @@ func _on_actor_died(a: Actor, killer: Actor) -> void:
 
 func _on_match_ended(winner: int, reason: String) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if not _autotest:
+		var star: Node3D = null
+		for a in Game.living():
+			if a.side == winner:
+				star = a
+				if a.is_player:
+					break
+		if star != null:
+			await cutscene.play_end(star)
 	ui.show_result(winner, reason)
 
 func back_to_menu() -> void:

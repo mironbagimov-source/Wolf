@@ -45,6 +45,19 @@ var _mat_grass: StandardMaterial3D
 
 var _club_lights: Array = []
 var _env: Environment = null
+
+## Колонки: где играет музыка и как громко. По этому же списку считается,
+## насколько место ГЛУШИТ посторонний шум.
+##
+## Это не декорация к звуку, а часть карты. У главной сцены не слышно ни
+## шагов, ни крика — можно работать в двух метрах от людей. В подсобке и за
+## кулисами слышно всё, зато там никого нет. Одна и та же цифра идёт и в
+## громкость музыки для игрока, и в радиус тревоги для ботов, поэтому зал
+## делится на громкие и тихие места одинаково для обеих сторон.
+var doors: Array = []
+var speakers: Array[Dictionary] = []
+var _music_t: float = 0.0
+var _beat: int = 0
 var _t: float = 0.0
 
 func build() -> void:
@@ -100,6 +113,8 @@ func _build_club() -> void:
 	_club_wardrobe()
 	_club_toilets()
 	_club_light_rig()
+	_club_music()
+	_club_doors()
 	_points_club()
 
 func _on_quality(_level: int) -> void:
@@ -107,6 +122,7 @@ func _on_quality(_level: int) -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	_tick_music(delta)
 	# в клубе свет живёт своей жизнью: под ним трудно понять, кто перед тобой
 	for i in _club_lights.size():
 		var l: OmniLight3D = _club_lights[i]
@@ -428,6 +444,16 @@ func _club_wardrobe() -> void:
 	zones.append({"name": "Гардероб", "pos": Vector3(-25, 0, 34),
 		"half": Vector2(8, 7), "kind": "dark"})
 
+	# СТОЙКА С НОМЕРКАМИ. По ней человек считает, скольких уже нет: пальто
+	# висит, а хозяина в зале не видно. Это единственный способ понять, что
+	# охота идёт, не увидев ни одного трупа — вампир их не оставляет.
+	var desk := _box(Vector3(-25, 0.55, 28.5), Vector3(9, 1.1, 1.0), _mat_wood)
+	desk.add_to_group("cloakroom")
+	var mark := Node3D.new()
+	mark.position = Vector3(-25, 0, 29.6)
+	mark.add_to_group("cloakroom_spot")
+	region.add_child(mark)
+
 	# два ряда шкафов, между ними проход
 	for row in range(2):
 		var z: float = 30.5 + row * 6.0
@@ -459,6 +485,69 @@ func _club_toilets() -> void:
 
 ## Свет зала. Он и есть половина клуба: под бегающими цветными лучами лица
 ## читаются плохо, и именно поэтому вампир держится танцпола.
+## Дверь в проёме. Ставится ПОСЛЕ стен и до выпечки навмеша — коллизии у
+## открытой двери нет, поэтому проём печётся как проходимый.
+func _door(at: Vector3, width: float, yaw: float, label: String) -> void:
+	var d := Door.new()
+	d.label = label
+	d.position = at - Vector3(cos(yaw), 0, -sin(yaw)) * (width * 0.5)
+	d.rotation.y = yaw
+	d.add_to_group("doors")
+	region.add_child(d)
+	d.build(width, 2.9, _mat_wood)
+	doors.append(d)
+
+## Двери клуба. Стоят там, где за них имеет смысл закрываться: гримёрки,
+## подсобки, туалеты, выходы за кулисы. В общем зале дверей нет — там негде
+## закрыться, и это правильно.
+func _club_doors() -> void:
+	for x in [-18.0, -6.0, 6.0, 18.0]:
+		_door(Vector3(x, 0, -36.0), 3.0, 0.0, "гримёрка")
+	for z in [-14.0, -2.0, 12.0]:
+		_door(Vector3(-37.0, 0, z), 3.0, PI * 0.5, "подсобка")
+	_door(Vector3(-22.0, 0, -26.0), 4.0, 0.0, "за кулисы")
+	_door(Vector3(22.0, 0, -26.0), 4.0, 0.0, "за кулисы")
+	_door(Vector3(31.0, 0, 4.0), 4.0, PI * 0.5, "туалеты")
+	_door(Vector3(-17.0, 0, 34.0), 4.0, PI * 0.5, "гардероб")
+	_door(Vector3(-25.0, 0, -32.0), 3.0, PI * 0.5, "загрузка")
+
+## Музыка клуба. Ритм собирается из бочки и баса, а не из файла: нужен не
+## трек, а пульс, по которому слышно, где громко.
+func _club_music() -> void:
+	speakers.append({"pos": Vector3(0, 3.0, -18.0), "power": 1.0})     # главная сцена
+	speakers.append({"pos": Vector3(19, 2.5, 12.0), "power": 0.7})     # вторая сцена
+	speakers.append({"pos": Vector3(-26, 2.0, 2.0), "power": 0.35})    # бар
+	for sp in speakers:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(1.4, 2.6, 1.0)
+		mi.mesh = bm
+		mi.material_override = _mat_dark
+		mi.position = sp["pos"] - Vector3(0, 1.3, 0)
+		region.add_child(mi)
+
+## Насколько это место глушит посторонний звук: 0 — тишина, 1 — колонка над
+## головой. Считается по ближайшей колонке с её мощностью.
+func music_loudness(at: Vector3) -> float:
+	var best := 0.0
+	for sp in speakers:
+		var d: float = at.distance_to(sp["pos"])
+		var v: float = clampf(1.0 - d / (26.0 * float(sp["power"]) + 6.0), 0.0, 1.0)
+		best = maxf(best, v * float(sp["power"]))
+	return best
+
+func _tick_music(delta: float) -> void:
+	if speakers.is_empty() or Game.state != Game.State.PLAYING:
+		return
+	_music_t -= delta
+	if _music_t > 0.0:
+		return
+	_music_t = 0.5                      # 120 ударов в минуту
+	_beat = (_beat + 1) % 4
+	for sp in speakers:
+		var db: float = linear_to_db(clampf(float(sp["power"]), 0.05, 1.0)) - 4.0
+		Sfx.play("kick", sp["pos"], db, 1.0 if _beat % 2 == 0 else 1.12)
+
 func _club_light_rig() -> void:
 	# ферма над танцполом
 	for x in [-14.0, 0.0, 14.0]:

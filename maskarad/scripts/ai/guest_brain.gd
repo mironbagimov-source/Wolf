@@ -89,11 +89,49 @@ func think(delta: float) -> void:
 			else:
 				go_to(alarm_pos)
 
+	# Что видно вокруг — запоминается, даже если это не пугает. Гость,
+	# стоящий у входа за кулисы, видит всех, кто туда прошёл.
+	_watch_passers()
+
 	# любой монстр в поле зрения — паника, без вариантов. Но занятый гость
 	# смотрит хуже: танцующий не видит и того, что творится за спиной.
 	var threat := _visible_monster()
 	if threat != null and mode != FLEE:
 		panic(threat.global_position)
+
+## Кто прошёл мимо. Запоминаются только те, кто шёл к закрытым помещениям:
+## гость не ведёт учёт всему залу, он замечает то, что выбивается.
+func _watch_passers() -> void:
+	if world == null or not ("private_spots" in world):
+		return
+	for a in Game.living():
+		if a == actor or a.role == Data.Role.GUEST:
+			continue
+		var d := distance_to(a)
+		if d > 9.0 or not actor.has_line_of_sight(a):
+			continue
+		# куда он шёл — к тихому месту или просто мимо
+		var near_private := ""
+		for spot: Vector3 in world.private_spots:
+			if a.global_position.distance_to(spot) < 12.0:
+				near_private = _zone_name(spot)
+				break
+		if near_private != "":
+			note_seen(a, near_private)
+		elif a.carrying != null:
+			note_seen(a, "с кем-то на плече")
+
+func _zone_name(spot: Vector3) -> String:
+	if world == null:
+		return "в глубине зала"
+	var best := "в глубине зала"
+	var best_d := 14.0
+	for z: Dictionary in world.zones:
+		var d: float = spot.distance_to(z["pos"])
+		if d < best_d:
+			best_d = d
+			best = str(z["name"])
+	return best
 
 func _enter(m: int, t: float) -> void:
 	mode = m
@@ -103,10 +141,47 @@ func _visible_monster() -> Actor:
 	var reach: float = 20.0 * lerp(0.35, 1.0, alertness())
 	for a in Game.living(Data.Side.UNDEAD):
 		var obvious: bool = a.role == Data.Role.LICH or a.role == Data.Role.GHOUL \
-			or a.revealed_time > 0.0 or a.channel_kind == "drain" or Game.is_exposed(a)
+			or a.revealed_time > 0.0 or a.channel_kind == "drain" or Game.is_exposed(a) \
+			or a.carrying != null
+		# Голодный вампир выдаёт себя сам: клыки не убираются. Заметить это
+		# можно только вблизи, но заметить — можно.
+		if a.hunger_tell() > 0.35 and distance_to(a) < 7.0 and actor.has_line_of_sight(a):
+			obvious = true
 		if obvious and distance_to(a) < reach and actor.has_line_of_sight(a):
 			return a
 	return null
+
+## ЧТО ГОСТЬ ВИДЕЛ. Не «подозревает», а именно видел: лицо, место и когда.
+##
+## Это единственный способ для людей вести расследование, не поймав вампира
+## за кормлением. Гость запоминает всякого, кто прошёл мимо него в сторону
+## закрытых комнат, — и если потом окажется, что оттуда никто не вышел,
+## имя уже названо.
+var seen: Array = []
+const SEEN_MAX := 4
+
+func note_seen(who: Actor, where: String) -> void:
+	if who == null:
+		return
+	for e in seen:
+		if e["who"] == who and e["where"] == where:
+			e["t"] = Game.elapsed
+			return
+	seen.append({"who": who, "name": who.appearance_name, "where": where, "t": Game.elapsed})
+	while seen.size() > SEEN_MAX:
+		seen.pop_front()
+
+## Самое свежее и самое полезное из увиденного — то, что гость расскажет.
+func latest_note() -> Dictionary:
+	var best: Dictionary = {}
+	var best_t := -1.0
+	for e in seen:
+		if Game.elapsed - float(e["t"]) > 90.0:
+			continue
+		if float(e["t"]) > best_t:
+			best_t = float(e["t"])
+			best = e
+	return best
 
 ## Испугавшись, гость бросает работу — но, отбегав своё, возвращается.
 func _resume_job() -> void:

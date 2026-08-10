@@ -45,6 +45,25 @@ func think(delta: float) -> void:
 		_flee_from(actor.global_position + Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
 		return
 
+	# ТОВАРИЩ УПАЛ — идём поднимать. Это важнее прожекторов: пока он лежит,
+	# его добьют, и людей станет меньше насовсем. Но не под носом у убийцы —
+	# героизм тут кончается двумя трупами вместо одного.
+	if not actor.downed:
+		var fallen := _nearest_fallen()
+		if fallen != null:
+			var near_killer := _nearest_threat()
+			var safe: bool = near_killer == null or distance_to(near_killer) > 8.0 \
+				or fallen.global_position.distance_to(near_killer.global_position) > 6.0
+			if safe:
+				go_to(fallen.global_position)
+				actor.want_sprint = actor.stamina > 20.0
+				if distance_to(fallen) < Data.TUNE["revive_range"] - 0.2:
+					stop()
+					actor.look_dir = (fallen.global_position - actor.global_position).normalized()
+					if actor.channel_kind == "":
+						actor.try_revive(fallen)
+				return
+
 	# сбит с ног — ползти прочь от того, кто идёт добивать
 	if actor.downed:
 		var killer := _nearest_threat()
@@ -75,6 +94,9 @@ func think(delta: float) -> void:
 			elif _is_vampire(threat):
 				_flee_from(threat.global_position)
 			else:
+				# захлопнуть дверь перед носом — дешевле любой нычки
+				if _slam_door_behind(threat):
+					return
 				# от лича по прямой не уйти на длинной дистанции: ищем нычку
 				var spot := _nearest_hide(threat)
 				if spot != Vector3.INF and actor.global_position.distance_to(spot) < 18.0:
@@ -121,6 +143,38 @@ func think(delta: float) -> void:
 			actor.look_dir = (accuse_target.global_position - actor.global_position).normalized()
 			if mode_time <= 0.0:
 				_throw_at(accuse_target)
+
+## Ближайший свой, лежащий и ещё не поднятый.
+func _nearest_fallen() -> Actor:
+	var best: Actor = null
+	var best_d := 26.0
+	for a: Actor in Game.living(Data.Side.HUMAN):
+		if a == actor or not a.downed or a.carried_by != null:
+			continue
+		if a.role != Data.Role.HUMAN:
+			continue                       # гостей поднимать некому и незачем
+		var d := distance_to(a)
+		if d < best_d:
+			best_d = d
+			best = a
+	return best
+
+## Дверь между мной и погоней. Захлопнуть её — единственный способ выиграть
+## время у того, кто не устаёт.
+func _slam_door_behind(threat: Actor) -> bool:
+	if threat == null:
+		return false
+	for d in actor.get_tree().get_nodes_in_group("doors"):
+		if d.closed:
+			continue
+		var to_door: float = actor.global_position.distance_to(d.global_position)
+		if to_door > 2.4:
+			continue
+		# закрывать имеет смысл, только если преследователь ПО ТУ сторону
+		if d.global_position.distance_to(threat.global_position) < to_door:
+			d.call("use", actor)
+			return true
+	return false
 
 func _nearest_unlit() -> Lamp:
 	var best: Lamp = null

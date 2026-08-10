@@ -152,6 +152,11 @@ var _gesture_at: float = 0.6
 var _gesture_fired: bool = false
 var _gesture_action: Callable = Callable()
 
+## ПЕРЕНОСКА: кого несу и кто несёт меня.
+var carrying: Actor = null
+var carried_by: Actor = null
+var struggle: float = 0.0
+
 var want_jump: bool = false
 ## На сколько голова повёрнута относительно плеч. Пишет мозг; по этому же
 ## числу видно со стороны, что человек смотрит не туда, куда идёт.
@@ -594,6 +599,7 @@ func _physics_process(delta: float) -> void:
 	_tick_finish(delta)
 	_tick_mori(delta)
 	_tick_gesture(delta)
+	_tick_carry(delta)
 	if scared_time > 0.0:
 		scared_time -= delta
 	_tick_move(delta)
@@ -647,6 +653,9 @@ func _tick_channel(delta: float) -> void:
 				v.velocity.x = 0.0
 				v.velocity.z = 0.0
 			look_dir = -grip.normalized()
+			if v.bite_progress <= 0.0:
+				Sfx.play("scream", v.global_position, -2.0, randf_range(0.95, 1.1))
+				Sfx.play("bite", global_position, -6.0)
 			v.bite_progress = clampf(channel_time / maxf(0.01, channel_total), 0.0, 1.0)
 
 	if channel_time >= channel_total:
@@ -707,9 +716,15 @@ func _tick_move(delta: float) -> void:
 	speed *= dmg.speed_factor()          # перебитая нога — это не полоска, а хромота
 	if hp < hp_max * 0.3:
 		speed *= 0.9
+	if carrying != null:
+		# с человеком на плече не бегают: это и есть цена того, что жертву
+		# можно унести из зала, а не пить её на виду
+		speed *= Data.TUNE["carry_speed"]
 	if downed:
 		speed = Data.TUNE["downed_speed"]      # сбитый с ног только ползёт
 		can_move = finishing == null and _finisher_on_me() == null
+	if carried_by != null:
+		can_move = false                        # несут — своим ходом никуда
 
 	var wish := Vector3.ZERO
 	if can_move:
@@ -813,7 +828,15 @@ func _tick_visuals(delta: float) -> void:
 			_attack_t = -1.0
 
 	if rig != null and rig.ok:
+		var was_phase: float = rig.phase
 		_drive_rig(delta, speed2d)
+		# Шаг звучит там, где нога касается пола, — по переходу фазы через
+		# полупериод. Громкость от собственной шумности: у Джея «лёгкая нога»
+		# не строчка в описании, а тише слышный шаг.
+		if speed2d > 0.6 and int(was_phase / PI) != int(rig.phase / PI):
+			var loud: float = float(stats.get("noise", 1.0)) * (1.4 if want_sprint else 1.0)
+			Sfx.play("step", global_position, linear_to_db(clampf(loud * 0.45, 0.05, 1.2)),
+				randf_range(0.92, 1.1))
 		_aim_weapon(_weapon_mesh, true)
 		_aim_weapon(_offhand_mesh, false)
 	elif _parts != null:
@@ -900,6 +923,8 @@ func _drive_rig(delta: float, speed2d: float) -> void:
 	# подзывает рукой всё время, пока зовёт, а зажигающий прожектор работает
 	# у щитка. Раньше и то и другое выглядело так, будто человек стоит столбом,
 	# а лампа зажигается сама.
+	rig.carry = 1 if carrying != null else (2 if carried_by != null else 0)
+	rig.carry_fight = 1.0 - clampf(struggle / maxf(1.0, Data.TUNE["carry_struggle"]), 0.0, 1.0)
 	rig.gesture = gesture
 	rig.gesture_t = clampf(_gesture_t / maxf(0.01, _gesture_len), 0.0, 1.0)
 	if gesture == "" and channel_kind != "":
@@ -943,7 +968,7 @@ func _mood() -> String:
 		return "pain"
 	if scared_time > 0.0:
 		return "scream" if scared_time > Data.TUNE["scare_time"] * 0.6 else "fear"
-	if role == Data.Role.VAMPIRE and hunger > 75.0:
+	if hunger_tell() > 0.0 or (role == Data.Role.VAMPIRE and hunger > 75.0):
 		return "hunger"
 	return ""
 
@@ -1016,11 +1041,14 @@ func _refresh_name_tag() -> void:
 	_name_tag.modulate = col
 
 ## Перк Кьяры: чужой облик на вампире мерцает, и это видно только ей.
+## Что видит Кьяра. Её перк — «видит фальшь», и фальшью считается не только
+## чужое лицо, но и ГОЛОД: у давно не кормившегося вампира клыки уже не
+## убираются, и через зал это заметно тому, кто умеет смотреть.
 func _flickers_for_chiara() -> bool:
 	var p: Actor = Game.player
 	if p == null or not is_instance_valid(p) or p.char_id != "chiara":
 		return false
-	return appearance_id != char_id
+	return appearance_id != char_id or hunger_tell() > 0.3
 
 # =============================================================== действия
 ## Вскрытому вампиру драться нечем. Это не штраф, а суть роли: вампир силён
@@ -1028,6 +1056,8 @@ func _flickers_for_chiara() -> bool:
 ## или сорвали чужое лицо чесноком — и весь его инструмент это ноги и тени.
 ## Лича это не касается: его и так все знают в лицо.
 func can_fight() -> bool:
+	if carrying != null:
+		return false                   # обе руки заняты
 	if role != Data.Role.VAMPIRE and role != Data.Role.THRALL:
 		return true
 	return revealed_time <= 0.0 and not Game.is_exposed(self)
@@ -1065,6 +1095,119 @@ func try_attack() -> bool:
 	_attack_windup = w["windup"]
 	_attack_len = float(w["windup"]) + STRIKE_TIME + 0.34
 	return true
+
+# ============================================================== ПЕРЕНОСКА
+## Поднять упавшего товарища. Умеют только люди и только своих.
+func try_revive(target: Actor) -> bool:
+	if side != Data.Side.HUMAN or channel_kind != "":
+		return false
+	if target == null or not is_instance_valid(target) or not target.downed or not target.alive:
+		return false
+	if target.side != Data.Side.HUMAN or target.carried_by != null:
+		return false
+	if global_position.distance_to(target.global_position) > Data.TUNE["revive_range"]:
+		return false
+	_start_channel("revive", Data.TUNE["revive_time"], target)
+	if is_player:
+		Game.say("Поднимаешь. Не отпускай")
+	return true
+
+## Насколько вампир выдаёт себя голодом. Ноль — гость как гость.
+func hunger_tell() -> float:
+	if role != Data.Role.VAMPIRE and role != Data.Role.THRALL:
+		return 0.0
+	var t: float = Data.TUNE["hunger_tell"]
+	return clampf((hunger - t) / maxf(1.0, Data.TUNE["hunger_max"] - t), 0.0, 1.0)
+
+## Взять схваченного на руки. Берут только того, кого уже держат зубами или
+## кто лежит: подхватить бегущего нельзя.
+func try_carry(target: Actor) -> bool:
+	if side != Data.Side.UNDEAD or carrying != null or carried_by != null:
+		return false
+	if target == null or not is_instance_valid(target) or not target.alive:
+		return false
+	if target.carried_by != null or target.side != Data.Side.HUMAN:
+		return false
+	var held: bool = target.drained_by == self or target.downed or target.stun_time > 0.0
+	if not held:
+		if is_player:
+			Game.say("Сначала схвати или свали с ног", true)
+		return false
+	if global_position.distance_to(target.global_position) > Data.TUNE["drain_range"] + 0.6:
+		return false
+
+	cancel_channel()
+	carrying = target
+	target.carried_by = self
+	target.struggle = 0.0
+	target.cancel_channel()
+	target.break_tether()
+	if is_player:
+		Game.say("Ты взял его. Уноси, пока не вырвался")
+	return true
+
+func drop_carry(stunned: bool = false) -> void:
+	if carrying == null:
+		return
+	var v: Actor = carrying
+	carrying = null
+	if is_instance_valid(v):
+		v.carried_by = null
+		v.struggle = 0.0
+		if stunned:
+			# вырвался — оба на мгновение застывают: он от рывка, ты от того,
+			# что держал пустоту
+			v.stun_time = maxf(v.stun_time, Data.TUNE["carry_drop_stun"] * 0.5)
+			stun_time = maxf(stun_time, Data.TUNE["carry_drop_stun"])
+			Sfx.play("scream", v.global_position, -3.0, 1.15)
+			Game.raise_alarm(v.global_position, 12.0, "attack")
+			if is_player:
+				Game.say("Вырвался!", true)
+
+func _tick_carry(delta: float) -> void:
+	# --- меня несут: вырываюсь
+	if carried_by != null:
+		if not is_instance_valid(carried_by) or not carried_by.alive:
+			carried_by = null
+			return
+		move_input = Vector3.ZERO
+		# Обмякшая жертва почти не сопротивляется — поэтому выгодно сперва
+		# отпить, а нести потом. Это и есть связь кормления с картой.
+		var fight: float = 1.0 - clampf(bite_progress, 0.0, 0.85)
+		struggle += Data.TUNE["carry_struggle_rate"] * fight * delta
+		# на плече жертву видно всем: несущий не спрячется
+		if struggle >= Data.TUNE["carry_struggle"]:
+			carried_by.drop_carry(true)
+		return
+
+	# --- я несу
+	if carrying == null:
+		return
+	var v: Actor = carrying
+	if not is_instance_valid(v) or not v.alive:
+		carrying = null
+		return
+	if v.carried_by != self:
+		carrying = null
+		return
+	# жертва висит на плече: над правым плечом, головой назад
+	var shoulder := global_position + Vector3(0, 1.25, 0) \
+		- global_transform.basis.z * 0.15 + global_transform.basis.x * 0.28
+	v.global_position = v.global_position.lerp(shoulder, clampf(delta * 14.0, 0.0, 1.0))
+	v.velocity = Vector3.ZERO
+	v.look_dir = -global_transform.basis.z
+	# нести и драться одновременно нельзя
+	cancel_channel()
+
+	# Донёс до тихого места — жертва «пропала». Свидетелей тут нет, и всё,
+	# что дальше, зала уже не касается: это и есть выигрыш от переноски.
+	var w = get_tree().get_first_node_in_group("world")
+	if w != null and "private_spots" in w:
+		for spot: Vector3 in w.private_spots:
+			if global_position.distance_to(spot) < 3.5:
+				if is_player:
+					Game.say("Здесь вас никто не увидит")
+				break
 
 ## Начать жест. Сам приём произойдёт в кульминации — телом, а не мыслью.
 func _begin_gesture(kind: String, length: float, at: float, action: Callable) -> bool:
@@ -1123,6 +1266,7 @@ func _grabbable() -> Actor:
 	return best
 
 func _land_attack() -> void:
+	Sfx.play("swish", global_position + Vector3(0, 1.2, 0), -8.0, randf_range(0.9, 1.15))
 	var w: Dictionary = Data.weapon_of(char_id)
 	if w.is_empty():
 		return
@@ -1496,6 +1640,7 @@ func try_noise_lure(point: Vector3) -> bool:
 	look_dir = (aim - global_position).normalized()
 	return _begin_gesture("throw", 0.7, 0.62, func():
 		Fx.blood_drip(get_parent(), aim, 0.2)
+		Sfx.play("glass", aim, 2.0)
 		Game.raise_alarm(aim, Data.TUNE["noise_radius"], "mob")
 		if is_player:
 			Game.say("Звон стекла — все обернулись туда"))
@@ -1624,6 +1769,14 @@ func _complete_channel() -> void:
 		"dance":
 			if target is Actor:
 				_finish_dance(target)
+		"revive":
+			if target is Actor:
+				var r: Actor = target
+				if is_instance_valid(r) and r.downed:
+					r.downed = false
+					r.hp = r.hp_max * Data.TUNE["revive_hp"]
+					r.dmg.bleed = maxf(r.dmg.bleed, 10.0)
+					Game.say("%s на ногах" % r.display_name)
 		"brazier":
 			if target != null and target.has_method("light_up"):
 				target.call("light_up")
@@ -1704,6 +1857,10 @@ func take_damage(amount: float, from: Actor = null, at: Vector3 = Vector3.INF,
 		point = global_position + Vector3(0, 1.2, 0)
 	var zone: int = Damage.zone_at(self, point, rig)
 	var real: float = dmg.apply(zone, amount)
+	Sfx.play("hit", point, linear_to_db(clampf(0.4 + real / 90.0, 0.1, 1.2)),
+		randf_range(0.85, 1.15))
+	if real > 25.0 and side == Data.Side.HUMAN:
+		Sfx.play("scream", global_position + Vector3(0, 1.4, 0), -6.0, randf_range(0.9, 1.2))
 	# серп рвёт: урона меньше, крови больше, и по этой крови жертву найдут
 	if kind != "":
 		var w: Dictionary = Data.WEAPONS.get(kind, {})
@@ -1836,6 +1993,10 @@ func try_mori(target: Actor) -> bool:
 	target.stun_time = Data.TUNE["mori_time"]
 
 	Game.raise_alarm(global_position, Data.TUNE["mori_alarm"], "mori")
+	# Казнь показывают со стороны — иначе от первого лица видно только
+	# собственную руку, а весь смысл приёма в том, что его ВИДНО.
+	if (is_player or target.is_player) and Game.cutscene != null:
+		Game.cutscene.call("play_mori", self, target)
 	if is_player:
 		Game.say("КАЗНЬ. Тебя видит весь зал", true)
 	else:
@@ -1945,6 +2106,7 @@ func die(killer: Actor = null) -> void:
 	summoned_by = null
 	velocity = Vector3.ZERO
 	Game.raise_alarm(global_position, Data.TUNE["corpse_alarm_radius"], "death")
+	Sfx.play("scream", global_position + Vector3(0, 1.4, 0), -1.0, randf_range(0.85, 1.05))
 
 	# лич кормит психоз каждой жертвой — включая гостей, поэтому ему выгодно
 	# резать бал, а не гоняться за одним человеком

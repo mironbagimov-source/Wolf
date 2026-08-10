@@ -20,6 +20,7 @@ Data="*res://scripts/data.gd"
 Game="*res://scripts/game.gd"
 Prof="*res://scripts/prof.gd"
 Quality="*res://scripts/quality.gd"
+Sfx="*res://scripts/sfx.gd"
 
 [display]
 
