@@ -114,6 +114,15 @@ var offhand: bool = false
 var gesture: String = ""
 var gesture_t: float = 0.0
 
+## ОБРЯД: имя из `Data.RITUALS`, ход 0..1 и роль. Пусто — обряда нет.
+var ritual: String = ""
+var ritual_t: float = 0.0
+var ritual_role: String = ""
+## Манера жертвы: "brace", "thrash", "reach", "faint", "claw". Своя у каждого.
+var victim_style: String = "claw"
+var victim_fight: float = 0.7
+var victim_hold: float = 0.5
+
 ## Переноска: несу (1) или несут меня (2).
 var carry: int = 0
 ## Насколько жертва ещё бьётся, 0..1.
@@ -248,6 +257,18 @@ func update(dt: float, speed: float, _sprinting: bool) -> void:
 		_hands(0.0, 0.0)
 		_face(dt)
 		return
+	# ОБРЯД ПЕРЕБИВАЕТ ВСЁ, и проверяется он первым.
+	#
+	# Это не педантизм: жертву казни сначала сбивают с ног, поэтому у неё
+	# стоит `downed`, а поза ползущего разворачивает корпус горизонтально.
+	# Стоя ниже по списку, обряд до жертвы просто не доходил — и человек,
+	# которого держат за горло, летел в воздухе плашмя, как на ковре.
+	if ritual != "":
+		_pose_ritual(ritual, ritual_t, ritual_role)
+		_hands(0.0, 0.0)
+		_face(dt)
+		return
+
 	# Казнь проверяется РАНЬШЕ «сбит с ног»: казнят как раз лежачего, и поза
 	# ползущего перебивала бы всю сцену — человек висел бы в руках лича,
 	# продолжая ползти по воздуху.
@@ -883,6 +904,255 @@ func _face(dt: float) -> void:
 		return
 	face.visible = true
 	face.drive(dt, self)
+
+# =================================================================== ОБРЯД
+## Хореография обряда, покостно. У каждого убийцы своя, и она читается со
+## стороны: по тому, КАК тебя взяли, видно, кто тебя взял.
+func _pose_ritual(kind: String, t: float, role: String) -> void:
+	if role == "victim":
+		_pose_ritual_victim(kind, t)
+		return
+	match kind:
+		"moira_feed":  _ritual_moira(t)
+		"lucius_feed": _ritual_lucius(t)
+		"karl_mori":   _ritual_karl(t)
+		"lara_mori":   _ritual_lara(t)
+		_:             _ritual_thrall(t)
+
+## Доля внутри отрезка [a, b] со сглаживанием на концах.
+func _seg(t: float, a: float, b: float) -> float:
+	var f: float = clampf((t - a) / maxf(0.0001, b - a), 0.0, 1.0)
+	return f * f * (3.0 - 2.0 * f)
+
+## ВАЖНО ПРО ОСИ РУК, и это стоило двух заходов.
+##
+## В покое руки разведены в стороны (T-поза). Опускает их вдоль тела поворот
+## вокруг AZ на ∓1.32 — и только ПОСЛЕ этого поворот вокруг AX машет рукой
+## вперёд. Пока рука торчит вбок, AX её не выносит вперёд, а прокручивает
+## вокруг собственной оси: с полуопущенной руки хват не достаёт никуда.
+##
+## Значит, для любого хвата AZ держим у самого ∓1.32 (небольшая прибавка —
+## это только развод плеч пошире), а тянемся ТОЛЬКО через AX. Первая версия
+## оставляла руку разведённой на 0.55 и удивлялась, почему палач держит
+## жертву в полуметре от собственной ладони.
+const ARM_DOWN := 1.32
+
+## МОЙРА: рывок, разворот, залом руки, укус сбоку. Ни одного лишнего жеста.
+func _ritual_moira(t: float) -> void:
+	var grab: float = _seg(t, 0.0, 0.14)
+	var turn: float = _seg(t, 0.14, 0.28)
+	var bite: float = _seg(t, 0.28, 0.40)
+	var gulp: float = _seg(t, 0.40, 0.86)
+	var done: float = _seg(t, 0.86, 1.0)
+	var pull: float = maxf(0.0, sin(t * 34.0)) * gulp * (1.0 - done)
+
+	# руки вдоль тела и ВПЕРЁД, на жертву; локти согнуты — это хват, а не жест
+	_spin("arm_l", AZ, -ARM_DOWN + 0.22 * grab)
+	_spin("arm_r", AZ, ARM_DOWN - 0.22 * grab)
+	_spin("arm_l", AX, -1.25 * grab + 0.35 * done)
+	_spin("arm_r", AX, -1.05 * grab + 0.35 * done)
+	_spin("fore_l", AX, -1.35 * grab)
+	_spin("fore_r", AX, -1.05 * grab)
+	_spin("shoulder_l", AX, -0.40 * grab)
+	_spin("shoulder_r", AX, -0.30 * grab)
+	# разворот жертвы: корпус доворачивает вместе с руками
+	_spin("spine1", AY, -0.30 * turn)
+	_spin("hips", AY, -0.14 * turn)
+	# укус сбоку: голова уходит вперёд и набок
+	_spin("neck", AX, 0.62 * bite + pull * 0.12)
+	_spin("neck", AZ, 0.42 * bite)
+	_spin("head", AZ, 0.55 * bite)
+	_spin("spine", AX, 0.26 * bite - 0.30 * done)
+
+## ЛЮЦИУС: фигура из вальса. Ведёт, откидывает на своей руке и пьёт с
+## запрокинутого горла. Самая красивая сцена в игре и самая мерзкая.
+func _ritual_lucius(t: float) -> void:
+	var take: float = _seg(t, 0.0, 0.16)
+	var lead: float = _seg(t, 0.16, 0.32)
+	var dip: float = _seg(t, 0.32, 0.46)
+	var gulp: float = _seg(t, 0.46, 0.82)
+	var lift: float = _seg(t, 0.82, 1.0)
+	var pull: float = maxf(0.0, sin(t * 30.0)) * gulp * (1.0 - lift)
+
+	# правая берёт её руку: вперёд и вбок, ладонь раскрыта
+	_spin("arm_r", AZ, ARM_DOWN - 0.20 * take)
+	_spin("arm_r", AX, -1.05 * take)
+	_spin("fore_r", AX, -0.85 * take)
+	# левая ложится на спину и держит её в отклоне
+	_spin("arm_l", AZ, -ARM_DOWN + 0.16 * lead)
+	_spin("arm_l", AX, -1.25 * lead - 0.25 * dip + 0.55 * lift)
+	_spin("fore_l", AX, -1.05 * lead)
+	_spin("shoulder_l", AX, -0.35 * lead)
+	# ведёт полукруг и откидывает
+	_spin("hips", AY, 0.28 * lead - 0.18 * dip)
+	_spin("spine1", AY, 0.20 * lead)
+	_spin("spine", AX, 0.45 * dip - 0.22 * lift)
+	_spin("spine1", AX, 0.22 * dip)
+	_spin("upleg_l", AX, -0.35 * dip)
+	_spin("leg_l", AX, -0.30 * dip)
+	# пьёт с запрокинутого горла
+	_spin("neck", AX, 0.78 * gulp + pull * 0.10)
+	_spin("head", AX, 0.28 * gulp)
+
+func _ritual_thrall(t: float) -> void:
+	var grab: float = _seg(t, 0.0, 0.18)
+	var gulp: float = _seg(t, 0.18, 0.84)
+	var done: float = _seg(t, 0.84, 1.0)
+	var pull: float = maxf(0.0, sin(t * 38.0)) * gulp * (1.0 - done)
+	_spin("arm_l", AZ, -ARM_DOWN + 0.25 * grab)
+	_spin("arm_r", AZ, ARM_DOWN - 0.25 * grab)
+	_spin("arm_l", AX, -1.15 * grab + 0.4 * done)
+	_spin("arm_r", AX, -1.15 * grab + 0.4 * done)
+	_spin("fore_l", AX, -1.25 * grab)
+	_spin("fore_r", AX, -1.25 * grab)
+	_spin("spine", AX, 0.35 * gulp)
+	_spin("neck", AX, 0.70 * gulp + pull * 0.14)
+	_spin("neck", AZ, 0.30 * gulp)
+
+## КАРЛ: за горло одной рукой, поднимает, показывает залу, бьёт топором.
+func _ritual_karl(t: float) -> void:
+	var seize: float = _seg(t, 0.0, 0.16)
+	var hold: float = _seg(t, 0.16, 0.34)
+	var wind: float = _seg(t, 0.40, 0.66)
+	var chop: float = _seg(t, 0.66, 0.80)
+	var toss: float = _seg(t, 0.80, 1.0)
+
+	# левая — на горле: вытянута ВПЕРЁД на высоте плеча, локоть почти прямой.
+	# Выше плеча её не поднять, поэтому и жертву поднимают лишь на ладонь.
+	_spin("shoulder_l", AX, -0.55 * seize)
+	# Углы взяты ЗАМЕРОМ (`--armsweep`), а не на глаз. Развёртка по кисти
+	# показала: дальше 0.43 м вперёд прямая рука не достаёт вовсе, а
+	# отрицательный AX — это и есть «вперёд». При AZ −1.50 и AX −1.60 кисть
+	# встаёт в (−0.23, 1.49, −0.43) от ног палача.
+	#
+	# Отсюда и хореография: не руку тянут к жертве, а ЖЕРТВУ ставят туда, где
+	# оказывается рука. Иначе палач вечно держит воздух в полуметре от горла.
+	_spin("arm_l", AZ, -ARM_DOWN - 0.18 * seize)
+	_spin("arm_l", AX, -1.60 * seize - 0.05 * hold + 1.15 * toss)
+	_spin("fore_l", AX, -0.15)
+	# держит вес: корпус откинут назад, ноги в упоре
+	_spin("spine", AX, -0.30 * hold + 0.50 * chop)
+	_spin("spine1", AY, -0.25 * hold + 0.45 * chop)
+	_spin("upleg_l", AX, 0.30 * hold)
+	_spin("upleg_r", AX, -0.32 * hold)
+	_spin("leg_r", AX, -0.45 * hold)
+	# правая заносит топор за плечо и рубит сверху вниз
+	_spin("arm_r", AZ, ARM_DOWN - 0.55 * wind)
+	_spin("arm_r", AX, 1.85 * wind - 3.10 * chop)
+	_spin("fore_r", AX, -0.25 - 1.55 * wind + 1.40 * chop)
+	_spin("shoulder_r", AX, 0.45 * wind - 0.35 * chop)
+	_spin("neck", AX, -0.25 * hold + 0.35 * chop)
+
+## ЛАРА: гарпун в упор, тянет на лине, ставит ногу и выдёргивает.
+func _ritual_lara(t: float) -> void:
+	var aim: float = _seg(t, 0.0, 0.16)
+	var shot: float = _seg(t, 0.16, 0.24)
+	var haul: float = _seg(t, 0.24, 0.52)
+	var step: float = _seg(t, 0.52, 0.70)
+	var rip: float = _seg(t, 0.70, 0.86)
+	var done: float = _seg(t, 0.86, 1.0)
+
+	# ружьё вперёд: обе руки вытянуты, локти чуть согнуты
+	_spin("arm_l", AZ, -ARM_DOWN + 0.15 * aim)
+	_spin("arm_r", AZ, ARM_DOWN - 0.15 * aim)
+	_spin("arm_l", AX, -1.35 * aim + 0.95 * haul - 1.05 * rip)
+	_spin("arm_r", AX, -1.45 * aim + 0.35 * shot + 0.85 * haul - 1.0 * rip)
+	_spin("fore_l", AX, -0.65 * aim - 0.85 * haul)
+	_spin("fore_r", AX, -0.55 * aim - 0.85 * haul)
+	# отдача и тяга на себя
+	_spin("spine", AX, -0.22 * shot - 0.30 * haul + 0.55 * step - 0.25 * rip)
+	_spin("upleg_r", AX, -0.35 * haul)
+	# ставит ногу на жертву и рвёт гарпун вверх
+	_spin("upleg_l", AX, -1.05 * step + 0.55 * done)
+	_spin("leg_l", AX, -0.75 * step)
+	_spin("neck", AX, 0.35 * step)
+
+## ЖЕРТВА. Тоже своя у каждого: `victim_style` приходит из `Data.VICTIM_STYLE`.
+##
+## Общая форма одна — сопротивляется, слабеет, обвисает, — но насколько
+## сильно и как долго, зависит от человека. Хельга упирается до последнего,
+## Джей бьётся всем телом, Кьяра тянется к поясу за чесноком, Медея обмякает
+## почти сразу.
+func _pose_ritual_victim(kind: String, t: float) -> void:
+	var hold: float = clampf(victim_hold, 0.1, 0.95)
+	var fight: float = clampf(1.0 - t / hold, 0.0, 1.0) * victim_fight
+	var gone: float = _seg(t, hold, 1.0)
+	var shake: float = sin(breathe * 23.0) * fight
+
+	# --- общий рисунок: голова запрокинута, тело слабеет
+	_spin("neck", AX, -0.55 * fight + 0.75 * gone)
+	_spin("spine", AX, -0.22 * fight + 0.45 * gone)
+	_spin("spine1", AZ, shake * 0.16 + gone * 0.20)
+
+	match victim_style:
+		"brace":
+			# упирается: руки ВПЕРЁД, прямые, отталкивается
+			_spin("arm_l", AZ, -ARM_DOWN + 0.12 * fight)
+			_spin("arm_r", AZ, ARM_DOWN - 0.12 * fight)
+			_spin("arm_l", AX, -1.45 * fight)
+			_spin("arm_r", AX, -1.45 * fight)
+			_spin("fore_l", AX, -0.30 * fight)
+			_spin("fore_r", AX, -0.30 * fight)
+			_spin("upleg_l", AX, -0.55 * fight)
+			_spin("leg_l", AX, -0.75 * fight)
+		"thrash":
+			# бьётся всем телом, лягается
+			_spin("hips", AY, shake * 0.30)
+			_spin("arm_l", AZ, -ARM_DOWN + 0.18 * fight)
+			_spin("arm_r", AZ, ARM_DOWN - 0.18 * fight)
+			_spin("arm_l", AX, -1.05 * fight + shake * 1.05)
+			_spin("arm_r", AX, -1.05 * fight - shake * 1.05)
+			_spin("upleg_l", AX, -0.85 * fight + shake * 0.75)
+			_spin("upleg_r", AX, -0.65 * fight - shake * 0.75)
+			_spin("leg_l", AX, -1.05 * fight)
+		"reach":
+			# тянется к поясу — там чеснок, и она почти достала
+			_spin("arm_r", AZ, ARM_DOWN - 0.15 * fight)
+			_spin("arm_r", AX, 0.35 * fight)
+			_spin("fore_r", AX, -1.95 * fight)
+			_spin("arm_l", AZ, -ARM_DOWN + 0.25 * fight)
+			_spin("arm_l", AX, -1.15 * fight)
+			_spin("spine1", AY, 0.30 * fight)
+		"faint":
+			# почти не сопротивляется: колени уходят сразу
+			_spin("arm_l", AZ, -ARM_DOWN + 0.12 * fight)
+			_spin("arm_r", AZ, ARM_DOWN - 0.12 * fight)
+			_spin("arm_l", AX, -0.45 * fight)
+			_spin("arm_r", AX, -0.45 * fight)
+			_spin("upleg_l", AX, -0.55 * (fight * 0.4 + gone))
+			_spin("upleg_r", AX, -0.50 * (fight * 0.4 + gone))
+		_:
+			# царапается: руки вверх, к чужим рукам на горле
+			_spin("arm_l", AZ, -ARM_DOWN + 0.16 * fight)
+			_spin("arm_r", AZ, ARM_DOWN - 0.16 * fight)
+			_spin("arm_l", AX, -1.55 * fight + shake * 0.35)
+			_spin("arm_r", AX, -1.55 * fight - shake * 0.35)
+			_spin("fore_l", AX, -1.35 * fight)
+			_spin("fore_r", AX, -1.35 * fight)
+
+	# --- обвисает: к концу тело уже не держится ни на чём
+	_spin("arm_l", AZ, -gone * 0.18)
+	_spin("arm_r", AZ, gone * 0.18)
+	_spin("upleg_l", AX, -gone * 0.35)
+	_spin("upleg_r", AX, -gone * 0.30)
+	_spin("leg_l", AX, -gone * 0.70)     # колени подгибаются, а не задираются
+	_spin("leg_r", AX, -gone * 0.62)
+
+	# В казни жертву держат ЗА ГОРЛО: носки едва касаются пола, ноги ищут
+	# опору и не находят, руки — на чужом запястье.
+	if kind.ends_with("_mori"):
+		_spin("upleg_l", AX, -0.30 - shake * 0.55)
+		_spin("upleg_r", AX, -0.26 + shake * 0.55)
+		_spin("leg_l", AX, -0.45 - shake * 0.35)
+		_spin("leg_r", AX, -0.40 + shake * 0.35)
+		_spin("neck", AX, -0.30 * fight + 0.45 * gone)
+		# обе руки вцепились в держащую руку
+		_spin("arm_l", AZ, 0.22 * fight)
+		_spin("arm_r", AZ, -0.22 * fight)
+		_spin("arm_l", AX, -0.95 * fight)
+		_spin("arm_r", AX, -0.95 * fight)
+		_spin("fore_l", AX, -1.45 * fight)
+		_spin("fore_r", AX, -1.45 * fight)
 
 ## Позы приёмов. У каждой одна и та же трёхчастная форма: замах (рука идёт
 ## назад или вверх, корпус подаётся), кульминация (резкое движение вперёд —

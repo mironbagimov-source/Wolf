@@ -130,6 +130,9 @@ func _maybe_autotest() -> void:
 	if _shot_path != "" and "--deathcheck" in args:
 		_death_bench(args)
 		return
+	if _shot_path != "" and "--ritualcheck" in args:
+		_ritual_bench(args)
+		return
 	start_match.call_deferred()
 	if "--combattest" in args:
 		_combat_test.call_deferred()
@@ -147,6 +150,10 @@ func _maybe_autotest() -> void:
 		_gesture_test.call_deferred()
 	if "--carrytest" in args:
 		_carry_test.call_deferred()
+	if "--ritualtest" in args:
+		_ritual_test.call_deferred()
+	if "--armsweep" in args:
+		_arm_sweep.call_deferred()
 
 ## Проверка боя и повреждений в отрыве от навигации: ставим лича вплотную
 ## к гостю и смотрим, доходит ли удар и что он ломает.
@@ -814,6 +821,93 @@ func _bite_bench() -> void:
 	print("[укус] канал «%s», прогресс жертвы %.2f" % [v.channel_kind, prey.bite_progress])
 	await _bench_shot("укус")
 
+## РАЗВЁРТКА РУКИ. Куда попадает кисть при разных углах — таблицей.
+##
+## Подбирать хват на глаз по снимкам оказалось бесполезно: оси костей Mixamo
+## повёрнуты произвольно, и «вперёд» для плеча — не та ось, что кажется. Одна
+## таблица заменяет десяток прогонов рендера.
+func _arm_sweep() -> void:
+	for i in 30:
+		await get_tree().physics_frame
+	var a := _spawn("karl", Vector3(30, 0.2, 30), false)
+	var b: Node = a.get_node_or_null("Brain")
+	if b: b.set_physics_process(false)
+	a.rotation.y = 0.0
+	a.look_dir = Vector3(0, 0, -1)
+	await get_tree().physics_frame
+	if a.rig == null or not a.rig.ok:
+		print("[рука] нет скелета"); get_tree().quit(); return
+	# СОБСТВЕННУЮ анимацию актёра надо выключить: она каждый кадр сбрасывает
+	# кости и накладывает свою позу, затирая то, что мы ставим руками. Из-за
+	# этого первая развёртка выдала одно и то же число двадцать четыре раза.
+	a.set_physics_process(false)
+
+	print("[рука] плечо на y=%.2f, цель хвата — горло на (0.00, 1.50, -0.58)"
+		% a.rig.bone_point("shoulder_l").y)
+	for az in [-1.10, -1.32, -1.50]:
+		for ax in [-1.6, -1.2, -0.8, -0.4, 0.4, 0.8, 1.2, 1.6]:
+			a.rig.skeleton.reset_bone_poses()
+			a.rig._spin("arm_l", RigAnim.AZ, az)
+			a.rig._spin("arm_l", RigAnim.AX, ax)
+			a.rig._spin("fore_l", RigAnim.AX, -0.15)
+			a.rig.skeleton.force_update_all_bone_transforms()
+			var h: Vector3 = a.rig.bone_point("hand_l") - a.global_position
+			print("[рука] AZ=%+.2f AX=%+.2f  ->  кисть (%.2f, %.2f, %.2f)" % [az, ax, h.x, h.y, h.z])
+	get_tree().quit()
+
+## ОБРЯДЫ. Проверяем то, что легко «сделать» и не заметить, что оно не
+## работает: длину (обряд должен быть ДОЛГИМ), неотменяемость (толкнули —
+## идёт дальше), хореографию (жертву должно ВЕСТИ, а не держать на месте) и
+## то, что у каждого убийцы он свой.
+func _ritual_test() -> void:
+	for i in 60:
+		await get_tree().physics_frame
+	var report: Array = []
+	for pair in [["moira", "civ_medea"], ["lucius", "jay"], ["karl", "chiara"], ["lara", "helga"]]:
+		var killer: Actor = _spawn(str(pair[0]), Vector3(20, 0.2, 20), false)
+		var prey: Actor = _spawn(str(pair[1]), Vector3(20, 0.2, 18.6), false)
+		for who in [killer, prey]:
+			var b: Node = who.get_node_or_null("Brain")
+			if b: b.set_physics_process(false)
+		killer.rotation.y = 0.0
+		killer.look_dir = Vector3(0, 0, -1)
+		await get_tree().physics_frame
+
+		var started := false
+		if killer.role == Data.Role.LICH:
+			prey.go_down(killer)
+			killer.psychosis = Data.TUNE["psychosis_max"]
+			await get_tree().physics_frame
+			started = killer.try_mori(prey)
+		else:
+			started = killer.try_drain(prey)
+		var name_of: String = killer.ritual
+		# следим за тем, ведёт ли жертву по дуге и не срывается ли обряд
+		var path := 0.0
+		var last: Vector3 = prey.global_position
+		var frames := 0
+		var broke := false
+		while killer.ritual != "" and frames < 700:
+			# трясём обоих: фиксированный обряд обязан это пережить
+			killer.stun_time = 1.0
+			prey.move_input = Vector3(1, 0, 0)
+			await get_tree().physics_frame
+			frames += 1
+			path += last.distance_to(prey.global_position)
+			last = prey.global_position
+		if frames >= 700:
+			broke = true
+		report.append("%s→%s: обряд «%s» начат=%s, %.1f с, жертву провело %.2f м%s" % [
+			pair[0], pair[1], name_of, started, float(frames) / 60.0, path,
+			", СОРВАЛСЯ" if broke else ""])
+		killer.queue_free()
+		if is_instance_valid(prey):
+			prey.queue_free()
+		await get_tree().physics_frame
+	for line in report:
+		print("[обряд] ", line)
+	get_tree().quit()
+
 ## ПЕРЕНОСКА. Проверяем три вещи, каждую из которых легко «сделать» вхолостую:
 ## поднимается ли жертва на плечо (то есть едет ли за несущим), режет ли
 ## переноска скорость, и вырывается ли жертва сама, если её не выпили.
@@ -988,7 +1082,8 @@ func _new_features_test() -> void:
 	var ok := lich.try_mori(target)
 	var lifted := 0.0
 	var was_alive := true
-	for i in 200:
+	# ждать надо ДОЛЬШЕ обряда: он теперь на 4.6 секунды, а не на 2.9
+	for i in 400:
 		await get_tree().physics_frame
 		if is_instance_valid(target) and target.alive:
 			lifted = maxf(lifted, target.global_position.y - lich.global_position.y)
@@ -1006,6 +1101,76 @@ func _finger_bones(rig: RigAnim) -> int:
 		if str(k).begins_with("l_") or str(k).begins_with("r_"):
 			n += 1
 	return n
+
+## ОБРЯД покадрово. Смотрим на сцену со стороны и на светлом полу: обряд
+## длинный, и по одному кадру о нём судить нельзя вовсе.
+func _ritual_bench(args: Array) -> void:
+	var who := "moira"
+	var prey_id := "civ_medea"
+	for a in args:
+		if a.begins_with("--who="):
+			who = a.substr(6)
+		elif a.begins_with("--prey="):
+			prey_id = a.substr(7)
+	# три четверти спереди: видно обоих и видно, соприкасаются ли они
+	var stage := _bench_stage(Vector3(2.9, 1.75, 2.4), Vector3(0, 1.15, -0.7))
+	var floor_mi := MeshInstance3D.new()
+	var pm := BoxMesh.new()
+	pm.size = Vector3(14, 0.06, 14)
+	floor_mi.mesh = pm
+	var fmat := StandardMaterial3D.new()
+	fmat.albedo_color = Color(0.40, 0.42, 0.46)
+	floor_mi.material_override = fmat
+	floor_mi.position = Vector3(0, 0.03, 0)
+	stage.add_child(floor_mi)
+
+	var killer := Actor.new()
+	stage.add_child(killer)
+	killer.setup(who, false)
+	killer.forced_detail = 0
+	killer.global_position = Vector3(0, 0.05, 0)
+	var prey := Actor.new()
+	stage.add_child(prey)
+	prey.setup(prey_id, false)
+	prey.forced_detail = 0
+	prey.global_position = Vector3(0, 0.05, -1.3)
+	await get_tree().physics_frame
+	killer.rotation.y = 0.0
+	killer.look_dir = Vector3(0, 0, -1)
+	for _f in 15:
+		killer.move_input = Vector3.ZERO
+		prey.move_input = Vector3.ZERO
+		await get_tree().physics_frame
+
+	if killer.role == Data.Role.LICH:
+		prey.go_down(killer)
+		killer.psychosis = Data.TUNE["psychosis_max"]
+		await get_tree().physics_frame
+		killer.try_mori(prey)
+	else:
+		killer.try_drain(prey)
+	print("[обряд] «%s», длина %.1f с" % [killer.ritual, killer.ritual_len])
+
+	var shots := 7
+	var step: int = int(killer.ritual_len * 60.0 / float(shots))
+	for shot_i in shots:
+		for _f in step:
+			await get_tree().physics_frame
+		# ЧИСЛА, а не глазомер: где стоит жертва, где кисть палача и
+		# сходятся ли они вообще. По снимку под углом этого не понять.
+		var hand: Vector3 = killer.rig.bone_point("hand_l") if killer.rig else Vector3.ZERO
+		var neck: Vector3 = prey.rig.bone_point("neck") if prey.rig else Vector3.ZERO
+		print("[обряд]  t=%.2f  ноги жертвы y=%.2f  шея y=%.2f  кисть палача=(%.2f,%.2f,%.2f)  между ними %.2f м" % [
+			float(shot_i + 1) / float(shots),
+			prey.global_position.y, neck.y, hand.x, hand.y, hand.z,
+			hand.distance_to(neck)])
+		# в headless снимка нет — тогда прогон нужен ради чисел выше
+		if DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			var img := get_viewport().get_texture().get_image()
+			img.save_png(_shot_path.replace(".png", "_%s_%d.png" % [who, shot_i]))
+	print("[обряд] снято %d кадров" % shots)
+	get_tree().quit()
 
 ## СМЕРТЬ, покадрово и в раскладку.
 ##

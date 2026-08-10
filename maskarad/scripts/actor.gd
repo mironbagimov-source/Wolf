@@ -137,6 +137,21 @@ var fall_kind: String = "back"
 ## Куда человек бежал в момент смерти. Читается при выборе падения.
 var _death_move: Vector3 = Vector3.ZERO
 
+# ================================================================== ОБРЯД
+## Кормление и казнь — не «канал», а ОБРЯД: длинный, фиксированный и свой у
+## каждого. Начался — идёт до конца; обе стороны в нём заперты, никто никуда
+## не идёт, ничто не отменяется. Хореография жертвы лежит в `Data.RITUALS`.
+var ritual: String = ""
+var ritual_t: float = 0.0
+var ritual_len: float = 0.0
+var ritual_role: String = ""            # "killer" / "victim"
+var ritual_with: Actor = null
+## Где стоял убийца, когда всё началось. Обряд играется в этой системе и
+## больше не сдвигается: иначе жертву таскает за каждым доворотом убийцы.
+var _ritual_anchor: Transform3D = Transform3D.IDENTITY
+## Насколько шея жертвы выше её ног — меряется в начале обряда.
+var _grip_neck_height: float = 1.35
+
 ## Испуг — не только поведение бота, но и лицо. Держится несколько секунд
 ## после того, как человек увидел монстра, и за это время успевает смениться
 ## с крика на просто страх.
@@ -627,6 +642,7 @@ func _physics_process(delta: float) -> void:
 	_tick_finish(delta)
 	_tick_mori(delta)
 	_tick_gesture(delta)
+	_tick_ritual(delta)
 	_tick_carry(delta)
 	if scared_time > 0.0:
 		scared_time -= delta
@@ -657,6 +673,12 @@ func _tick_channel(delta: float) -> void:
 			var t: Actor = channel_target
 			var reach: float = Data.TUNE["drain_range"] if channel_kind == "drain" else Data.TUNE["invite_range"]
 			target_ok = t.alive and global_position.distance_to(t.global_position) <= reach + 0.8
+	# Обряд не отменяется ничем: начался — идёт до конца. Иначе «фиксированный
+	# и длинный» превращается в «длинный, пока не толкнули».
+	if ritual != "":
+		channel_time += delta
+		channel_changed.emit(channel_kind, clampf(channel_time / max(0.01, channel_total), 0.0, 1.0))
+		return
 	if not target_ok or stun_time > 0.0:
 		cancel_channel()
 		return
@@ -664,24 +686,8 @@ func _tick_channel(delta: float) -> void:
 	channel_time += delta
 	channel_changed.emit(channel_kind, clampf(channel_time / max(0.01, channel_total), 0.0, 1.0))
 
-	# Кормление — это захват, а не «стоят рядом». Вампир держит жертву:
-	# она подтягивается вплотную, разворачивается к нему и с этого
-	# мгновения не принадлежит себе. Так это выглядит у дочерей Димитреску:
-	# добычу не кусают на бегу, её сначала берут.
-	if channel_kind == "drain" and channel_target is Actor:
-		var v: Actor = channel_target
-		if is_instance_valid(v) and v.alive:
-			var grip := global_position - v.global_position
-			grip.y = 0.0
-			if grip.length() > 0.05:
-				var want: Vector3 = global_position - grip.normalized() * 0.85
-				v.global_position = v.global_position.lerp(want, clampf(delta * 9.0, 0.0, 1.0))
-				v.look_dir = grip.normalized()
-				v.move_input = Vector3.ZERO
-				v.velocity.x = 0.0
-				v.velocity.z = 0.0
-			look_dir = -grip.normalized()
-			v.bite_progress = clampf(channel_time / maxf(0.01, channel_total), 0.0, 1.0)
+	# Позы и расстановку в кормлении ведёт ОБРЯД (`_tick_ritual`), а не
+	# канал: там хореография по ключам, и своя у каждого вампира.
 
 	if channel_time >= channel_total:
 		_complete_channel()
@@ -695,6 +701,11 @@ func _tick_attack(delta: float) -> void:
 		_land_attack()
 
 func _tick_move(delta: float) -> void:
+	# В ОБРЯДЕ ЖЕРТВА НЕ ХОДИТ САМА. Её местом целиком распоряжается убийца,
+	# и собственная физика тут только мешает: капсулы перекрываются, движок
+	# растаскивает их — и жертву выталкивало вверх, будто она взлетает.
+	if ritual != "" and ritual_role == "victim":
+		return
 	if not is_on_floor():
 		velocity.y -= Data.TUNE["gravity"] * delta
 	else:
@@ -822,7 +833,7 @@ func _finisher_on_me() -> Actor:
 func _separation() -> Vector3:
 	var push := Vector3.ZERO
 	for a: Actor in Game.living():
-		if a == self:
+		if a == self or a == ritual_with:
 			continue
 		var to := global_position - a.global_position
 		to.y = 0.0
@@ -943,6 +954,14 @@ func _drive_rig(delta: float, speed2d: float) -> void:
 	# подзывает рукой всё время, пока зовёт, а зажигающий прожектор работает
 	# у щитка. Раньше и то и другое выглядело так, будто человек стоит столбом,
 	# а лампа зажигается сама.
+	rig.ritual = ritual
+	rig.ritual_t = clampf(ritual_t / maxf(0.01, ritual_len), 0.0, 1.0)
+	rig.ritual_role = ritual_role
+	if ritual != "" and ritual_role == "victim":
+		var st: Dictionary = Data.victim_style(char_id)
+		rig.victim_style = str(st["style"])
+		rig.victim_fight = float(st["fight"])
+		rig.victim_hold = float(st["hold"])
 	rig.carry = 1 if carrying != null else (2 if carried_by != null else 0)
 	rig.carry_fight = 1.0 - clampf(struggle / maxf(1.0, Data.TUNE["carry_struggle"]), 0.0, 1.0)
 	rig.gesture = gesture
@@ -1227,6 +1246,147 @@ func _tick_carry(delta: float) -> void:
 				if is_player:
 					Game.say("Здесь вас никто не увидит")
 				break
+
+## Начать обряд. Возвращает false, если начать нельзя.
+func begin_ritual(kind: String, victim: Actor) -> bool:
+	if ritual != "" or victim == null or not is_instance_valid(victim) or not victim.alive:
+		return false
+	if victim.ritual != "":
+		return false
+	var spec: Dictionary = Data.RITUALS.get(kind, {})
+	if spec.is_empty():
+		return false
+
+	ritual = kind
+	ritual_t = 0.0
+	ritual_len = float(spec["time"])
+	ritual_role = "killer"
+	ritual_with = victim
+	# якорь — поза убийцы в момент начала, довёрнутая на жертву
+	var face := victim.global_position - global_position
+	face.y = 0.0
+	if face.length() > 0.05:
+		look_dir = face.normalized()
+		rotation.y = atan2(-face.normalized().x, -face.normalized().z)
+	_ritual_anchor = global_transform
+
+	victim.ritual = kind
+	victim.ritual_t = 0.0
+	victim.ritual_len = ritual_len
+	victim.ritual_role = "victim"
+	victim.ritual_with = self
+	victim.cancel_channel()
+	victim.break_tether()
+	victim.drop_carry()
+	victim.stun_time = ritual_len + 0.3
+	# на время обряда жертва перестаёт быть препятствием: иначе её выдавливает
+	# из убийцы, и хореография ломается
+	victim.collision_layer = 0
+	# На сколько шея жертвы выше её ног. Берётся от РОСТА, а не от текущей
+	# позы: казнят сбитого с ног, а он в этот момент лежит — по его костям
+	# «шея» оказывается на метре от пола, и жертву подвешивало на полметра
+	# выше, чем нужно.
+	_grip_neck_height = 1.35
+	if victim.rig != null and victim.rig.ok:
+		_grip_neck_height = maxf(0.6, victim.rig.rest_height * 0.82)
+	return true
+
+## Ход обряда: обе стороны заперты, жертва едет по ключам.
+func _tick_ritual(delta: float) -> void:
+	if ritual == "":
+		return
+	# жертва свою половину не ведёт — ею полностью управляет убийца
+	if ritual_role == "victim":
+		move_input = Vector3.ZERO
+		velocity = Vector3.ZERO
+		if ritual_with == null or not is_instance_valid(ritual_with) or ritual_with.ritual == "":
+			_end_ritual()
+		return
+
+	if ritual_with == null or not is_instance_valid(ritual_with) or not ritual_with.alive:
+		_end_ritual()
+		return
+
+	# убийца стоит намертво: обряд фиксированный
+	move_input = Vector3.ZERO
+	velocity.x = 0.0
+	velocity.z = 0.0
+	global_transform = Transform3D(_ritual_anchor.basis, global_transform.origin)
+
+	ritual_t += delta
+	var f: float = clampf(ritual_t / maxf(0.01, ritual_len), 0.0, 1.0)
+	ritual_with.ritual_t = ritual_t
+
+	# ---- хореография: где сейчас жертва
+	var spec: Dictionary = Data.RITUALS[ritual]
+	var keys: Array = spec["keys"]
+	var a: Dictionary = keys[0]
+	var b: Dictionary = keys[keys.size() - 1]
+	for i in range(keys.size() - 1):
+		if f >= float(keys[i]["at"]) and f <= float(keys[i + 1]["at"]):
+			a = keys[i]
+			b = keys[i + 1]
+			break
+	var span: float = maxf(0.0001, float(b["at"]) - float(a["at"]))
+	var k: float = clampf((f - float(a["at"])) / span, 0.0, 1.0)
+	k = k * k * (3.0 - 2.0 * k)                      # без рывков на стыках
+	var local: Vector3 = (a["pos"] as Vector3).lerp(b["pos"] as Vector3, k)
+	var yaw: float = lerp_angle(float(a["yaw"]), float(b["yaw"]), k)
+
+	var v: Actor = ritual_with
+	var want: Vector3 = _ritual_anchor * local
+
+	# ХВАТ ЗА ГОРЛО САМ НАХОДИТ ГОРЛО.
+	#
+	# Подбирать углы руки так, чтобы кисть попадала в шею, — гиблое дело:
+	# кости Mixamo повёрнуты произвольно, прямая рука достаёт всего на 0.43 м
+	# (замерено `--armsweep`), а любая правка плеча или наклона корпуса
+	# уводит кисть на треть метра. Поэтому наоборот: смотрим, где кисть
+	# ОКАЗАЛАСЬ, и ставим жертву так, чтобы её шея была там же.
+	if str(spec.get("grip", "")) == "throat" and f > 0.16 and f < 0.80 \
+			and rig != null and rig.ok:
+		var hand: Vector3 = rig.bone_point("hand_l")
+		if hand != Vector3.ZERO:
+			want = hand - Vector3(0, _grip_neck_height, 0)
+	v.global_position = v.global_position.lerp(want, clampf(delta * 16.0, 0.0, 1.0))
+	v.rotation.y = rotation.y + yaw
+	v.velocity = Vector3.ZERO
+	v.move_input = Vector3.ZERO
+	# насколько далеко зашло — по этому жертва обмякает, а лицо гаснет
+	v.bite_progress = f
+
+	if f >= 1.0:
+		_finish_ritual()
+
+## Обряд доигран — только теперь наступают последствия.
+func _finish_ritual() -> void:
+	var v: Actor = ritual_with
+	var spec: Dictionary = Data.RITUALS.get(ritual, {})
+	var kill: String = str(spec.get("kill", "drain"))
+	_end_ritual()
+	if v == null or not is_instance_valid(v) or not v.alive:
+		return
+	if kill == "mori":
+		v.death_kind = "mori"
+		v.set_meta("no_raise", true)
+		Game.raise_alarm(v.global_position, Data.TUNE["mori_alarm"], "death")
+		v.die(self)
+	else:
+		_finish_drain(v)
+
+func _end_ritual() -> void:
+	var v: Actor = ritual_with
+	ritual = ""
+	ritual_t = 0.0
+	ritual_role = ""
+	ritual_with = null
+	if v != null and is_instance_valid(v):
+		v.ritual = ""
+		v.ritual_t = 0.0
+		v.ritual_role = ""
+		v.ritual_with = null
+		if v.alive:
+			v.collision_layer = LAYER_ACTOR
 
 ## Начать жест. Сам приём произойдёт в кульминации — телом, а не мыслью.
 func _begin_gesture(kind: String, length: float, at: float, action: Callable) -> bool:
@@ -1707,7 +1867,13 @@ func try_drain(target: Actor) -> bool:
 		return false
 	if global_position.distance_to(target.global_position) > Data.TUNE["drain_range"]:
 		return false
-	_start_channel("drain", Data.TUNE["drain_time"], target)
+	# Кормление — ОБРЯД: длинный, фиксированный и свой у каждого вампира.
+	# Канал остаётся заведённым, потому что на «идёт кормление» завязано
+	# многое — свидетели, палево, мозги ботов, — но ведёт сцену обряд.
+	var kind := Data.feed_ritual(char_id)
+	if not begin_ritual(kind, target):
+		return false
+	_start_channel("drain", float(Data.RITUALS[kind]["time"]), target)
 	target.drained_by = self               # жертве тоже надо во что-то играть
 	set_appearance(appearance_id)          # пока пьёт — истинная форма
 	return true
@@ -1997,19 +2163,19 @@ func try_mori(target: Actor) -> bool:
 	if global_position.distance_to(target.global_position) > Data.TUNE["mori_range"]:
 		return false
 
-	psychosis = 0.0
-	mori_target = target
-	mori_left = Data.TUNE["mori_time"]
-	mori_progress = 0.001
-	mori_role = "killer"
+	var kind := Data.mori_ritual(char_id)
 	finishing = null
 	cancel_channel()
-	look_dir = (target.global_position - global_position).normalized()
-
+	if not begin_ritual(kind, target):
+		return false
+	psychosis = 0.0
+	mori_target = target
+	mori_left = ritual_len
+	mori_progress = 0.001
+	mori_role = "killer"
 	target.mori_role = "victim"
 	target.mori_progress = 0.001
-	target.mori_left = Data.TUNE["mori_time"]
-	target.stun_time = Data.TUNE["mori_time"]
+	target.mori_left = ritual_len
 
 	Game.raise_alarm(global_position, Data.TUNE["mori_alarm"], "mori")
 	if is_player:
@@ -2018,48 +2184,19 @@ func try_mori(target: Actor) -> bool:
 		Game.say("%s поднимает %s над полом" % [display_name, target.display_name], true)
 	return true
 
+## Казнь идёт обрядом (`_tick_ritual`) — здесь остались только счётчики, по
+## которым живут поза, лицо и мозги ботов.
 func _tick_mori(delta: float) -> void:
 	if mori_progress <= 0.0:
 		return
-	move_input = Vector3.ZERO
-	velocity.x = 0.0
-	velocity.z = 0.0
-	mori_left -= delta
-	var total: float = maxf(0.01, Data.TUNE["mori_time"])
-	mori_progress = clampf(1.0 - mori_left / total, 0.001, 1.0)
-
-	if mori_role == "killer" and mori_target != null and is_instance_valid(mori_target):
-		var v: Actor = mori_target
-		# Держит на вытянутой руке: жертву подтягивает вплотную и ПОДНИМАЕТ.
-		# Оторванные от пола ноги — это и есть вся сцена.
-		var face := (v.global_position - global_position)
-		face.y = 0.0
-		if face.length() > 0.05:
-			var want: Vector3 = global_position + face.normalized() * 1.05
-			want.y = global_position.y + 0.55 * sin(clampf(mori_progress / 0.3, 0.0, 1.0) * PI * 0.5) \
-				* (1.0 - clampf((mori_progress - 0.72) / 0.28, 0.0, 1.0))
-			v.global_position = v.global_position.lerp(want, clampf(delta * 12.0, 0.0, 1.0))
-			v.look_dir = -face.normalized()
-			look_dir = face.normalized()
-		v.velocity = Vector3.ZERO
-
-	if mori_left <= 0.0:
-		var victim: Actor = mori_target
-		var was_killer: bool = mori_role == "killer"
+	if ritual == "":
+		# обряд кончился (или сорвался) — гасим и счётчики
 		mori_progress = 0.0
 		mori_role = ""
 		mori_target = null
-		if not was_killer:
-			return                          # жертва свою половину сцены отыграла
-		if victim != null and is_instance_valid(victim) and victim.alive:
-			victim.mori_progress = 0.0
-			victim.mori_role = ""
-			victim.death_kind = "mori"
-			# Из казнённого не поднимают гуля: тело после этого ни на что не
-			# годится. Это плата за приём — минус одна пара рук на своей стороне.
-			victim.set_meta("no_raise", true)
-			Game.raise_alarm(victim.global_position, Data.TUNE["mori_alarm"], "death")
-			victim.die(self)
+		return
+	mori_left = maxf(0.0, mori_left - delta)
+	mori_progress = clampf(1.0 - mori_left / maxf(0.01, ritual_len), 0.001, 1.0)
 
 func _wound_word(real: float) -> String:
 	if real > 45.0:
