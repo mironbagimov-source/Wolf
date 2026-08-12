@@ -164,6 +164,8 @@ func _maybe_autotest() -> void:
 		_talk_test.call_deferred()
 	if "--navcheck" in args:
 		_nav_check.call_deferred()
+	if "--roomtest" in args:
+		_room_test.call_deferred()
 	if "--armsweep" in args:
 		_arm_sweep.call_deferred()
 
@@ -966,6 +968,68 @@ func _carry_test() -> void:
 			break
 	print("[переноска] взял=%s, поднял на %.2f м, прошёл %.1f м, ноша отстала на %.2f м, вырвалась через %d кадров" % [
 		took, lifted, went, gap, broke])
+	get_tree().quit()
+
+## РАБОЧИЕ ПРЕДМЕТЫ. Выключатель, рубильник и грузовой лифт — единственное в
+## клубе, что игрок трогает руками помимо людей и дверей. Проверяем, что они
+## вообще работают: свет гаснет и возвращается, темнота считается общей, лифт
+## переносит.
+func _room_test() -> void:
+	for i in 30:
+		await get_tree().physics_frame
+	var breaker: Node = null
+	var lamp_switch: Node = null
+	for s in get_tree().get_nodes_in_group("switches"):
+		if s.kind == "breaker" and breaker == null:
+			breaker = s
+		elif s.kind == "light" and lamp_switch == null:
+			lamp_switch = s
+	var player: Actor = Game.player
+
+	if lamp_switch != null:
+		var lit_before: float = 0.0
+		for l in lamp_switch.lights:
+			lit_before += l.light_energy
+		lamp_switch.use(player)
+		var lit_after: float = 0.0
+		for l in lamp_switch.lights:
+			lit_after += l.light_energy
+		lamp_switch.use(player)
+		var lit_back: float = 0.0
+		for l in lamp_switch.lights:
+			lit_back += l.light_energy
+		print("[комнаты] выключатель «%s»: было %.1f → щёлк %.1f → щёлк %.1f" % [
+			lamp_switch.label, lit_before, lit_after, lit_back])
+	else:
+		print("[комнаты] выключателей на карте нет")
+
+	if breaker != null:
+		var hall_before: float = 0.0
+		for l in breaker.lights:
+			hall_before += l.light_energy
+		breaker.use(player)
+		await get_tree().physics_frame
+		var hall_after: float = 0.0
+		for l in breaker.lights:
+			hall_after += l.light_energy
+		print("[комнаты] рубильник: свет фермы %.1f → %.1f, темнота на %.0f с, видно на %.0f%%" % [
+			hall_before, hall_after, Game.blackout, Game.dark_factor() * 100.0])
+		breaker.use(player)
+	else:
+		print("[комнаты] рубильника на карте нет")
+
+	var lifts := get_tree().get_nodes_in_group("lifts")
+	if not lifts.is_empty() and player != null:
+		var lift: Node = lifts[0]
+		player.global_position = lift.global_position + Vector3(0, 0.3, 1.5)
+		await get_tree().physics_frame
+		var from := player.global_position
+		lift.use(player)
+		await get_tree().physics_frame
+		print("[комнаты] лифт «%s»: перенёс на %.1f м, стало y=%.1f" % [
+			lift.label, from.distance_to(player.global_position), player.global_position.y])
+	else:
+		print("[комнаты] лифтов на карте нет")
 	get_tree().quit()
 
 ## НАВМЕШ. Планировка, по которой нельзя пройти, — не планировка, а картинка.

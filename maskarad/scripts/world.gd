@@ -56,6 +56,7 @@ var _mat_paper: StandardMaterial3D
 var _mat_floor: StandardMaterial3D
 
 var _club_lights: Array = []
+var _stage_lights: Array = []
 var _env: Environment = null
 
 ## Колонки: где играет музыка и как громко. По этому же списку считается,
@@ -137,7 +138,14 @@ func _on_quality(_level: int) -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
-	# в клубе свет живёт своей жизнью: под ним трудно понять, кто перед тобой
+	# В клубе свет живёт своей жизнью: под ним трудно понять, кто перед тобой.
+	# Но пока вырублен щиток — не живёт вовсе: без этой проверки пульсация
+	# возвращала лампам энергию в том же кадре, и рубильник не делал ничего.
+	if Game.blackout > 0.0:
+		for l0 in _club_lights:
+			if is_instance_valid(l0):
+				l0.light_energy = 0.0
+		return
 	for i in _club_lights.size():
 		var l: OmniLight3D = _club_lights[i]
 		if not is_instance_valid(l):
@@ -604,6 +612,8 @@ func _club_catwalk() -> void:
 	var breaker_lights: Array = []
 	for l in _club_lights:
 		breaker_lights.append(l)
+	for l in _stage_lights:
+		breaker_lights.append(l)
 	_light_board = _switch(Vector3(6.0, CATWALK_Y + 1.2, -5.0), 0.0, breaker_lights,
 		"свет фермы", "breaker")
 
@@ -690,7 +700,7 @@ func _club_light_rig() -> void:
 		l.position = Vector3(-15.0 + (i % 3) * 15.0, CLUB_H - 4.2, -14.0 + float(i / 3) * 14.0)
 		add_child(l)
 		_club_lights.append(l)
-	# прожекторы сцены
+	# прожекторы сцены — они тоже на щитке
 	for x in [-9.0, 0.0, 9.0]:
 		var sl := SpotLight3D.new()
 		sl.position = Vector3(x, CLUB_H - 1.4, -12.0)
@@ -701,6 +711,7 @@ func _club_light_rig() -> void:
 		sl.spot_angle = 22.0
 		sl.light_volumetric_fog_energy = 4.0
 		add_child(sl)
+		_stage_lights.append(sl)
 
 	# ПРОЖЕКТОРЫ-ЦЕЛИ: их зажигают люди, и в них вся их победа. Расставлены
 	# по всему клубу так, чтобы за каждым надо было идти в отдельный угол.
