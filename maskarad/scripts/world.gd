@@ -348,11 +348,25 @@ func _club_stages() -> void:
 	# на 0.06 — весь светящийся танцпол был закопан в бетон, и посреди клуба
 	# зияло чёрное пятно. Теперь они лежат поверх и светятся в полную силу:
 	# танцпол — единственное место в зале, которое светит само.
+	#
+	# Плитка СВЕТИТСЯ, но не «горит»: раньше она брала материал неона целиком,
+	# вместе с его режимом «не считать освещение», и танцпол выходил ровным
+	# кислотным шахматным полем во весь экран — краска, а не пол. Здесь свой
+	# материал: тёмный глянец, который ловит лучи фермы, плюс мягкое свечение.
+	# Свечение слабое НАРОЧНО: танцпол должен быть самым светлым местом зала,
+	# а не источником света на весь экран. Основную яркость ему дают блики от
+	# ламп фермы — они и мигают вместе с ней, поэтому пол живёт, а не горит.
+	var tile_pink := Tex.plain(Color(0.16, 0.03, 0.09), 0.18, 0.15)
+	tile_pink.emission_enabled = true
+	tile_pink.emission = Color(1.0, 0.15, 0.55)
+	tile_pink.emission_energy_multiplier = 0.16
+	var tile_blue := Tex.plain(Color(0.03, 0.07, 0.17), 0.18, 0.15)
+	tile_blue.emission_enabled = true
+	tile_blue.emission = Color(0.2, 0.55, 1.0)
+	tile_blue.emission_energy_multiplier = 0.16
 	for ix in range(9):
 		for iz in range(7):
-			var base: StandardMaterial3D = _mat_neon_pink if (ix + iz) % 2 == 0 else _mat_neon_blue
-			var dim: StandardMaterial3D = base.duplicate()
-			dim.albedo_color = base.albedo_color * 0.55
+			var dim: StandardMaterial3D = tile_pink if (ix + iz) % 2 == 0 else tile_blue
 			var tile := MeshInstance3D.new()
 			var bm := BoxMesh.new()
 			bm.size = Vector3(3.4, 0.09, 3.4)
