@@ -53,6 +53,7 @@ var _mat_velvet: StandardMaterial3D
 var _mat_mirror: StandardMaterial3D
 var _mat_rubber: StandardMaterial3D
 var _mat_paper: StandardMaterial3D
+var _mat_floor: StandardMaterial3D
 
 var _club_lights: Array = []
 var _env: Environment = null
@@ -164,6 +165,7 @@ func _make_materials() -> void:
 	_mat_velvet = Tex.surface("cloth", Color(0.32, 0.08, 0.14), 0.98, 0.0, 2.2, 0.9)
 	_mat_rubber = Tex.surface("plaster", Color(0.09, 0.09, 0.10), 0.98, 0.0, 2.0, 0.7)
 	_mat_paper = Tex.surface("plaster", Color(0.72, 0.68, 0.60), 0.9, 0.0, 1.4, 0.4)
+	_mat_floor = Tex.surface("tile", Color(0.26, 0.25, 0.29), 0.22, 0.15, 0.45, 0.6)
 	# Стекло и зеркало рисунка не имеют по определению: любая шероховатость
 	# на них — это уже не стекло.
 	_mat_glass = Tex.plain(Color(0.12, 0.18, 0.26), 0.06, 0.55)
@@ -261,7 +263,10 @@ const HALL_D := 52.0
 
 ## Коробка зала: пол, потолок, стены с проёмами наружу и внутрь.
 func _club_shell() -> void:
-	_slab(0, 0, HALL_W, HALL_D, _mat_dark)
+	# Пол зала — не «тёмное»: полированный камень. Он не светлее по цвету, но
+	# он БЛЕСТИТ, и в нём отражаются неон и лучи фермы. Матовая чёрная плита на
+	# её месте не читалась вовсе: в зале было не понять даже, где кончается пол.
+	_slab(0, 0, HALL_W, HALL_D, _mat_floor)
 	_ceiling(0, 0, HALL_W, HALL_D, CLUB_H)
 	# Проёмы: юг — вход из фойе, север — за кулисы, запад — в подсобки,
 	# восток — к туалетам и лестнице на балкон.
@@ -330,17 +335,22 @@ func _club_stages() -> void:
 		region.add_child(disc)
 
 	# ---- ТАНЦПОЛ перед главной сценой
+	#
+	# Плитки лежали НИЖЕ пола: плита зала кончается на 0.07, а верх плитки был
+	# на 0.06 — весь светящийся танцпол был закопан в бетон, и посреди клуба
+	# зияло чёрное пятно. Теперь они лежат поверх и светятся в полную силу:
+	# танцпол — единственное место в зале, которое светит само.
 	for ix in range(9):
 		for iz in range(7):
 			var base: StandardMaterial3D = _mat_neon_pink if (ix + iz) % 2 == 0 else _mat_neon_blue
 			var dim: StandardMaterial3D = base.duplicate()
-			dim.emission_energy_multiplier = 0.55
+			dim.albedo_color = base.albedo_color * 0.55
 			var tile := MeshInstance3D.new()
 			var bm := BoxMesh.new()
-			bm.size = Vector3(3.4, 0.06, 3.4)
+			bm.size = Vector3(3.4, 0.09, 3.4)
 			tile.mesh = bm
 			tile.material_override = dim
-			tile.position = Vector3(-13.6 + ix * 3.6, 0.03, -12.0 + iz * 3.6)
+			tile.position = Vector3(-13.6 + ix * 3.6, 0.075, -12.0 + iz * 3.6)
 			region.add_child(tile)
 
 	# ---- ВТОРАЯ СЦЕНА: подиум в юго-восточном углу зала
@@ -355,8 +365,14 @@ func _club_stages() -> void:
 ## бармена, и в этот проход можно сесть: одна из главных нычек зала.
 func _club_bar() -> void:
 	_box(Vector3(-26, 0.6, 2), Vector3(2.4, 1.2, 30), _mat_wood)
-	_box(Vector3(-29.4, 1.6, 2), Vector3(0.6, 3.2, 30), _mat_dark)     # задняя полка
-	_glow(Vector3(-29.0, 2.6, 2), Vector3(0.15, 2.2, 28.0), _mat_neon_blue)
+	_box(Vector3(-29.4, 1.6, 2), Vector3(0.6, 3.2, 30), _mat_wood)      # задняя полка
+	# Подсветка полки — ПОЛОСА, а не стена. Была высотой в два с лишним метра
+	# и длиной во весь бар: со стороны это читалось как синий экран во всю
+	# стену, а не как лампа под полкой.
+	for y in [1.35, 2.35, 3.05]:
+		_glow(Vector3(-29.0, y, 2), Vector3(0.1, 0.06, 28.0), _mat_neon_blue)
+	for y in [1.7, 2.7]:
+		_box(Vector3(-29.2, y, 2), Vector3(0.5, 0.07, 28.0), _mat_wood, false)   # полки
 	for i in range(10):
 		_box(Vector3(-23.4, 0.5, -12.0 + i * 3.0), Vector3(0.55, 1.0, 0.55), _mat_dark)
 	# столики вдоль стойки
@@ -709,8 +725,8 @@ func _club_light_rig() -> void:
 ## в место, где можно спрятаться за чужой работой.
 func _club_props() -> void:
 	# ---- БАР: бутылки на задней полке, стаканы на стойке, кеги и краны
-	_bottles(Vector3(-29.0, 3.05, -12.0), 18, Vector3(0, 0, 1.5), 0)
-	_bottles(Vector3(-29.0, 2.15, -11.0), 16, Vector3(0, 0, 1.7), 3)
+	_bottles(Vector3(-29.2, 2.74, -12.0), 18, Vector3(0, 0, 1.5), 0)
+	_bottles(Vector3(-29.2, 1.74, -11.0), 16, Vector3(0, 0, 1.7), 3)
 	_glassware(Vector3(-26.4, 1.2, -10.0), 14, Vector3(0, 0, 1.6))
 	for i in 4:
 		_cyl(Vector3(-26.0, 1.35, -6.0 + i * 0.5), 0.03, 0.3, _mat_steel)   # краны
