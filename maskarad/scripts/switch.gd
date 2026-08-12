@@ -24,6 +24,7 @@ var on: bool = true
 const BREAKER_TIME := 22.0
 var _left: float = 0.0
 var _energy: Array = []
+var _led: MeshInstance3D = null
 
 func _ready() -> void:
 	add_to_group("switches")
@@ -70,8 +71,6 @@ func _ready() -> void:
 	cs.shape = shape
 	body.add_child(cs)
 	add_child(body)
-
-var _led: MeshInstance3D = null
 
 func _process(delta: float) -> void:
 	if _left <= 0.0:

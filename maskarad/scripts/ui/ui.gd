@@ -552,7 +552,7 @@ func _process(_delta: float) -> void:
 		keys_label.modulate.a = 1.0
 	elif _keys_left > 0.0:
 		_keys_left -= _delta
-		keys_label.text = "мышь — осмотреться   ·   ПКМ — оглянуться, не разворачиваясь   ·   E — действие"
+		keys_label.text = "мышь — осмотреться   ·   ПКМ — оглянуться, не разворачиваясь   ·   E — заговорить и действовать   ·   1–5 — ответ в разговоре"
 		keys_label.modulate.a = clampf(_keys_left / 4.0, 0.0, 1.0)
 	elif keys_label.text != "":
 		keys_label.text = ""
@@ -639,10 +639,10 @@ func _objective(p: Actor) -> String:
 	match p.role:
 		Data.Role.HUMAN:
 			if Game.braziers_lit < Game.braziers_total:
-				return "Включай прожекторы — рассвет придёт раньше. Не иди, когда зовут."
+				return "Включай прожекторы. Говори с гостями: предупреждённый идёт к свету."
 			return "Весь свет включён. Дожить до рассвета."
 		Data.Role.VAMPIRE:
-			return "Уводи тех, кого никто не хватится. В облике звезды зови в гримёрку."
+			return "Разговаривай. Уводят только тех, кто тебе поверил."
 		Data.Role.LICH:
 			return "Убивай. Психоз наполнится — уходи в берсерк."
 		Data.Role.THRALL, Data.Role.GHOUL:

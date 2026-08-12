@@ -380,7 +380,7 @@ func _club_balcony() -> void:
 
 	# диваны наверху — здесь сидят по двое-трое, и сюда уводят
 	for z in [-14.0, -8.0, -2.0, 4.0]:
-		_box(Vector3(24.0, y + 0.4, z), Vector3(5.0, 0.8, 2.0), _mat_wood)
+		_sofa(Vector3(24.0, y, z), PI * 0.5, 4.4)
 	_hanging_lamp(Vector3(20, y + 3.4, -6), Color(0.9, 0.3, 0.5), 0.7)
 
 ## ЗА КУЛИСАМИ: коридор во всю ширину сцены и четыре ГРИМЁРКИ, в каждую одна
@@ -414,7 +414,7 @@ func _club_backstage() -> void:
 				Vector3(0.16, 0.16, 0.08), _emissive(Color(1, 0.92, 0.72), 3.0))
 		_box(Vector3(x - 4.2, 0.45, -38.0), Vector3(1.4, 0.9, 1.4), _mat_velvet)   # пуф
 		var room_lamp := _hanging_lamp(Vector3(x, 3.2, -41), Color(1.0, 0.88, 0.68), 0.8)
-		_switch(Vector3(x + 2.0, 1.4, -36.4), PI, [room_lamp], "свет")
+		_switch(Vector3(x + 3.6, 1.4, -36.4), PI, [room_lamp], "свет")
 		private_spots.append(Vector3(x, 0, -41))
 		zones.append({"name": "Гримёрка %d" % (i + 1), "pos": Vector3(x, 0, -41),
 			"half": Vector2(5.5, 5.0), "kind": "private"})
@@ -445,7 +445,7 @@ func _club_utility() -> void:
 		var lamp := _hanging_lamp(Vector3(-42, 3.2, z), Color(0.8, 0.85, 0.9), 0.6)
 		# выключатель у самой двери — как в жизни, и это важно: заходя в тёмную
 		# подсобку, ты либо щёлкаешь им и объявляешь о себе, либо идёшь вслепую
-		_switch(Vector3(-37.4, 1.4, z + 2.4), -PI * 0.5, [lamp], str(r["name"]).to_lower())
+		_switch(Vector3(-37.4, 1.4, z + 3.6), -PI * 0.5, [lamp], str(r["name"]).to_lower())
 		private_spots.append(Vector3(-42, 0, z))
 		zones.append({"name": r["name"], "pos": Vector3(-42, 0, z),
 			"half": Vector2(5, 5), "kind": "private"})
@@ -516,7 +516,7 @@ func _club_toilets() -> void:
 	# второй выход — на север, в служебный коридор: из туалета есть куда деться
 	_walls(38, 4, 14, 16, 3.6, {"w": [[0.0, 3.0]], "n": [[-2.0, 4.0]]})
 	var wc_lamp := _hanging_lamp(Vector3(38, 3.2, 4), Color(0.75, 0.85, 0.95), 0.9)
-	_switch(Vector3(32.4, 1.4, 6.0), PI * 0.5, [wc_lamp], "свет в туалете")
+	_switch(Vector3(32.4, 1.4, 8.4), PI * 0.5, [wc_lamp], "свет в туалете")
 	for k in range(4):
 		var z: float = -1.0 + k * 3.0
 		_box(Vector3(42.0, 1.1, z), Vector3(4.0, 2.2, 0.2), _mat_tile)
@@ -661,14 +661,17 @@ func _club_light_rig() -> void:
 	# ферма над танцполом
 	for x in [-14.0, 0.0, 14.0]:
 		_box(Vector3(x, CLUB_H - 0.6, -6), Vector3(0.4, 0.4, 34.0), _mat_dark, false)
+	# Лампы фермы висят НИЖЕ, чем висели, и бьют дальше. С потолка
+	# двенадцатиметрового зала цветной свет до пола просто не доходил: потолок
+	# горел, пол оставался чёрным, и зал читался как яма.
 	for i in range(6):
 		var l := OmniLight3D.new()
 		l.light_color = [Color(1, 0.2, 0.6), Color(0.3, 0.6, 1), Color(0.4, 1, 0.6),
 			Color(1, 0.8, 0.3), Color(0.8, 0.3, 1), Color(0.2, 1, 0.9)][i]
-		l.omni_range = 30.0
+		l.omni_range = 36.0
 		l.light_energy = 2.2
 		l.light_volumetric_fog_energy = 3.0
-		l.position = Vector3(-15.0 + (i % 3) * 15.0, CLUB_H - 1.6, -14.0 + float(i / 3) * 14.0)
+		l.position = Vector3(-15.0 + (i % 3) * 15.0, CLUB_H - 4.2, -14.0 + float(i / 3) * 14.0)
 		add_child(l)
 		_club_lights.append(l)
 	# прожекторы сцены
@@ -1340,7 +1343,7 @@ func _cart(at: Vector3) -> void:
 	for sx in [-0.5, 0.5]:
 		for sz in [-0.32, 0.32]:
 			_cyl(at + Vector3(sx, 0.06, sz), 0.06, 0.05, _mat_dark)
-	_box(at, Vector3(1.2, 1.0, 0.9), _mat_steel, true)
+	_solid_only(at.x, at.z, 0.6, 0.45, 1.0)      # только преграда, без лишней коробки
 
 func _sofa(at: Vector3, yaw: float, width: float) -> void:
 	var g := Node3D.new()

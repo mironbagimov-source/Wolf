@@ -50,9 +50,14 @@ func save_settings() -> void:
 	cfg.set_value("video", "quality", level)
 	cfg.save(PATH)
 
-func set_level(v: int) -> void:
+## Запоминается только ВЫБОР игрока. Самопонижение держится до конца запуска и
+## не пишется на диск: иначе одна просадка — свернули окно, что-то грузилось
+## фоном — навсегда сажала человека на низкую ступень, и он потом играл в
+## тусклую картинку, ни разу этого не выбрав.
+func set_level(v: int, remember: bool = true) -> void:
 	level = clampi(v, LOW, HIGH)
-	save_settings()
+	if remember:
+		save_settings()
 	changed.emit(level)
 
 func cycle() -> void:
@@ -60,8 +65,11 @@ func cycle() -> void:
 	set_level((level + 1) % 3)
 
 ## Следит за кадром и опускает ступень, если игра не тянет.
+## Ступень зафиксирована снаружи (снимки в проверке): не опускать.
+var locked: bool = false
+
 func _process(delta: float) -> void:
-	if Game.state != Game.State.PLAYING or level == LOW:
+	if locked or Game.state != Game.State.PLAYING or level == LOW:
 		_slow_for = 0.0
 		return
 	_frames += 1
@@ -76,7 +84,7 @@ func _process(delta: float) -> void:
 		if _slow_for >= SLOW_SECONDS:
 			_slow_for = 0.0
 			auto_dropped = true
-			set_level(level - 1)
+			set_level(level - 1, false)
 			Game.say("Картинка не тянет — качество снижено до «%s» (F1 вернёт)" % NAMES[level], true)
 	else:
 		_slow_for = 0.0

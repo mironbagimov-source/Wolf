@@ -17,6 +17,7 @@ var _shot_path := ""
 var _shot_at := 6.0
 var _test_pitch := 0.0                    # принудительный наклон взгляда для снимка
 var _hold_map := false                    # держать карту раскрытой для снимка
+var _hold_quality := false                # не давать движку опускать ступень
 ## Куда поставить игрока для снимка и куда его повернуть.
 var _place_at: Vector3 = Vector3.INF
 var _place_yaw: float = 0.0
@@ -91,6 +92,13 @@ func _maybe_autotest() -> void:
 			var c: PackedStringArray = a.substr(5).split(",")
 			if c.size() >= 3:
 				_place_at = Vector3(float(c[0]), float(c[1]), float(c[2]))
+		elif a.begins_with("--quality="):
+			# для снимков: движок в мягком рендере сам опускает ступень, и
+			# сравнивать картинки после этого нельзя — они с разных настроек
+			var q: String = a.substr(10)
+			Quality.set_level({"low": 0, "medium": 1, "high": 2}.get(q, 1), false)
+			Quality.locked = true
+			_hold_quality = true
 		elif a.begins_with("--yaw="):
 			_place_yaw = deg_to_rad(float(a.substr(6)))
 	_perf = "--perf" in args
