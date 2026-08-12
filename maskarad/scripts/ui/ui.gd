@@ -42,6 +42,14 @@ var qte_marker: ColorRect
 var qte_hint: Label
 var roster_panel: PanelContainer
 var roster_box: VBoxContainer
+## Разговор: кто, что сказал, сколько ещё готов слушать и что можно ответить.
+var talk_panel: PanelContainer
+var talk_who: Label
+var talk_line: Label
+var talk_trust: ProgressBar
+var talk_patience: ProgressBar
+var talk_options: VBoxContainer
+var _talk_sig: String = ""
 var result_title: Label
 var result_text: Label
 var char_desc: Label
@@ -330,6 +338,8 @@ func _build_hud() -> void:
 	keys_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hud_root.add_child(keys_label)
 
+	_build_talk()
+
 	roster_panel = _panel(Color(0.05, 0.05, 0.07, 0.9))
 	roster_panel.set_anchors_preset(Control.PRESET_CENTER)
 	roster_panel.offset_left = -180; roster_panel.offset_right = 180
@@ -377,6 +387,85 @@ func _build_hud() -> void:
 	# отключаем это всем разом.
 	for c in hud_root.find_children("*", "Control", true, false):
 		(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+## ПАНЕЛЬ РАЗГОВОРА. Внизу по центру: имя собеседника, его реплика, две
+## тонкие шкалы — насколько он тебе доверяет и сколько ещё готов простоять —
+## и пронумерованные ответы. Цифра на клавиатуре выбирает ответ.
+func _build_talk() -> void:
+	talk_panel = _panel(Color(0.04, 0.04, 0.06, 0.93))
+	talk_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	talk_panel.offset_left = -400; talk_panel.offset_right = 400
+	talk_panel.offset_top = -320; talk_panel.offset_bottom = -70
+	talk_panel.visible = false
+	hud_root.add_child(talk_panel)
+
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	talk_panel.add_child(v)
+
+	talk_who = _label("", 20, GOLD)
+	v.add_child(talk_who)
+
+	talk_line = _label("", 19, PARCH)
+	talk_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	talk_line.custom_minimum_size = Vector2(760, 52)
+	v.add_child(talk_line)
+
+	var scales := HBoxContainer.new()
+	scales.add_theme_constant_override("separation", 14)
+	v.add_child(scales)
+	scales.add_child(_label("доверие", 13, DIM))
+	talk_trust = _bar(Color(0.62, 0.52, 0.24))
+	talk_trust.custom_minimum_size = Vector2(180, 7)
+	scales.add_child(talk_trust)
+	scales.add_child(_label("терпение", 13, DIM))
+	talk_patience = _bar(Color(0.35, 0.45, 0.55))
+	talk_patience.custom_minimum_size = Vector2(180, 7)
+	scales.add_child(talk_patience)
+
+	talk_options = VBoxContainer.new()
+	talk_options.add_theme_constant_override("separation", 2)
+	v.add_child(talk_options)
+
+## Что видно по собеседнику: словами, а не цифрой. Игрок должен понимать,
+## можно ли уже звать за собой, не глядя в шкалу.
+func _talk_mood(trust: float) -> String:
+	if trust < 0.15:
+		return "смотрит мимо"
+	if trust < 0.35:
+		return "настороже"
+	if trust < 0.55:
+		return "слушает"
+	if trust < 0.75:
+		return "разговорился"
+	return "доверяет"
+
+func _show_talk(t) -> void:
+	if t == null or t.over or not is_instance_valid(t.them):
+		if talk_panel.visible:
+			talk_panel.visible = false
+			_talk_sig = ""
+		return
+	talk_panel.visible = true
+	talk_who.text = "%s — %s" % [t.them.appearance_name, _talk_mood(t.trust)]
+	talk_line.text = t.line
+	talk_trust.value = clampf(t.trust, 0.0, 1.0)
+	talk_patience.value = clampf(t.patience / maxf(0.01, t.patience_max), 0.0, 1.0)
+
+	var sig := ""
+	for o in t.options:
+		sig += str(o["text"]) + "|"
+	if sig == _talk_sig:
+		return
+	_talk_sig = sig
+	for c in talk_options.get_children():
+		c.queue_free()
+	var i := 1
+	for o in t.options:
+		var row := _label("%d — %s" % [i, str(o["text"])], 17, PARCH if i < t.options.size() else DIM)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		talk_options.add_child(row)
+		i += 1
 
 func _bar(col: Color) -> ProgressBar:
 	var b := ProgressBar.new()
@@ -540,6 +629,7 @@ func _process(_delta: float) -> void:
 
 	var brain := p.get_node_or_null("Brain")
 	prompt_label.text = brain.prompt if brain != null and "prompt" in brain else ""
+	_show_talk(brain.get("talk") if brain != null and "talk" in brain else null)
 
 	roster_panel.visible = Input.is_action_pressed("scoreboard")
 	if roster_panel.visible:

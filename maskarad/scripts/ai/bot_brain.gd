@@ -108,6 +108,15 @@ func go_to(p: Vector3) -> void:
 func stop() -> void:
 	actor.move_input = Vector3.ZERO
 
+## ВСТАТЬ НАСОВСЕМ. `stop()` только обнуляет намерение, а `_drive` в том же
+## кадре ставит его обратно из недопройденного пути — бот «стоит» и всё равно
+## едет. Там, где надо действительно замереть (разговор, ведомый догнал
+## ведущего), путь надо ещё и оборвать.
+func halt() -> void:
+	agent.target_position = actor.global_position
+	goal = actor.global_position
+	actor.move_input = Vector3.ZERO
+
 func _drive(_delta: float) -> void:
 	if agent.is_navigation_finished():
 		actor.move_input = Vector3.ZERO

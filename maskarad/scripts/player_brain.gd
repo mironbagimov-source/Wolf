@@ -45,6 +45,10 @@ var target_cloakroom: Node = null
 var target_hide: Vector3 = Vector3.INF
 var prompt: String = ""
 
+## Открытый разговор. Пока он идёт, HUD показывает реплику собеседника и
+## список ответов, а цифры выбирают ответ.
+var talk: Talk = null
+
 var _holding_interact: bool = false
 var _bob: float = 0.0
 var _shake: float = 0.0
@@ -177,6 +181,7 @@ func _pressed_edge(action: String) -> bool:
 func _read_input(delta: float) -> void:
 	read_frames += 1
 	looking_back = Input.is_action_pressed("look_back")
+	_tick_talk(delta)
 
 	# движение считается от тела, а не от взгляда — иначе при оглядывании
 	# персонаж поедет туда, куда повернул голову
@@ -280,6 +285,36 @@ func _aimed_enemy(reach: float) -> Actor:
 			best = a
 	return best
 
+## РАЗГОВОР. Цифра — ответ, `E` — отойти. Ходить при этом не запрещено:
+## отошёл дальше пары шагов — разговор кончился сам, как в жизни.
+func _tick_talk(delta: float) -> void:
+	if talk == null:
+		return
+	if talk.over:
+		talk = null
+		return
+	for i in mini(5, talk.options.size()):
+		if _pressed_edge("answer_%d" % (i + 1)):
+			talk.choose(i)
+			break
+	talk.tick(delta)
+	if talk.over:
+		talk = null
+
+## Заговорить. Собеседник разворачивается и стоит, пока идёт разговор, —
+## и это главное отличие от прежнего «позвать»: раньше нажатие `E` заканчивало
+## общение мгновенно, и человек уходил.
+func _open_talk(who: Actor) -> bool:
+	if who == null or not is_instance_valid(who) or not who.alive or who.downed:
+		return false
+	if who == actor or who.carried_by != null or who.ritual != "":
+		return false
+	if who.talking_with != null and who.talking_with != actor:
+		Game.say("%s занят разговором" % who.appearance_name, true)
+		return false
+	talk = Talk.start(actor, who)
+	return true
+
 func _handle_interact() -> void:
 	var held := Input.is_action_pressed("interact")
 	if held and not _holding_interact:
@@ -290,6 +325,12 @@ func _handle_interact() -> void:
 	_holding_interact = held
 
 func _begin_interact() -> void:
+	# Идёт разговор — `E` из него выходит. Той же кнопкой и заходили: так не
+	# нужно помнить отдельную клавишу «закончить».
+	if talk != null and not talk.over:
+		talk.finish("")
+		talk = null
+		return
 	# Несёшь — единственное действие это ПОСТАВИТЬ. Всё остальное подождёт:
 	# руки заняты человеком.
 	if actor.carrying != null:
@@ -337,18 +378,19 @@ func _begin_interact() -> void:
 		if target_actor.downed and target_actor.side == Data.Side.HUMAN:
 			if actor.try_revive(target_actor):
 				return
-		Dialogue.talk(actor, target_actor)
+		_open_talk(target_actor)
 		return
 
 	if actor.role == Data.Role.VAMPIRE or actor.role == Data.Role.THRALL:
 		var d := actor.global_position.distance_to(target_actor.global_position)
-		if d <= Data.TUNE["drain_range"] and (target_actor.summoned_by == actor or target_actor.stun_time > 0.0 or d < 1.5):
+		if d <= Data.TUNE["drain_range"] and (target_actor.summoned_by == actor
+				or target_actor.following == actor or target_actor.stun_time > 0.0 or d < 1.5):
 			actor.try_drain(target_actor)
 		elif Input.is_action_pressed("sprint"):
 			# Shift+E — позвать танцевать: жертва встанет напротив сама
 			actor.try_dance(target_actor)
 		else:
-			actor.try_invite(target_actor)
+			_open_talk(target_actor)
 
 ## Ближайшая нычка, если стоишь прямо в ней.
 func _nearest_hide() -> Vector3:
@@ -385,6 +427,12 @@ func _find_target() -> void:
 	target_cloakroom = null
 	target_hide = Vector3.INF
 	prompt = ""
+
+	# идёт разговор — все прочие подсказки молчат, чтобы не спорить с панелью
+	if talk != null and not talk.over:
+		target_actor = talk.them
+		prompt = "E — отойти"
+		return
 
 	var from := camera.global_position
 	var dir := _aim_dir()
@@ -465,29 +513,47 @@ func _find_target() -> void:
 				target_brazier = b
 		if target_brazier != null:
 			prompt = "E — зажечь"
-		return
+			return
 
+	# С КЕМ ГОВОРИМ. Ищется одинаково у обеих сторон.
+	#
+	# Раньше собеседник искался ТОЛЬКО у нечисти, и человек не мог заговорить
+	# ни с кем: код опроса свидетеля был на месте, но `target_actor` у людей
+	# всегда оставался пустым, и до опроса дело не доходило никогда. Со
+	# стороны это и выглядело как «диалогов в игре нет».
+	var best := _aimed_person(from, dir)
+	target_actor = best
+	if best == null:
+		return
 	if actor.role == Data.Role.VAMPIRE or actor.role == Data.Role.THRALL:
-		var best: Actor = null
-		var best_score := INF
-		for a in Game.living(Data.Side.HUMAN):
-			if a == actor:
-				continue
-			var to: Vector3 = a.global_position + Vector3(0, 1.2, 0) - from
-			var d := to.length()
-			if d > Data.TUNE["invite_range"]:
-				continue
-			var angle := dir.angle_to(to.normalized())
-			if angle > 0.5:
-				continue
-			var score := d * 0.3 + angle * 3.0
-			if score < best_score:
-				best_score = score
-				best = a
-		target_actor = best
-		if best != null:
-			var d := actor.global_position.distance_to(best.global_position)
-			if d <= Data.TUNE["drain_range"] and (best.summoned_by == actor or d < 1.5):
-				prompt = "E (держать) — пить кровь: %s" % best.appearance_name
-			else:
-				prompt = Dialogue.invite_prompt(actor, best)
+		var d := actor.global_position.distance_to(best.global_position)
+		if d <= Data.TUNE["drain_range"] and (best.summoned_by == actor
+				or best.following == actor or d < 1.5):
+			prompt = "E (держать) — пить кровь: %s" % best.appearance_name
+		else:
+			prompt = "E — заговорить: %s   ·   Shift+E — на танец" % best.appearance_name
+	else:
+		prompt = "E — заговорить: %s" % best.appearance_name
+
+## Кто под взглядом на расстоянии разговора. Выбирается не ближайший, а самый
+## «в прицеле»: в толпе иначе цепляется чужая спина.
+func _aimed_person(from: Vector3, dir: Vector3) -> Actor:
+	var best: Actor = null
+	var best_score := INF
+	for a: Actor in Game.living():
+		if a == actor or a.downed or a.carried_by != null:
+			continue
+		if a.role == Data.Role.LICH or a.role == Data.Role.GHOUL:
+			continue                      # с этими не разговаривают
+		var to: Vector3 = a.global_position + Vector3(0, 1.2, 0) - from
+		var d := to.length()
+		if d > Data.TUNE["invite_range"]:
+			continue
+		var angle := dir.angle_to(to.normalized())
+		if angle > 0.5:
+			continue
+		var score := d * 0.3 + angle * 3.0
+		if score < best_score:
+			best_score = score
+			best = a
+	return best

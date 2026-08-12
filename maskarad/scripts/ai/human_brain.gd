@@ -38,6 +38,12 @@ func think(delta: float) -> void:
 	mode_time -= delta
 	garlic_cd = max(0.0, garlic_cd - delta)
 
+	# с человеком-ботом тоже можно поговорить: он стоит и слушает
+	if actor.talking_with != null:
+		halt()
+		actor.activity = "talk"
+		return
+
 	# вампир позвал — вырываемся: боту хватает ума уйти
 	if actor.summoned_by != null:
 		actor.summoned_by = null

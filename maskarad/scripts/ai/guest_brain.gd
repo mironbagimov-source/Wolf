@@ -4,7 +4,7 @@ class_name GuestBrain
 ## толпа гостей делает социальный стелс возможным: без неё вампиру негде
 ## стоять, а зажатому человеку не за кем спрятаться.
 
-enum { MINGLE, CHAT, FLEE, MOB, BUSY }
+enum { MINGLE, CHAT, FLEE, MOB, BUSY, LIGHT }
 
 var mode: int = MINGLE
 var mode_time: float = 0.0
@@ -28,19 +28,72 @@ func take_job(kind: String, pos: Vector3, facing: Vector3) -> void:
 ## Насколько внимателен: танцующий не видит вокруг себя ничего, охранник
 ## видит всё. По этому же числу решается, заметят ли кормление рядом.
 func alertness() -> float:
-	if job == "":
-		return 1.0
-	return float(Data.JOB_ALERT.get(job, 1.0))
+	var base: float = 1.0 if job == "" else float(Data.JOB_ALERT.get(job, 1.0))
+	# предупреждённый гость смотрит по сторонам, чем бы ни был занят: ему
+	# сказали, что тут убивают, и он это помнит до конца ночи
+	if actor.warned:
+		base = maxf(base, 0.9)
+	return base
 
 func think(delta: float) -> void:
 	mode_time -= delta
+
+	# С НИМ ГОВОРЯТ. Стоит, смотрит на собеседника и больше никуда — поворот
+	# головы ведёт сам разговор, здесь только «не уходить».
+	if actor.talking_with != null:
+		halt()
+		actor.activity = "talk"
+		return
+
+	# ИДЁТ ЗА КЕМ-ТО: за вампиром, который уговорил, или за человеком, который
+	# позвал держаться рядом. Дорогу ищем по навмешу, иначе на первом же
+	# косяке ведомый упирается в стену.
+	if actor.following != null and is_instance_valid(actor.following):
+		var lead: Actor = actor.following
+		var gap := distance_to(lead)
+		if gap > 2.4:
+			actor.activity = ""
+			actor.want_sprint = gap > 4.0 and actor.stamina > 20.0
+			go_to(lead.global_position)
+		else:
+			actor.want_sprint = false
+			halt()
+			var to_lead: Vector3 = lead.global_position - actor.global_position
+			to_lead.y = 0.0
+			if to_lead.length() > 0.2:
+				actor.look_dir = to_lead.normalized()
+		# идти-то идёт, но глаза не закрывает: увидел монстра — сорвался
+		var seen := _visible_monster()
+		if seen != null and seen != lead:
+			actor.stop_follow()
+			panic(seen.global_position)
+		return
 
 	# позванный вампиром гость покорно идёт — актёр сам ведёт его
 	if actor.summoned_by != null:
 		stop()
 		return
 
+	# ПРЕДУПРЕЖДЁННЫЙ ЖМЁТСЯ К СВЕТУ. Человек сказал ему, что тут убивают, —
+	# и гость идёт туда, где горит прожектор, и там стоит. В круге света
+	# вампир не кормится, так что каждый предупреждённый гость — это добыча,
+	# которую у нечисти отняли разговором, а не оружием.
+	if actor.warned and mode != FLEE and mode != LIGHT and mode != MOB:
+		var safe := _lit_lamp()
+		if safe != Vector3.INF:
+			_enter(LIGHT, 30.0)
+			go_to(safe)
+
 	match mode:
+		LIGHT:
+			var glow := _lit_lamp()
+			if glow == Vector3.INF or mode_time <= 0.0:
+				_resume_job()
+			elif actor.global_position.distance_to(glow) > 3.2:
+				go_to(glow)
+			else:
+				stop()
+				actor.activity = ""
 		BUSY:
 			# при деле: дошёл до места и работает. Танцует, крутит пластинки,
 			# курит у выхода — но никуда не уходит, пока не спугнут.
@@ -190,8 +243,26 @@ func _resume_job() -> void:
 	else:
 		_enter(MINGLE, randf_range(3.0, 7.0))
 
+## Ближайший ГОРЯЩИЙ прожектор. Незажжённые не в счёт: свет должен быть,
+## а не подразумеваться.
+func _lit_lamp() -> Vector3:
+	if world == null:
+		return Vector3.INF
+	var best := Vector3.INF
+	var best_d := INF
+	for l in world.lamps:
+		if not l.lit:
+			continue
+		var d: float = actor.global_position.distance_to(l.global_position)
+		if d < best_d:
+			best_d = d
+			best = l.global_position
+	return best
+
 func panic(from: Vector3) -> void:
 	actor.activity = ""                   # напуганный бросает всё
+	actor.end_talk()
+	actor.stop_follow()
 	# Испуг виден на лице, и это не украшение: по вытаращенным глазам гостя
 	# в другом конце зала игрок понимает, что там кого-то увидели, — раньше,
 	# чем услышит крик.

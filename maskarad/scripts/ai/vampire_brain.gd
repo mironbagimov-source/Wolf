@@ -117,6 +117,24 @@ func _call() -> void:
 	if not _victim_ok():
 		_enter(BLEND, 3.0)
 		return
+
+	# СОГЛАСИЛСЯ — ВЕДИ. Уговорённый идёт следом, а не уходит один в гримёрку,
+	# поэтому вампир-бот теперь не пьёт там, где уговорил: он отводит жертву
+	# туда, где нет свидетелей, и только там садится кормиться.
+	if victim.following == actor:
+		mode_time = maxf(mode_time, 6.0)     # ведём столько, сколько идёт
+		var spot := _quiet_spot()
+		var crowded: bool = _witness_count(actor.global_position) > _tolerated_witnesses()
+		if spot != Vector3.INF and crowded and actor.global_position.distance_to(spot) > 2.6:
+			go_to(spot)
+			return
+		stop()
+		actor.look_dir = (victim.global_position - actor.global_position).normalized()
+		if distance_to(victim) <= Data.TUNE["drain_range"]:
+			_enter(FEED, Data.TUNE["drain_time"] + 1.0)
+			actor.try_drain(victim)
+		return
+
 	stop()
 	actor.look_dir = (victim.global_position - actor.global_position).normalized()
 	if actor.channel_kind == "" and victim.summoned_by != actor:

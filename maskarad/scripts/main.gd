@@ -152,6 +152,8 @@ func _maybe_autotest() -> void:
 		_carry_test.call_deferred()
 	if "--ritualtest" in args:
 		_ritual_test.call_deferred()
+	if "--talktest" in args:
+		_talk_test.call_deferred()
 	if "--armsweep" in args:
 		_arm_sweep.call_deferred()
 
@@ -954,6 +956,85 @@ func _carry_test() -> void:
 			break
 	print("[переноска] взял=%s, поднял на %.2f м, прошёл %.1f м, ноша отстала на %.2f м, вырвалась через %d кадров" % [
 		took, lifted, went, gap, broke])
+	get_tree().quit()
+
+## РАЗГОВОР. Проверяется главная жалоба: «заговорил с NPC — он сразу ушёл».
+## Меряем три вещи, и все три — про то, СТОИТ ЛИ собеседник:
+##   1) начали разговор — гость не сдвинулся с места и развернулся к тебе;
+##   2) болтовня поднимает доверие, а не просто печатает строчку;
+##   3) согласившийся идёт ЗА тобой, а не уходит один через полклуба.
+## И отдельно — ход людей: предупреждённый гость помечен и жмётся к свету.
+func _talk_test() -> void:
+	for i in 60:
+		await get_tree().physics_frame
+	var vamp: Actor = _spawn("moira", Vector3(0, 0.2, 6), false)
+	var man: Actor = null
+	var prey: Actor = null
+	for a in Game.living(Data.Side.HUMAN):
+		if a.role == Data.Role.GUEST and prey == null:
+			prey = a
+		elif a.role == Data.Role.HUMAN and man == null:
+			man = a
+	if prey == null:
+		print("[разговор] не с кем говорить"); get_tree().quit(); return
+
+	prey.global_position = vamp.global_position + Vector3(0, 0, -2.0)
+	for i in 12:
+		await get_tree().physics_frame        # дать телу осесть на пол
+	var stood_at: Vector3 = prey.global_position
+
+	var talk := Talk.start(vamp, prey)
+	var trust0 := talk.trust
+	for i in 30:
+		talk.tick(get_physics_process_delta_time())
+		await get_tree().physics_frame
+	var drift := stood_at.distance_to(prey.global_position)
+	var facing: float = prey.look_dir.normalized().dot(
+		(vamp.global_position - prey.global_position).normalized())
+	print("[разговор] начали: «%s» | ответов %d | ушёл на %.2f м | смотрит на тебя %.2f | поза «%s»" % [
+		talk.line, talk.options.size(), drift, facing, prey.activity])
+
+	# болтаем, пока не согласится идти: каждая болтовня даёт всё меньше
+	var chats := 0
+	while chats < 8 and talk.trust < 0.62 and not talk.over:
+		talk.choose(0)
+		chats += 1
+	print("[разговор] болтовня: доверие %.2f → %.2f за %d подходов, терпения осталось %.0f%%" % [
+		trust0, talk.trust, chats, 100.0 * talk.patience / talk.patience_max])
+
+	# зовём за собой
+	var lead_index := 2
+	if not talk.over:
+		talk.choose(lead_index)
+	var went_along: bool = prey.following == vamp
+	# и проверяем, что он ДЕЙСТВИТЕЛЬНО идёт следом: отходим и смотрим
+	var b: Node = vamp.get_node_or_null("Brain")
+	if b: b.set_physics_process(false)
+	# уходим ОТ жертвы, а не на неё: иначе ведущий просто упирается в ведомого
+	var away := vamp.global_position
+	for i in 150:
+		vamp.move_input = Vector3(0, 0, 1)
+		await get_tree().physics_frame
+	var vamp_went := away.distance_to(vamp.global_position)
+	var gap := vamp.global_position.distance_to(prey.global_position)
+	print("[разговор] «отойдём»: согласился=%s, вампир прошёл %.1f м, жертва отстала на %.1f м" % [
+		went_along, vamp_went, gap])
+
+	# ход людей: предупредить
+	if man != null:
+		var other: Actor = null
+		for a in Game.living(Data.Side.HUMAN):
+			if a.role == Data.Role.GUEST and a != prey:
+				other = a
+				break
+		if other != null:
+			other.global_position = man.global_position + Vector3(0, 0, -2.0)
+			await get_tree().physics_frame
+			var t2 := Talk.start(man, other)
+			var warn_index := 2
+			t2.choose(warn_index)
+			print("[разговор] предупреждение: «%s» | помечен=%s | вампиру он теперь верит на %.2f" % [
+				t2.line, other.warned, Dialogue.acceptance(vamp, other)])
 	get_tree().quit()
 
 ## ТЕЛЕКИНЕЗ. Проверяем, что у каждого дистанционного приёма есть замах и что

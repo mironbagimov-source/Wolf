@@ -63,6 +63,27 @@ var summon_hold: float = 0.0
 ## Куда его позвали идти самому (гримёрка). Пустой вектор — никуда.
 var lure_to: Vector3 = Vector3.INF
 
+## РАЗГОВОР. С кем сейчас говорят: пока это не пусто, гость стоит на месте,
+## развёрнут к собеседнику и не смотрит больше никуда. Занятый разговором
+## гость — не свидетель, и этим пользуются обе стороны.
+var talking_with: Actor = null
+var talk_left: float = 0.0
+
+## ИДЁТ ЗА КЕМ-ТО. Не «позван и стоит», а именно идёт следом — шаг в шаг,
+## по навмешу, пока ведущий не остановится. Так вампир уводит согласившегося,
+## и так же человек уводит гостя к свету: один механизм на оба случая.
+##
+## Раньше увод был телепортом воли: гость получал точку «гримёрка» и шагал
+## туда сам через полклуба, а игрок оставался стоять. Со стороны это читалось
+## как «заговорил — и человек ушёл», то есть как поломка.
+var following: Actor = null
+var follow_time: float = 0.0
+
+## Его предупредили, что в клубе убивают. Предупреждённый гость держится
+## света, замечает больше и с чужаками никуда не идёт. Это единственный ход
+## людей, который отнимает у вампира добычу, не поймав его за руку.
+var warned: bool = false
+
 var _body_root: Node3D
 var _parts: Body.Parts = null
 var _external_model: Node3D = null
@@ -631,6 +652,7 @@ func _physics_process(delta: float) -> void:
 			summoned_by = null
 			lure_to = Vector3.INF
 			remove_meta("lured_by") if has_meta("lured_by") else null
+	_tick_talk(delta)
 
 	_tick_role(delta)
 	_tick_bleeding(delta)
@@ -712,7 +734,8 @@ func _tick_move(delta: float) -> void:
 		velocity.y = 0.0
 
 	var speed: float = stats["speed"]
-	var can_move := stun_time <= 0.0 and channel_kind == "" and summoned_by == null
+	var can_move := stun_time <= 0.0 and channel_kind == "" and summoned_by == null \
+		and talking_with == null
 	# позванный в гримёрку идёт туда сам — и это единственный раз, когда
 	# человек уходит из толпы по своей воле
 	if lure_to != Vector3.INF and not is_player:
@@ -746,6 +769,11 @@ func _tick_move(delta: float) -> void:
 		if stamina_delay <= 0.0:
 			stamina = min(stamina_max, stamina + Data.TUNE["stamina_regen"] * delta)
 
+	# ИДЁШЬ С КЕМ-ТО — идёшь В НОГУ. Гость по паспорту вдвое медленнее вампира,
+	# и без этой строки уговорённая жертва оставалась в зале, пока вампир шёл
+	# в гримёрку один: увод работал бы только на бумаге.
+	if following != null and is_instance_valid(following):
+		speed = maxf(speed, float(following.stats["speed"]) * 0.92)
 	if berserk_time > 0.0:
 		speed *= Data.TUNE["berserk_speed"]
 	speed *= _terror_multiplier()
@@ -1715,6 +1743,67 @@ func _tick_possessed(delta: float) -> void:
 					near.global_position + Vector3(0, 1.2, 0), "possess")
 				Game.raise_alarm(global_position, 12.0, "attack")
 
+# ================================================== разговор и «идём вместе»
+## Пока с тобой говорят, ты стоишь и смотришь на собеседника. Игроком так
+## распоряжаться нельзя: у него есть руки и ноги, и отойти — его решение.
+func begin_talk(with: Actor) -> void:
+	# Игроком так распоряжаться нельзя, а нечисть не станет стоять и слушать:
+	# переодетая тварь отвечает на ходу и уходит, когда ей надоест.
+	if is_player or with == null or side == Data.Side.UNDEAD:
+		return
+	talking_with = with
+	talk_left = 90.0
+	activity = "talk"
+	summoned_by = null
+	summon_hold = 0.0
+	lure_to = Vector3.INF
+
+func end_talk() -> void:
+	if talking_with == null:
+		return
+	talking_with = null
+	talk_left = 0.0
+	if activity == "talk":
+		activity = ""
+
+## Пошёл за ведущим. Дорогу ищет свой мозг по навмешу — здесь только договор
+## о том, за кем и сколько.
+func set_follow(leader: Actor, seconds: float) -> void:
+	if is_player or leader == null:
+		return
+	end_talk()
+	following = leader
+	follow_time = seconds
+	summoned_by = null
+	summon_hold = 0.0
+	lure_to = Vector3.INF
+
+func stop_follow(note: String = "") -> void:
+	if following == null:
+		return
+	var lead := following
+	following = null
+	follow_time = 0.0
+	if note != "" and is_instance_valid(lead) and lead.is_player:
+		Game.say(note)
+
+func _tick_talk(delta: float) -> void:
+	if talking_with != null:
+		if not is_instance_valid(talking_with) or not talking_with.alive \
+				or global_position.distance_to(talking_with.global_position) > float(Data.TUNE["talk_range"]) + 1.0:
+			end_talk()
+		else:
+			talk_left -= delta
+			if talk_left <= 0.0:
+				end_talk()
+	if following != null:
+		if not is_instance_valid(following) or not following.alive or downed:
+			stop_follow()
+		else:
+			follow_time -= delta
+			if follow_time <= 0.0:
+				stop_follow("%s отстал" % appearance_name)
+
 ## Позвать на танец. Второй способ подойти вплотную, и он тем и хорош, что
 ## подходить не надо: жертва встаёт напротив сама и смотрит на тебя, а не по
 ## сторонам. Расплата — танцуют на виду, и на людном танцполе кормиться
@@ -1964,8 +2053,13 @@ func _complete_channel() -> void:
 			if target != null and target.has_method("light_up"):
 				target.call("light_up")
 
-## Заговорить с жертвой. В облике звезды открывается второй вариант: увести
-## в гримёрку — человек идёт туда сам, через полклуба, и там нет свидетелей.
+## Заговорить с жертвой — короткий вариант для БОТА. У игрока для этого есть
+## разговор с ответами (`Talk`); боту хватает броска кубика.
+##
+## Согласившийся не уходит один в гримёрку, как раньше: он идёт ЗА тобой.
+## Прежний вариант выглядел поломкой — заговорил, и человек ушёл через
+## полклуба сам, — а был ещё и хуже механически: вампир оставался стоять на
+## месте и не мог ни довести жертву, ни передумать.
 func _finish_invite(t: Actor) -> void:
 	var chance: float = Dialogue.acceptance(self, t)
 	Game.say(Dialogue.line_for(self))
@@ -1974,14 +2068,12 @@ func _finish_invite(t: Actor) -> void:
 		return
 
 	if Dialogue.can_lure(self):
-		var room: Vector3 = _dressing_room()
-		t.lure_to = room
+		t.set_follow(self, 34.0)
 		t.set_meta("lured_by", self)
-		t.summon_hold = 22.0
 		if t.is_player:
-			Game.say("Тебя зовут в гримёрку. Идёшь?", true)
+			Game.say("Тебя зовут за собой. Идёшь?", true)
 		else:
-			Game.say("%s идёт в гримёрку" % t.appearance_name)
+			Game.say("%s идёт за тобой" % t.appearance_name)
 	else:
 		t.summoned_by = self
 		t.summon_hold = 4.5
@@ -2259,6 +2351,8 @@ func die(killer: Actor = null) -> void:
 	dmg.bleed = 0.0
 	cancel_channel()
 	summoned_by = null
+	end_talk()
+	stop_follow()
 	velocity = Vector3.ZERO
 	Game.raise_alarm(global_position, Data.TUNE["corpse_alarm_radius"], "death")
 
