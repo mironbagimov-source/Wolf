@@ -2396,6 +2396,10 @@ func die(killer: Actor = null) -> void:
 		if is_instance_valid(self):
 			_convert_to("thrall" if convert_role == Data.Role.THRALL else "ghoul")
 	else:
+		# Тело остаётся лежать, и его ещё найдут. До этого труп поднимал
+		# тревогу один раз и дальше был мебелью: можно было убить посреди
+		# танцпола, переждать десять секунд и работать дальше.
+		Game.note_corpse(self)
 		_lie_down()
 		if _name_tag:
 			_name_tag.visible = false

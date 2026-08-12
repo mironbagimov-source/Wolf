@@ -1018,6 +1018,34 @@ func _room_test() -> void:
 	else:
 		print("[комнаты] рубильника на карте нет")
 
+	# ---- ТЕЛО НАХОДЯТ. Кладём труп в двух шагах от гостя и смотрим, заметит
+	# ли он. Это то, ради чего в клубе есть подсобки и переноска на плече:
+	# убитый на виду должен стоить дорого.
+	var witness: Actor = null
+	var victim: Actor = null
+	for a in Game.living(Data.Side.HUMAN):
+		if a.role != Data.Role.GUEST:
+			continue
+		if victim == null:
+			victim = a
+		elif witness == null:
+			witness = a
+	if witness != null and victim != null:
+		witness.global_position = victim.global_position + Vector3(2.5, 0, 0)
+		witness.scared_time = 0.0
+		await get_tree().physics_frame
+		victim.die(null)
+		var found := 0
+		for i in 90:
+			await get_tree().physics_frame
+			if not (victim in Game.corpses):
+				found = i
+				break
+		print("[комнаты] тело рядом с гостем: найдено через %d кадров, свидетель напуган=%s" % [
+			found, witness.scared_time > 0.0])
+	else:
+		print("[комнаты] некому находить тело")
+
 	var lifts := get_tree().get_nodes_in_group("lifts")
 	if not lifts.is_empty() and player != null:
 		var lift: Node = lifts[0]

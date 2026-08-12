@@ -52,6 +52,7 @@ func reset() -> void:
 	braziers_total = 0
 	blood_spots.clear()
 	exposed.clear()
+	corpses.clear()
 	blackout = 0.0
 	winner_side = -1
 	end_reason = ""
@@ -166,6 +167,26 @@ func raise_alarm(pos: Vector3, radius: float, kind: String) -> void:
 	if w != null and w.has_method("music_loudness"):
 		radius *= 1.0 - 0.6 * float(w.call("music_loudness", pos))
 	alarm_raised.emit(pos, radius, kind)
+
+## ТЕЛА, КОТОРЫЕ ЕЩЁ НЕ НАШЛИ.
+##
+## До сих пор труп поднимал тревогу один раз — в момент смерти — и дальше
+## лежал мебелью: можно было убить человека посреди танцпола, переждать
+## десять секунд и продолжать, будто ничего не было. Из-за этого не работало
+## ничего из того, что для этого и построено: переноска, гримёрки, подсобки,
+## тёмный двор за кулисами.
+##
+## Теперь тело находят. Гость, прошедший мимо и увидевший его, кричит на весь
+## зал — и вот это уже настоящая цена за убийство на виду. Каждое тело
+## находят один раз: дальше про него уже знают.
+var corpses: Array = []
+
+func note_corpse(a: Node) -> void:
+	if a != null and a not in corpses:
+		corpses.append(a)
+
+func forget_corpse(a: Node) -> void:
+	corpses.erase(a)
 
 ## ТЕМНОТА. Сколько ещё секунд в зале вырублен фоновый свет (рубильник на
 ## мостках). Пока идёт — все, кто в зале, видят вдвое ближе. Это единственное

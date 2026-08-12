@@ -145,6 +145,7 @@ func think(delta: float) -> void:
 	# Что видно вокруг — запоминается, даже если это не пугает. Гость,
 	# стоящий у входа за кулисы, видит всех, кто туда прошёл.
 	_watch_passers()
+	_find_bodies()
 
 	# любой монстр в поле зрения — паника, без вариантов. Но занятый гость
 	# смотрит хуже: танцующий не видит и того, что творится за спиной.
@@ -173,6 +174,28 @@ func _watch_passers() -> void:
 			note_seen(a, near_private)
 		elif a.carrying != null:
 			note_seen(a, "с кем-то на плече")
+
+## НАШЁЛ ТЕЛО. Это то, ради чего в клубе есть гримёрки, подсобки, тёмный двор
+## и возможность унести жертву на плече: убитый на виду будет найден, а
+## унесённый в подсобку — нет. Каждое тело находят один раз.
+##
+## Расстояние меряется тем же, чем и всё остальное: в темноте тело замечают
+## вдвое ближе, а обход по служебному коридору вообще может пройти мимо.
+func _find_bodies() -> void:
+	if Game.corpses.is_empty():
+		return
+	for c in Game.corpses:
+		if not is_instance_valid(c):
+			continue
+		if actor.global_position.distance_to(c.global_position) > 7.0 * Game.dark_factor():
+			continue
+		if not actor.has_line_of_sight(c):
+			continue
+		Game.forget_corpse(c)
+		Game.say("%s наткнулся на тело: «ТУТ ЧЕЛОВЕК ЛЕЖИТ!»" % actor.appearance_name, true)
+		Game.raise_alarm(c.global_position, 24.0, "death")
+		panic(c.global_position)
+		return
 
 func _zone_name(spot: Vector3) -> String:
 	if world == null:
