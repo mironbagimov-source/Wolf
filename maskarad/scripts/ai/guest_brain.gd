@@ -191,7 +191,9 @@ func _enter(m: int, t: float) -> void:
 	mode_time = t
 
 func _visible_monster() -> Actor:
-	var reach: float = 20.0 * lerp(0.35, 1.0, alertness())
+	# в темноте видно вдвое ближе — и это единственное, что рубильник даёт
+	# нечисти сверх картинки
+	var reach: float = 20.0 * lerp(0.35, 1.0, alertness()) * Game.dark_factor()
 	for a in Game.living(Data.Side.UNDEAD):
 		var obvious: bool = a.role == Data.Role.LICH or a.role == Data.Role.GHOUL \
 			or a.revealed_time > 0.0 or a.channel_kind == "drain" or Game.is_exposed(a) \
@@ -278,6 +280,12 @@ func hear(pos: Vector3, kind: String) -> void:
 			_remember_killer(pos)
 		"mob":
 			_enter(MOB, 2.5)
+		"blackout":
+			# свет вырубили — не паника, но все замерли и озираются
+			actor.scared_time = maxf(actor.scared_time, 2.5)
+			actor.mood_power = 0.55
+			if job == "":
+				_enter(MINGLE, 1.0)
 
 ## Резню видно издалека. Кто увидел, тот запоминает лицо и до конца ночи
 ## обходит его стороной — поэтому лич, начавший поножовщину, дальше работает

@@ -121,7 +121,7 @@ static func _height(kind: String, u: float, v: float) -> float:
 		"wood":
 			# ДОСКИ. Поперёк — стыки, вдоль — волокно, и оно гуляет.
 			var plank := v * 5.0
-			var row := floor(plank)
+			var row: float = floor(plank)
 			var edge: float = absf(plank - row - 0.5) * 2.0        # 0 в центре, 1 у стыка
 			var shift := _hash(int(row), 0, 5, 77) * 0.5           # у каждой доски свой сдвиг
 			var grain := sin((u * 26.0 + shift * 12.0 + _fbm(u, v, 3, 31) * 7.0) * TAU * 0.5)
@@ -135,7 +135,7 @@ static func _height(kind: String, u: float, v: float) -> float:
 			# КИРПИЧ. Ряды со сдвигом через один и раствор между ними.
 			var rows := 8.0
 			var ry := v * rows
-			var line := floor(ry)
+			var line: float = floor(ry)
 			var off: float = 0.5 if int(line) % 2 == 1 else 0.0
 			var rx := u * 4.0 + off
 			var ex: float = absf(rx - floor(rx) - 0.5) * 2.0
@@ -166,13 +166,13 @@ static func _tint(kind: String, u: float, v: float, h: float) -> Vector3:
 	var base := 0.66 + h * 0.34
 	match kind:
 		"wood":
-			var row := floor(v * 5.0)
+			var row: float = floor(v * 5.0)
 			var shade := 0.86 + _hash(int(row), 1, 5, 101) * 0.24   # каждая доска своего тона
 			return Vector3(base * shade, base * shade * 0.97, base * shade * 0.92)
 		"brick":
-			var line := floor(v * 8.0)
+			var line: float = floor(v * 8.0)
 			var off: float = 0.5 if int(line) % 2 == 1 else 0.0
-			var col := floor(u * 4.0 + off)
+			var col: float = floor(u * 4.0 + off)
 			var b := 0.80 + _hash(int(col), int(line), 8, 131) * 0.34
 			return Vector3(base * b, base * b * 0.93, base * b * 0.88)
 		"concrete":

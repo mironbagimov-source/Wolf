@@ -154,6 +154,8 @@ func _maybe_autotest() -> void:
 		_ritual_test.call_deferred()
 	if "--talktest" in args:
 		_talk_test.call_deferred()
+	if "--navcheck" in args:
+		_nav_check.call_deferred()
 	if "--armsweep" in args:
 		_arm_sweep.call_deferred()
 
@@ -956,6 +958,47 @@ func _carry_test() -> void:
 			break
 	print("[переноска] взял=%s, поднял на %.2f м, прошёл %.1f м, ноша отстала на %.2f м, вырвалась через %d кадров" % [
 		took, lifted, went, gap, broke])
+	get_tree().quit()
+
+## НАВМЕШ. Планировка, по которой нельзя пройти, — не планировка, а картинка.
+## Проверяем два вопроса по каждому важному месту: 1) есть ли там навмеш
+## вообще (насколько далеко ближайшая проходимая точка) и 2) ведёт ли туда
+## дорога от входа — то есть не отрезан ли кусок карты от остальной.
+func _nav_check() -> void:
+	for i in 40:
+		await get_tree().physics_frame
+	var map := get_viewport().world_3d.navigation_map
+	var start := Vector3(0, 0, 30)                # фойе: откуда заходят люди
+	var places := [
+		["танцпол", Vector3(0, 0, -4)],
+		["главная сцена", Vector3(0, 1.4, -20)],
+		["бар", Vector3(-24, 0, 2)],
+		["VIP-балкон", Vector3(24, 5.2, -6)],
+		["мостки", Vector3(0, 8.6, -19)],
+		["за кулисами", Vector3(0, 0, -32)],
+		["гримёрка 1", Vector3(-18, 0, -41)],
+		["гримёрка 4", Vector3(18, 0, -41)],
+		["служебный коридор", Vector3(36, 0, -16)],
+		["служебный, север", Vector3(36, 0, -26)],
+		["туалеты", Vector3(38, 0, 4)],
+		["склад", Vector3(-42, 0, -14)],
+		["щитовая", Vector3(-42, 0, -2)],
+		["гардероб", Vector3(-25, 0, 34)],
+		["загрузка", Vector3(-34, 0, -32)],
+	]
+	var start_on: Vector3 = NavigationServer3D.map_get_closest_point(map, start)
+	for p in places:
+		var want: Vector3 = p[1]
+		var got: Vector3 = NavigationServer3D.map_get_closest_point(map, want)
+		var miss: float = want.distance_to(got)
+		var path: PackedVector3Array = NavigationServer3D.map_get_path(map, start_on, got, true)
+		var walk := 0.0
+		for i in range(1, path.size()):
+			walk += path[i - 1].distance_to(path[i])
+		var end_gap: float = 999.0 if path.size() < 2 else path[path.size() - 1].distance_to(got)
+		var reached: bool = end_gap < 2.0
+		print("[навмеш] %-20s точка мимо на %.2f м | дорога от входа: %s, %.0f м (не дошла %.1f м)" % [
+			p[0], miss, "да" if reached else "НЕТ", walk, end_gap])
 	get_tree().quit()
 
 ## РАЗГОВОР. Проверяется главная жалоба: «заговорил с NPC — он сразу ушёл».

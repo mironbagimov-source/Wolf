@@ -52,6 +52,7 @@ func reset() -> void:
 	braziers_total = 0
 	blood_spots.clear()
 	exposed.clear()
+	blackout = 0.0
 	winner_side = -1
 	end_reason = ""
 	elapsed = 0.0
@@ -137,6 +138,7 @@ func _process(delta: float) -> void:
 	if state != State.PLAYING:
 		return
 	elapsed += delta
+	blackout = maxf(0.0, blackout - delta)
 	Actor.tick_ray_meter(delta)
 	if living_survivors().is_empty():
 		_finish(Data.Side.UNDEAD, "Людей не осталось.")
@@ -164,6 +166,15 @@ func raise_alarm(pos: Vector3, radius: float, kind: String) -> void:
 	if w != null and w.has_method("music_loudness"):
 		radius *= 1.0 - 0.6 * float(w.call("music_loudness", pos))
 	alarm_raised.emit(pos, radius, kind)
+
+## ТЕМНОТА. Сколько ещё секунд в зале вырублен фоновый свет (рубильник на
+## мостках). Пока идёт — все, кто в зале, видят вдвое ближе. Это единственное
+## в игре состояние, которое меняет правила сразу для всех, и потому его
+## слышно: щелчок щитка поднимает тревогу на пол-клуба.
+var blackout: float = 0.0
+
+func dark_factor() -> float:
+	return 0.45 if blackout > 0.0 else 1.0
 
 ## Кого видели за работой. Засвеченный монстр перестаёт быть частью толпы:
 ## от него бегут, едва увидев, и подойти он больше ни к кому не может.

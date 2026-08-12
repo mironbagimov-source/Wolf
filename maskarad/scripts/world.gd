@@ -42,6 +42,17 @@ var _mat_neon_pink: StandardMaterial3D
 var _mat_neon_blue: StandardMaterial3D
 var _mat_brick: StandardMaterial3D
 var _mat_grass: StandardMaterial3D
+## Материалы, которых раньше не было вовсе: всё железное красилось «тёмным»,
+## всё мягкое — «деревом». Разница видна сразу — металл ловит блик, ткань
+## его гасит, кафель отражает пол-зала.
+var _mat_metal: StandardMaterial3D
+var _mat_steel: StandardMaterial3D
+var _mat_tile: StandardMaterial3D
+var _mat_cloth: StandardMaterial3D
+var _mat_velvet: StandardMaterial3D
+var _mat_mirror: StandardMaterial3D
+var _mat_rubber: StandardMaterial3D
+var _mat_paper: StandardMaterial3D
 
 var _club_lights: Array = []
 var _env: Environment = null
@@ -108,12 +119,16 @@ func _build_club() -> void:
 	_club_bar()
 	_club_balcony()
 	_club_backstage()
+	_club_service()
 	_club_utility()
 	_club_wardrobe()
 	_club_toilets()
 	_club_light_rig()
+	# мостки строятся ПОСЛЕ фермы: щит на них рубит именно её лампы
+	_club_catwalk()
 	_club_music()
 	_club_doors()
+	_club_props()
 	_points_club()
 
 func _on_quality(_level: int) -> void:
@@ -129,26 +144,35 @@ func _process(delta: float) -> void:
 		l.light_energy = (0.55 + absf(sin(_t * 3.4 + i * 0.9)) * 0.9) * 3.0
 
 # ------------------------------------------------------------- материалы
+## Материалы карты. Каждый — не цвет, а ПОВЕРХНОСТЬ: у неё есть рисунок,
+## рельеф и своя шероховатость (см. `tex.gd`). Раньше здесь были девять
+## однотонных заливок, и весь клуб выглядел как чертёж в цвете.
+##
+## Второе число после цвета — масштаб рисунка в тайлах на метр: у бетона одна
+## заливка на два метра, у кафеля — плитка размером с ладонь.
 func _make_materials() -> void:
-	# Материалы стали светлее и глаже. Чёрный бетон при чёрном небе давал
-	# ровное ничто: стена, пол и потолок сливались в одно пятно, и внутри
-	# зала было не понять даже, где кончается пол.
-	_mat_asphalt = _mat(Color(0.16, 0.16, 0.19), 0.72, 0.0)
-	_mat_concrete = _mat(Color(0.38, 0.38, 0.41), 0.8, 0.0)
-	_mat_wood = _mat(Color(0.30, 0.20, 0.14), 0.7, 0.0)
-	_mat_dark = _mat(Color(0.13, 0.13, 0.16), 0.55, 0.05)
-	_mat_brick = _mat(Color(0.26, 0.17, 0.15), 0.95, 0.0)
-	_mat_grass = _mat(Color(0.09, 0.13, 0.09), 1.0, 0.0)
-	_mat_glass = _mat(Color(0.12, 0.18, 0.26), 0.12, 0.85)
+	_mat_asphalt = Tex.surface("asphalt", Color(0.18, 0.18, 0.21), 0.85, 0.0, 1.1, 1.3)
+	_mat_concrete = Tex.surface("concrete", Color(0.40, 0.40, 0.43), 0.86, 0.0, 0.7, 1.2)
+	_mat_wood = Tex.surface("wood", Color(0.34, 0.22, 0.15), 0.62, 0.0, 1.0, 1.4)
+	_mat_dark = Tex.surface("plaster", Color(0.14, 0.14, 0.17), 0.72, 0.0, 0.8, 1.0)
+	_mat_brick = Tex.surface("brick", Color(0.30, 0.19, 0.16), 0.94, 0.0, 1.2, 1.6)
+	_mat_grass = Tex.surface("grass", Color(0.10, 0.15, 0.10), 1.0, 0.0, 1.4, 0.9)
+	_mat_metal = Tex.surface("metal", Color(0.34, 0.33, 0.32), 0.42, 0.75, 1.2, 0.8)
+	_mat_steel = Tex.surface("metal", Color(0.55, 0.57, 0.60), 0.28, 0.9, 1.6, 0.6)
+	_mat_tile = Tex.surface("tile", Color(0.62, 0.66, 0.68), 0.20, 0.0, 1.0, 1.0)
+	_mat_cloth = Tex.surface("cloth", Color(0.24, 0.22, 0.26), 0.95, 0.0, 2.4, 0.8)
+	_mat_velvet = Tex.surface("cloth", Color(0.32, 0.08, 0.14), 0.98, 0.0, 2.2, 0.9)
+	_mat_rubber = Tex.surface("plaster", Color(0.09, 0.09, 0.10), 0.98, 0.0, 2.0, 0.7)
+	_mat_paper = Tex.surface("plaster", Color(0.72, 0.68, 0.60), 0.9, 0.0, 1.4, 0.4)
+	# Стекло и зеркало рисунка не имеют по определению: любая шероховатость
+	# на них — это уже не стекло.
+	_mat_glass = Tex.plain(Color(0.12, 0.18, 0.26), 0.06, 0.55)
+	_mat_mirror = Tex.plain(Color(0.78, 0.80, 0.84), 0.03, 1.0)
 	_mat_neon_pink = _emissive(Color(1.0, 0.15, 0.55), 6.0)
 	_mat_neon_blue = _emissive(Color(0.2, 0.55, 1.0), 6.0)
 
 func _mat(c: Color, rough: float, metal: float) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = c
-	m.roughness = rough
-	m.metallic = metal
-	return m
+	return Tex.plain(c, rough, metal)
 
 func _emissive(c: Color, energy: float) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -243,11 +267,15 @@ func _club_shell() -> void:
 	# восток — к туалетам и лестнице на балкон.
 	# Двери за кулисы — по КРАЯМ сцены, а не по центру: посередине северной
 	# стены стоит сама сцена с задником, и проём там вёл бы в стену.
+	# Восточных проёмов теперь два: один к туалетам, второй — в служебный
+	# коридор. Второй выход из зала на ту же сторону и есть половина всей
+	# разницы между «комнатой» и «клубом»: за человеком, свернувшим направо,
+	# уже нельзя просто пойти следом — он мог уйти двумя путями.
 	_walls(0, 0, HALL_W, HALL_D, CLUB_H, {
 		"s": [[-8.0, 6.0], [10.0, 5.0]],
 		"n": [[-22.0, 4.0], [22.0, 4.0]],
 		"w": [[-14.0, 4.0], [12.0, 4.0]],
-		"e": [[4.0, 4.0]],
+		"e": [[4.0, 4.0], [-22.0, 4.0]],
 	})
 
 	# фойе со входом с улицы
@@ -270,9 +298,13 @@ func _club_shell() -> void:
 func _club_stages() -> void:
 	# ---- ГЛАВНАЯ СЦЕНА у северной стены
 	_box(Vector3(0, 0.7, -20), Vector3(30, 1.4, 10), _mat_concrete)
-	# ступени сбоку
-	for i in 3:
-		_box(Vector3(-16.5, 0.23 + i * 0.46, -20), Vector3(2.0, 0.46, 10.0 - i * 2.0), _mat_concrete)
+	# СТУПЕНИ СПЕРЕДИ, а не сбоку. Сбоку они упирались прямо в портальную
+	# колонну сцены: подняться по ним было нельзя, и вся сцена оставалась
+	# отрезанным от навмеша островом — диджей не мог встать за собственный
+	# пульт, хотя место для него было расставлено.
+	for x in [-9.0, 9.0]:
+		_box(Vector3(x, 0.23, -13.6), Vector3(5.0, 0.46, 1.0), _mat_concrete)
+		_box(Vector3(x, 0.46, -14.6), Vector3(5.0, 0.92, 1.0), _mat_concrete)
 	# задник и портал
 	_box(Vector3(0, 6.0, -25.4), Vector3(30, 9.0, 0.6), _mat_dark)
 	for x in [-15.0, 15.0]:
@@ -354,15 +386,18 @@ func _club_balcony() -> void:
 ## ЗА КУЛИСАМИ: коридор во всю ширину сцены и четыре ГРИМЁРКИ, в каждую одна
 ## дверь. Именно сюда уводят, и именно поэтому за сценой всегда пусто.
 func _club_backstage() -> void:
-	# коридор
-	_slab(0, -32, 50, 8, _mat_concrete)
-	_ceiling(0, -32, 50, 8, 4.0)
-	_walls(0, -32, 50, 8, 4.0, {
-		"s": [[-22.0, 4.0], [22.0, 4.0]],
-		"n": [[-18.0, 3.0], [-6.0, 3.0], [6.0, 3.0], [18.0, 3.0]],
+	# Коридор тянется до восточной стены: раньше он кончался за сценой и за
+	# кулисы вёл ровно один путь с каждой стороны зала. Теперь его восточный
+	# конец выходит в служебный коридор, и «за кулисы» перестало быть тупиком,
+	# в котором человека можно запереть одним телом в дверях.
+	_slab(9, -32, 68, 8, _mat_concrete)
+	_ceiling(9, -32, 68, 8, 4.0)
+	_walls(9, -32, 68, 8, 4.0, {
+		"s": [[-31.0, 4.0], [13.0, 4.0], [28.0, 12.0]],
+		"n": [[-27.0, 3.0], [-15.0, 3.0], [-3.0, 3.0], [9.0, 3.0]],
 		"w": [[0.0, 3.0]],
 	})
-	for x in [-16.0, 0.0, 16.0]:
+	for x in [-16.0, 0.0, 16.0, 32.0]:
 		_hanging_lamp(Vector3(x, 3.6, -32), Color(1.0, 0.9, 0.72), 0.9)
 
 	# четыре гримёрки
@@ -373,12 +408,13 @@ func _club_backstage() -> void:
 		_walls(x, -41, 11, 10, 3.6, {"s": [[0.0, 3.0]]})
 		# столик с зеркалом и лампочками — по ним гримёрка и узнаётся
 		_box(Vector3(x, 0.75, -45.0), Vector3(6.0, 0.12, 1.2), _mat_wood)
-		_box(Vector3(x, 1.9, -45.6), Vector3(5.0, 2.0, 0.15), _mat_glass)
+		_box(Vector3(x, 1.9, -45.6), Vector3(5.0, 2.0, 0.15), _mat_mirror)
 		for k in range(5):
 			_glow(Vector3(x - 2.0 + k * 1.0, 3.0, -45.5),
 				Vector3(0.16, 0.16, 0.08), _emissive(Color(1, 0.92, 0.72), 3.0))
-		_box(Vector3(x - 4.2, 0.45, -38.0), Vector3(1.4, 0.9, 1.4), _mat_dark)   # пуф
-		_hanging_lamp(Vector3(x, 3.2, -41), Color(1.0, 0.88, 0.68), 0.8)
+		_box(Vector3(x - 4.2, 0.45, -38.0), Vector3(1.4, 0.9, 1.4), _mat_velvet)   # пуф
+		var room_lamp := _hanging_lamp(Vector3(x, 3.2, -41), Color(1.0, 0.88, 0.68), 0.8)
+		_switch(Vector3(x + 2.0, 1.4, -36.4), PI, [room_lamp], "свет")
 		private_spots.append(Vector3(x, 0, -41))
 		zones.append({"name": "Гримёрка %d" % (i + 1), "pos": Vector3(x, 0, -41),
 			"half": Vector2(5.5, 5.0), "kind": "private"})
@@ -399,14 +435,17 @@ func _club_utility() -> void:
 	var rooms := [
 		{"name": "Склад", "z": -14.0, "mat": _mat_concrete},
 		{"name": "Щитовая", "z": -2.0, "mat": _mat_dark},
-		{"name": "Холодильник", "z": 12.0, "mat": _mat_glass},
+		{"name": "Холодильник", "z": 12.0, "mat": _mat_tile},
 	]
 	for r in rooms:
 		var z: float = r["z"]
 		_slab(-42, z, 10, 10, r["mat"])
 		_ceiling(-42, z, 10, 10, 3.6)
 		_walls(-42, z, 10, 10, 3.6, {"e": [[0.0, 3.0]]})
-		_hanging_lamp(Vector3(-42, 3.2, z), Color(0.8, 0.85, 0.9), 0.6)
+		var lamp := _hanging_lamp(Vector3(-42, 3.2, z), Color(0.8, 0.85, 0.9), 0.6)
+		# выключатель у самой двери — как в жизни, и это важно: заходя в тёмную
+		# подсобку, ты либо щёлкаешь им и объявляешь о себе, либо идёшь вслепую
+		_switch(Vector3(-37.4, 1.4, z + 2.4), -PI * 0.5, [lamp], str(r["name"]).to_lower())
 		private_spots.append(Vector3(-42, 0, z))
 		zones.append({"name": r["name"], "pos": Vector3(-42, 0, z),
 			"half": Vector2(5, 5), "kind": "private"})
@@ -461,25 +500,98 @@ func _club_wardrobe() -> void:
 			# нычка — прямо перед дверцей шкафа, со стороны прохода
 			hide_spots.append(Vector3(x, 0, z + (1.3 if row == 0 else -1.3)))
 
-	# ещё шкафы за кулисами: артисты держат костюмы там
+	# Ещё шкафы за кулисами: артисты держат костюмы там. Стоят В ПРОСТЕНКЕ
+	# между гримёрками, а не напротив дверей: раньше они перекрывали вход в
+	# первую гримёрку целиком, и попасть в неё было нельзя вообще.
 	for k in range(4):
-		var x: float = -22.0 + k * 2.4
-		_box(Vector3(x, 1.1, -35.4), Vector3(2.0, 2.2, 1.0), _mat_wood)
+		var x: float = -14.5 + k * 1.8
+		_box(Vector3(x, 1.1, -35.4), Vector3(1.7, 2.2, 1.0), _mat_wood)
 		hide_spots.append(Vector3(x, 0, -34.4))
 
 ## ТУАЛЕТЫ на востоке: кабинки, в которые уходят по одному, и куда за тобой
 ## никто не пойдёт — пока не станет поздно.
 func _club_toilets() -> void:
-	_slab(38, 4, 14, 16, _mat_glass)
+	_slab(38, 4, 14, 16, _mat_tile)
 	_ceiling(38, 4, 14, 16, 3.6)
-	_walls(38, 4, 14, 16, 3.6, {"w": [[0.0, 3.0]]})
-	_hanging_lamp(Vector3(38, 3.2, 4), Color(0.75, 0.85, 0.95), 0.9)
+	# второй выход — на север, в служебный коридор: из туалета есть куда деться
+	_walls(38, 4, 14, 16, 3.6, {"w": [[0.0, 3.0]], "n": [[-2.0, 4.0]]})
+	var wc_lamp := _hanging_lamp(Vector3(38, 3.2, 4), Color(0.75, 0.85, 0.95), 0.9)
+	_switch(Vector3(32.4, 1.4, 6.0), PI * 0.5, [wc_lamp], "свет в туалете")
 	for k in range(4):
 		var z: float = -1.0 + k * 3.0
-		_box(Vector3(42.0, 1.1, z), Vector3(4.0, 2.2, 0.2), _mat_concrete)
+		_box(Vector3(42.0, 1.1, z), Vector3(4.0, 2.2, 0.2), _mat_tile)
 		hide_spots.append(Vector3(42.0, 0, z + 1.5))
 	zones.append({"name": "Туалеты", "pos": Vector3(38, 0, 4),
 		"half": Vector2(7, 8), "kind": "private"})
+
+## СЛУЖЕБНЫЙ КОРИДОР вдоль восточной стены. Соединяет туалеты, зал и закулисье
+## в кольцо — и это, а не квадратные метры, отличает большое помещение от
+## иммерсивного сима.
+##
+## Пока путь был один, вся тактика сводилась к «кто первый в дверях». Кольцо
+## ломает это с обеих сторон: жертву можно увести в обход толпы, а от погони
+## можно уйти не по прямой. Стены у него только с востока — с запада стоит
+## стена зала, и вторая в тех же сантиметрах превратила бы навмеш в решето.
+func _club_service() -> void:
+	_slab(34, -16, 18, 24, _mat_concrete)
+	_ceiling(37, -16, 12, 24, 4.2)
+	_walls(37, -16, 12, 24, 4.2, {
+		"s": [[0.0, 12.0]],           # к туалетам — там своя стена со своей дверью
+		"n": [[0.0, 12.0]],           # к закулисью
+		"w": [[0.0, 24.0]],           # стена зала уже стоит здесь
+	})
+	for z in [-24.0, -12.0]:
+		_hanging_lamp(Vector3(37, 3.8, z), Color(0.86, 0.88, 0.8), 0.7)
+	zones.append({"name": "Служебный коридор", "pos": Vector3(36, 0, -16),
+		"half": Vector2(7, 12), "kind": "dark"})
+	private_spots.append(Vector3(36, 0, -20))
+
+	# по коридору идут трубы и кабель-каналы: за ними и прячутся
+	for z in range(-27, -4, 3):
+		_box(Vector3(42.6, 3.4, float(z)), Vector3(0.5, 0.5, 2.6), _mat_metal, false)
+	for k in range(3):
+		_box(Vector3(41.4, 0.9, -22.0 + k * 7.0), Vector3(1.6, 1.8, 1.4), _mat_metal)
+		hide_spots.append(Vector3(39.6, 0, -22.0 + k * 7.0))
+
+## МОСТКИ НАД СЦЕНОЙ. Технический ярус: отсюда вешают свет, и отсюда видно
+## весь зал сверху.
+##
+## Вертикаль в социальном хорроре стоит дороже, чем кажется. Сверху человек
+## видит, кто с кем и куда пошёл, — то есть получает то, чего у него нет
+## внизу: обзор. Но подняться можно только с балкона, и пока ты наверху, ты
+## не зажигаешь прожекторы и не подходишь ни к кому: смотреть — это тоже трата
+## ночи. Для нечисти это наоборот засада с потолком: сверху не видно ничего,
+## что делается под мостками, зато спрыгнуть можно куда угодно.
+const CATWALK_Y := 8.6
+
+func _club_catwalk() -> void:
+	# лестница с балкона: ступени пологие, иначе по ним не пройдёт навмеш
+	var steps := 14
+	for i in steps:
+		_box(Vector3(11.0, 5.2 + 0.12 + i * 0.24, -6.0 - i * 0.9),
+			Vector3(2.6, 0.24, 0.9), _mat_metal)
+
+	# сами мостки: полоса вдоль сцены и поперечина к центру зала
+	_box(Vector3(0, CATWALK_Y - 0.1, -19.0), Vector3(34.0, 0.2, 2.2), _mat_metal)
+	_box(Vector3(6.0, CATWALK_Y - 0.1, -12.0), Vector3(2.2, 0.2, 16.0), _mat_metal)
+	_box(Vector3(9.0, CATWALK_Y - 0.1, -18.6), Vector3(6.0, 0.2, 2.2), _mat_metal)
+	# перила — только картинка: коллизия на них закрыла бы проход в навмеше
+	for z in [-20.2, -17.8]:
+		_box(Vector3(0, CATWALK_Y + 0.5, z), Vector3(34.0, 0.06, 0.06), _mat_steel, false)
+		for x in range(-16, 17, 4):
+			_box(Vector3(float(x), CATWALK_Y + 0.25, z), Vector3(0.05, 0.5, 0.05), _mat_steel, false)
+	zones.append({"name": "Мостки", "pos": Vector3(0, 0, -19),
+		"half": Vector2(17, 3), "kind": "dark"})
+
+	# ЩИТ СВЕТОВОЙ ФЕРМЫ. Ради него сюда и лезут: отсюда вырубается весь
+	# фоновый свет зала разом.
+	var breaker_lights: Array = []
+	for l in _club_lights:
+		breaker_lights.append(l)
+	_light_board = _switch(Vector3(6.0, CATWALK_Y + 1.2, -5.0), 0.0, breaker_lights,
+		"свет фермы", "breaker")
+
+var _light_board: Node = null
 
 ## Свет зала. Он и есть половина клуба: под бегающими цветными лучами лица
 ## читаются плохо, и именно поэтому вампир держится танцпола.
@@ -506,8 +618,17 @@ func _club_doors() -> void:
 	_door(Vector3(-22.0, 0, -26.0), 4.0, 0.0, "за кулисы")
 	_door(Vector3(22.0, 0, -26.0), 4.0, 0.0, "за кулисы")
 	_door(Vector3(31.0, 0, 4.0), 4.0, PI * 0.5, "туалеты")
+	_door(Vector3(31.0, 0, -22.0), 4.0, PI * 0.5, "служебный ход")
+	_door(Vector3(36.0, 0, -4.0), 4.0, 0.0, "туалеты")
 	_door(Vector3(-17.0, 0, 34.0), 4.0, PI * 0.5, "гардероб")
 	_door(Vector3(-25.0, 0, -32.0), 3.0, PI * 0.5, "загрузка")
+
+	# ГРУЗОВОЙ ЛИФТ: со двора загрузки прямо на балкон. По нему поднимают
+	# аппаратуру — и по нему же на второй ярус попадают, минуя лестницу,
+	# у которой всегда кто-то стоит. Второй путь наверх меняет балкон
+	# целиком: он перестаёт быть тупиком с одним входом.
+	_lift(Vector3(-27, 0, -28.0), Vector3(16, 5.4, -16.0), "грузовой лифт — наверх")
+	_lift(Vector3(16, 5.2, -17.4), Vector3(-27, 0.2, -30.0), "грузовой лифт — вниз")
 
 ## Колонки клуба. Звука в игре нет, но колонки остались — и остались не как
 ## мебель: по ним считается, где музыка ГЛУШИТ шум. Тревога у главной сцены
@@ -572,6 +693,128 @@ func _club_light_rig() -> void:
 	_lamp_at(Vector3(-42, 0, -2), "щитовая")
 	_lamp_at(Vector3(-25, 0, 34), "гардероб")
 	_lamp_at(Vector3(24, 5.2, -6), "VIP-балкон")
+	_lamp_at(Vector3(36, 0, -14), "служебный коридор")
+
+## ЧЕМ ЗАСТАВЛЕН КЛУБ. Без этого зал остаётся чертежом: коробка, коробка,
+## коробка. Предмет здесь нужен не для красоты — по нему читается, что это за
+## место и что в нём делают. Пустая гримёрка и гримёрка с вешалкой костюмов —
+## это две разные комнаты, хотя стены одинаковые.
+##
+## Отдельная работа сделана над тем, чего в клубе НЕ должно быть видно:
+## кабели по полу, трубы под потолком, ящики в проходах, вешалки в углах.
+## Именно они превращают помещение в место, где кто-то работает, — а значит,
+## в место, где можно спрятаться за чужой работой.
+func _club_props() -> void:
+	# ---- БАР: бутылки на задней полке, стаканы на стойке, кеги и краны
+	_bottles(Vector3(-29.0, 3.05, -12.0), 18, Vector3(0, 0, 1.5), 0)
+	_bottles(Vector3(-29.0, 2.15, -11.0), 16, Vector3(0, 0, 1.7), 3)
+	_glassware(Vector3(-26.4, 1.2, -10.0), 14, Vector3(0, 0, 1.6))
+	for i in 4:
+		_cyl(Vector3(-26.0, 1.35, -6.0 + i * 0.5), 0.03, 0.3, _mat_steel)   # краны
+	for i in 3:
+		_barrel(Vector3(-29.2, 0, 12.0 + i * 1.0))
+	_box(Vector3(-28.6, 0.75, 6.0), Vector3(1.2, 1.5, 2.4), _mat_steel)      # холодильник
+	for z in [-16.0, -2.0, 12.0]:
+		_poster(Vector3(-29.6, 4.6, z), PI * 0.5, Color(0.5, 0.12, 0.3))
+
+	# ---- СЦЕНА: мониторы, стойка микрофона, кофры, ферма над задником
+	for x in [-6.0, 6.0]:
+		_box(Vector3(x, 1.7, -16.2), Vector3(1.1, 0.6, 0.7), _mat_dark)
+	_cyl(Vector3(-3.0, 2.2, -19.0), 0.03, 1.6, _mat_steel)
+	_box(Vector3(-3.0, 3.0, -19.0), Vector3(0.09, 0.09, 0.2), _mat_dark, false)
+	for i in 4:
+		_crate(Vector3(-13.0 + i * 1.3, 1.72, -23.5), Vector3(1.1, 0.65, 0.8))
+	for x in range(-14, 15, 7):
+		_pipe(Vector3(float(x), 10.6, -25.0), Vector3(float(x), 10.6, -14.0), 0.06, _mat_steel)
+	# кабели со сцены в зал: под ногами, и это видно
+	for i in 5:
+		var z0 := -14.6 + i * 0.14
+		_pipe(Vector3(-2.0 + i * 1.0, 0.05, z0), Vector3(-6.0 + i * 2.2, 0.05, -6.0), 0.035, _mat_rubber)
+
+	# ---- ЗАЛ: колонны с афишами, урны, кадки, дым-машина
+	for p in [Vector3(-20, 0, 22), Vector3(20, 0, 22), Vector3(-8, 0, 24), Vector3(8, 0, 24)]:
+		_plant(p)
+	for p in [Vector3(-30.2, 3.2, 20.0), Vector3(30.2, 3.2, 20.0)]:
+		_poster(p, 0.0, Color(0.14, 0.3, 0.52))
+	_box(Vector3(-12.0, 0.3, -14.0), Vector3(0.8, 0.6, 0.5), _mat_metal)       # дым-машина
+	for x in [-30.4, 30.4]:
+		_exit_sign(Vector3(x, 3.4, 4.0), PI * 0.5 * signf(x))
+	_exit_sign(Vector3(0, 3.4, 25.6), PI)
+
+	# ---- ФОЙЕ: касса, ограждение с канатом, урна, афиши
+	_box(Vector3(-12.0, 0.55, 30.0), Vector3(4.0, 1.1, 1.0), _mat_wood)
+	_glassware(Vector3(-13.0, 1.2, 30.0), 3, Vector3(0.4, 0, 0))
+	for i in 5:
+		_cyl(Vector3(-4.0 + i * 2.0, 0.5, 27.0), 0.06, 1.0, _mat_steel)
+		if i < 4:
+			_pipe(Vector3(-4.0 + i * 2.0, 0.92, 27.0), Vector3(-2.0 + i * 2.0, 0.78, 27.0),
+				0.03, _mat_velvet)
+	_cyl(Vector3(12.0, 0.4, 30.0), 0.26, 0.8, _mat_metal)                     # урна
+	for i in 3:
+		_poster(Vector3(-16.6, 2.6, 30.0 + i * 3.0), PI * 0.5, Color(0.42, 0.10, 0.22))
+
+	# ---- ЗАКУЛИСЬЕ: вешалки, кофры, тележка, трубы, огнетушители
+	for x in [-20.0, -8.0, 8.0, 20.0]:
+		_rack(Vector3(x, 0, -29.4), 2.6)
+	_cart(Vector3(-24.0, 0, -31.0))
+	_cart(Vector3(26.0, 0, -33.0))
+	for i in 6:
+		_crate(Vector3(10.0 + i * 1.4, 0.45, -34.6), Vector3(1.2, 0.9, 1.0))
+	for x in range(-22, 40, 8):
+		_pipe(Vector3(float(x) - 4.0, 3.7, -34.6), Vector3(float(x) + 4.0, 3.7, -34.6),
+			0.08, _mat_metal)
+	for x in [-24.0, 0.0, 24.0]:
+		_extinguisher(Vector3(x, 0, -28.6))
+	_exit_sign(Vector3(-24.6, 3.2, -32.0), -PI * 0.5)
+
+	# ---- ГРИМЁРКИ: стулья, банки на столике, костюм на вешалке
+	for x in [-18.0, -6.0, 6.0, 18.0]:
+		for k in 2:
+			_box(Vector3(x - 1.6 + k * 3.2, 0.44, -43.6), Vector3(0.5, 0.06, 0.5), _mat_wood, false)
+			for a in 4:
+				_cyl(Vector3(x - 1.6 + k * 3.2 + (0.2 if a % 2 == 0 else -0.2), 0.22,
+					-43.6 + (0.2 if a < 2 else -0.2)), 0.025, 0.44, _mat_steel)
+		_bottles(Vector3(x - 2.2, 0.81, -45.0), 6, Vector3(0.34, 0, 0), 7)
+		_rack(Vector3(x + 4.0, 0, -41.0), 1.8)
+
+	# ---- ПОДСОБКИ: ящики, бочки, трубы, щиты
+	for k in 5:
+		_crate(Vector3(-45.0 + k * 1.6, 0.5, -10.6), Vector3(1.3, 1.0, 1.1))
+	for k in 3:
+		_barrel(Vector3(-39.5, 0, 9.5 + k * 1.1))
+	for z in range(-16, 16, 6):
+		_pipe(Vector3(-46.0, 3.3, float(z)), Vector3(-46.0, 3.3, float(z) + 5.0), 0.07, _mat_metal)
+	for z in [-14.0, -2.0, 12.0]:
+		_extinguisher(Vector3(-37.6, 0, z - 3.0))
+
+	# ---- ГАРДЕРОБ: пальто на перекладине и номерки на стойке
+	for row in 2:
+		_rack(Vector3(-30.0 + row * 8.0, 0, 34.0), 5.0)
+	_glassware(Vector3(-28.0, 1.15, 28.5), 8, Vector3(0.7, 0, 0))
+	_exit_sign(Vector3(-17.4, 3.4, 34.0), PI * 0.5)
+
+	# ---- ТУАЛЕТЫ: раковины, зеркала, сушилка
+	for k in 3:
+		_box(Vector3(33.0, 0.85, -1.0 + k * 2.0), Vector3(1.0, 0.14, 0.6), _mat_tile, false)
+		_cyl(Vector3(33.2, 1.05, -1.0 + k * 2.0), 0.02, 0.22, _mat_steel)
+		_box(Vector3(32.4, 1.7, -1.0 + k * 2.0), Vector3(0.08, 1.0, 0.8), _mat_mirror, false)
+	_box(Vector3(33.0, 1.4, 6.0), Vector3(0.3, 0.3, 0.4), _mat_steel, false)
+
+	# ---- БАЛКОН: столики, бутылки, пепельницы поверх уже стоящих диванов
+	for z in [-14.0, -8.0, -2.0, 4.0]:
+		_box(Vector3(20.4, 5.6, z), Vector3(1.0, 0.08, 1.0), _mat_wood, false)
+		for a in 4:
+			_cyl(Vector3(20.4 + (0.4 if a % 2 == 0 else -0.4), 5.4,
+				z + (0.4 if a < 2 else -0.4)), 0.03, 0.4, _mat_steel)
+		_bottles(Vector3(20.2, 5.65, z - 0.2), 3, Vector3(0.22, 0, 0), 5)
+	_poster(Vector3(30.6, 7.4, -6.0), -PI * 0.5, Color(0.5, 0.14, 0.34))
+
+	# ---- ЗАГРУЗКА: поддоны, бухты кабеля, мусор
+	for k in 3:
+		_crate(Vector3(-36.0 + k * 2.2, 0.5, -35.0), Vector3(1.8, 1.0, 1.4))
+	for k in 2:
+		_cyl(Vector3(-31.0, 0.12, -35.0 + k * 1.4), 0.55, 0.24, _mat_rubber)
+	_exit_sign(Vector3(-34.0, 3.4, -25.4), 0.0)
 
 ## Точки клуба: куда ходит толпа, где стоят кучками, где кто работает.
 func _points_club() -> void:
@@ -583,6 +826,9 @@ func _points_club() -> void:
 		Vector3(0, 0, 34), Vector3(-25, 0, 34), Vector3(38, 0, 4), Vector3(20, 0, 14),
 		Vector3(24, 5.2, -6), Vector3(20, 5.2, 2), Vector3(0, 0, -32), Vector3(-42, 0, -2),
 		Vector3(-18, 0, -41), Vector3(6, 0, -41), Vector3(-34, 0, 6), Vector3(-34, 0, -12),
+		# служебное кольцо: по нему тоже ходят, иначе новый коридор будет
+		# читаться как декорация, в которую никто не заходит
+		Vector3(36, 0, -10), Vector3(36, 0, -24), Vector3(32, 0, -32), Vector3(38, 0, -6),
 	]:
 		wander_points.append(p)
 
@@ -636,6 +882,9 @@ func _points_club() -> void:
 		_add_job("sleep", p)
 	_add_job("work", Vector3(-42, 0, -14), Vector3(1, 0, 0))
 	_add_job("work", Vector3(-36, 0, -32), Vector3(1, 0, 0))
+	_add_job("work", Vector3(36, 0, -20), Vector3(-1, 0, 0))
+	_add_job("guard", Vector3(36, 0, -6), Vector3(0, 0, -1))
+	_add_job("smoke", Vector3(-30, 0, -33), Vector3(1, 0, 0))
 
 func _build_wharf() -> void:
 	var water := _mat(Color(0.04, 0.07, 0.10), 0.25, 0.3)
@@ -941,7 +1190,7 @@ func _box(pos: Vector3, size: Vector3, mat: StandardMaterial3D, solid: bool = tr
 		region.add_child(sb)
 	return mi
 
-func _glow(pos: Vector3, size: Vector3, mat: StandardMaterial3D) -> void:
+func _glow(pos: Vector3, size: Vector3, mat: StandardMaterial3D) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var mesh := BoxMesh.new()
 	mesh.size = size
@@ -949,6 +1198,7 @@ func _glow(pos: Vector3, size: Vector3, mat: StandardMaterial3D) -> void:
 	mi.material_override = mat
 	mi.position = pos
 	add_child(mi)
+	return mi
 
 func _neon_sign(pos: Vector3, text: String, side: bool = false) -> void:
 	var l := Label3D.new()
@@ -963,6 +1213,174 @@ func _neon_sign(pos: Vector3, text: String, side: bool = false) -> void:
 	if side:
 		l.rotation.y = PI / 2
 	add_child(l)
+
+# ------------------------------------------------------------- мелочёвка
+## Предметы. Их много и они почти все БЕЗ коллизии — по делу: на карту с
+## навмешем, испечённым один раз, каждая лишняя коробка ставит дырку, в
+## которую упираются боты. Стоящее на полу — картинка; загораживает дорогу
+## только то, что должно (стеллаж, ящик, диван).
+func _cyl(pos: Vector3, r: float, h: float, mat: StandardMaterial3D,
+		axis: int = 1) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = r
+	cm.bottom_radius = r
+	cm.height = h
+	cm.radial_segments = 8
+	mi.mesh = cm
+	mi.material_override = mat
+	mi.position = pos
+	if axis == 0:
+		mi.rotation.z = PI * 0.5
+	elif axis == 2:
+		mi.rotation.x = PI * 0.5
+	region.add_child(mi)
+	return mi
+
+## Бутылки на полке и на стойке. Мелочь, но именно из-за неё бар перестаёт
+## быть доской, поставленной на ребро.
+func _bottles(at: Vector3, count: int, along: Vector3, seed_shift: int) -> void:
+	for i in count:
+		var t := float(i)
+		var c := Color(0.15 + fmod(t * 0.37 + seed_shift, 1.0) * 0.5,
+			0.12 + fmod(t * 0.61, 1.0) * 0.35, 0.10 + fmod(t * 0.23, 1.0) * 0.3, 1.0)
+		var m := Tex.plain(c, 0.12, 0.1)
+		var h := 0.26 + fmod(t * 0.41, 1.0) * 0.14
+		var p: Vector3 = at + along * t
+		_cyl(p + Vector3(0, h * 0.5, 0), 0.035, h, m)
+		_cyl(p + Vector3(0, h + 0.05, 0), 0.014, 0.1, m)
+
+func _glassware(at: Vector3, count: int, along: Vector3) -> void:
+	var m := Tex.plain(Color(0.72, 0.78, 0.8), 0.05, 0.2)
+	for i in count:
+		_cyl(at + along * float(i) + Vector3(0, 0.06, 0), 0.035, 0.12, m)
+
+func _crate(at: Vector3, size: Vector3, solid: bool = true) -> void:
+	_box(at, size, _mat_wood, solid)
+	# планки по рёбрам — иначе ящик неотличим от куба
+	_box(at + Vector3(0, size.y * 0.34, 0), size * Vector3(1.02, 0.06, 1.02), _mat_dark, false)
+	_box(at - Vector3(0, size.y * 0.34, 0), size * Vector3(1.02, 0.06, 1.02), _mat_dark, false)
+
+func _barrel(at: Vector3) -> void:
+	_cyl(at + Vector3(0, 0.44, 0), 0.32, 0.88, _mat_metal)
+	for y in [0.24, 0.64]:
+		_cyl(at + Vector3(0, y, 0), 0.34, 0.06, _mat_steel)
+
+## Труба или кабель-канал вдоль потолка. Читается как «служебное помещение»
+## быстрее любой вывески.
+func _pipe(from: Vector3, to: Vector3, r: float, mat: StandardMaterial3D) -> void:
+	var mid := (from + to) * 0.5
+	var d := to - from
+	var mi := _cyl(mid, r, d.length(), mat)
+	if d.length() > 0.001:
+		mi.rotation = Vector3.ZERO
+		var up := Vector3.UP
+		var dir := d.normalized()
+		if absf(dir.dot(up)) < 0.999:
+			mi.look_at_from_position(mid, mid + dir, up)
+			mi.rotate_object_local(Vector3.RIGHT, PI * 0.5)
+
+## Афиша на стене. Свет по ней ходит, и в тёмном коридоре она читается как
+## единственное цветное пятно.
+func _poster(at: Vector3, yaw: float, c: Color) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(1.1, 1.6, 0.03)
+	mi.mesh = bm
+	mi.material_override = Tex.surface("plaster", c, 0.85, 0.0, 1.2, 0.3)
+	mi.position = at
+	mi.rotation.y = yaw
+	region.add_child(mi)
+	_box(at + Vector3(0, 0.86, 0), Vector3(1.16, 0.06, 0.05), _mat_steel, false)
+
+## Табличка «выход». Единственный источник света, который никогда не гаснет, —
+## и потому единственный ориентир, когда вырубили щиток.
+func _exit_sign(at: Vector3, yaw: float) -> void:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.7, 0.24, 0.06)
+	mi.mesh = bm
+	mi.material_override = _emissive(Color(0.25, 0.95, 0.4), 3.4)
+	mi.position = at
+	mi.rotation.y = yaw
+	add_child(mi)
+	var l := OmniLight3D.new()
+	l.light_color = Color(0.3, 1.0, 0.45)
+	l.light_energy = 0.35
+	l.omni_range = 5.0
+	l.position = at
+	add_child(l)
+
+func _extinguisher(at: Vector3) -> void:
+	_cyl(at + Vector3(0, 0.3, 0), 0.09, 0.6, Tex.plain(Color(0.62, 0.10, 0.10), 0.4, 0.2))
+	_cyl(at + Vector3(0, 0.66, 0), 0.03, 0.14, _mat_steel)
+
+## Стойка с костюмами: перекладина и висящая ткань. За ней не видно человека —
+## это лучшая нычка закулисья.
+func _rack(at: Vector3, length: float) -> void:
+	for s in [-1.0, 1.0]:
+		_cyl(at + Vector3(0, 0.85, s * length * 0.5), 0.03, 1.7, _mat_steel)
+		_box(at + Vector3(0, 0.02, s * length * 0.5), Vector3(0.5, 0.04, 0.5), _mat_steel, false)
+	_cyl(at + Vector3(0, 1.68, 0), 0.025, length, _mat_steel, 2)
+	var n := int(length / 0.22)
+	for i in n:
+		var z: float = -length * 0.5 + 0.11 + i * 0.22
+		var c := Color(0.18 + fmod(i * 0.29, 1.0) * 0.4, 0.10 + fmod(i * 0.53, 1.0) * 0.3,
+			0.16 + fmod(i * 0.17, 1.0) * 0.4)
+		_box(at + Vector3(0, 1.05, z), Vector3(0.42, 1.1, 0.16),
+			Tex.surface("cloth", c, 0.95, 0.0, 2.4, 0.7), false)
+
+## Тележка для белья. Сюда, вообще-то, помещается человек.
+func _cart(at: Vector3) -> void:
+	_box(at + Vector3(0, 0.62, 0), Vector3(1.2, 0.1, 0.8), _mat_cloth, false)
+	for sx in [-0.55, 0.55]:
+		_box(at + Vector3(sx, 0.45, 0), Vector3(0.06, 0.9, 0.86), _mat_steel, false)
+	for sz in [-0.38, 0.38]:
+		_box(at + Vector3(0, 0.45, sz), Vector3(1.16, 0.9, 0.06), _mat_steel, false)
+	for sx in [-0.5, 0.5]:
+		for sz in [-0.32, 0.32]:
+			_cyl(at + Vector3(sx, 0.06, sz), 0.06, 0.05, _mat_dark)
+	_box(at, Vector3(1.2, 1.0, 0.9), _mat_steel, true)
+
+func _sofa(at: Vector3, yaw: float, width: float) -> void:
+	var g := Node3D.new()
+	g.position = at
+	g.rotation.y = yaw
+	region.add_child(g)
+	for part in [[Vector3(0, 0.36, 0), Vector3(width, 0.42, 0.9)],
+			[Vector3(0, 0.72, -0.4), Vector3(width, 0.72, 0.22)],
+			[Vector3(-width * 0.5 + 0.12, 0.62, 0), Vector3(0.24, 0.5, 0.9)],
+			[Vector3(width * 0.5 - 0.12, 0.62, 0), Vector3(0.24, 0.5, 0.9)]]:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = part[1]
+		mi.mesh = bm
+		mi.material_override = _mat_velvet
+		mi.position = part[0]
+		g.add_child(mi)
+	var sb := StaticBody3D.new()
+	sb.collision_layer = 1
+	sb.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(width, 0.9, 0.9)
+	cs.shape = shape
+	cs.position = Vector3(0, 0.45, 0)
+	sb.add_child(cs)
+	g.add_child(sb)
+
+func _plant(at: Vector3) -> void:
+	_cyl(at + Vector3(0, 0.22, 0), 0.28, 0.44, _mat_concrete)
+	for i in 7:
+		var a := i * TAU / 7.0
+		var leaf := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.1, 1.0, 0.32)
+		leaf.mesh = bm
+		leaf.material_override = _mat_grass
+		leaf.position = at + Vector3(cos(a) * 0.18, 0.95, sin(a) * 0.18)
+		leaf.rotation = Vector3(cos(a) * 0.4, -a, sin(a) * 0.4)
+		region.add_child(leaf)
 
 func _table(x: float, z: float) -> void:
 	_box(Vector3(x, 0.75, z), Vector3(1.6, 0.1, 1.6), _mat_wood)
@@ -1019,8 +1437,13 @@ func _tree(x: float, z: float) -> void:
 	add_child(crown)
 	_solid_only(x, z, 0.35, 0.35, 3.0)
 
-func _hanging_lamp(pos: Vector3, color: Color, energy: float) -> void:
-	_glow(pos, Vector3(0.5, 0.12, 0.5), _emissive(color, 2.5))
+## Лампа под потолком. Возвращает сам свет — по нему её потом гасит
+## выключатель: свет в комнате должен выключаться, иначе он декорация.
+func _hanging_lamp(pos: Vector3, color: Color, energy: float) -> OmniLight3D:
+	# абажур и подвес: голый светящийся квадрат под потолком читался как дырка
+	_box(pos + Vector3(0, 0.55, 0), Vector3(0.05, 1.1, 0.05), _mat_steel, false)
+	_box(pos + Vector3(0, 0.1, 0), Vector3(0.62, 0.16, 0.62), _mat_metal, false)
+	var bulb := _glow(pos, Vector3(0.5, 0.12, 0.5), _emissive(color, 2.5))
 	var l := OmniLight3D.new()
 	l.light_color = color
 	l.light_energy = energy
@@ -1028,6 +1451,23 @@ func _hanging_lamp(pos: Vector3, color: Color, energy: float) -> void:
 	l.light_volumetric_fog_energy = 1.4
 	l.position = pos
 	add_child(l)
+	l.set_meta("bulb", bulb)
+	return l
+
+## Выключатель или рубильник на стене.
+func _switch(at: Vector3, yaw: float, lights: Array, label: String,
+		kind: String = "light") -> Switch:
+	var s := Switch.new()
+	s.kind = kind
+	s.label = label
+	s.lights = lights
+	for l in lights:
+		if l is Node and l.has_meta("bulb"):
+			s.bulbs.append(l.get_meta("bulb"))
+	s.position = at
+	s.rotation.y = yaw
+	add_child(s)
+	return s
 
 func _street_lamp(pos: Vector3) -> void:
 	var pole := MeshInstance3D.new()
@@ -1071,7 +1511,13 @@ func _bake() -> void:
 	var nm := NavigationMesh.new()
 	nm.agent_radius = 0.5
 	nm.agent_height = 1.8
-	nm.agent_max_climb = 0.4
+	# ВЫСОТА ШАГА. Recast округляет её ВНИЗ до целого числа ячеек по высоте:
+	# при `cell_height` 0.25 прежние 0.4 давали ровно 0.25 — а ступени и на
+	# сцене (0.46), и на лестнице балкона (0.48) выше этого. Из-за одного
+	# округления второй ярус и сцена были отрезаны от навмеша целиком: боты
+	# не могли подняться на балкон, а диджей — встать за свой пульт, хотя
+	# место для него там было расставлено.
+	nm.agent_max_climb = 0.5
 	nm.cell_size = 0.25       # должно совпадать с cell_size карты навигации
 	nm.cell_height = 0.25
 	nm.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
