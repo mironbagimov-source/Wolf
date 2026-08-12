@@ -607,6 +607,18 @@ func _club_catwalk() -> void:
 	zones.append({"name": "Мостки", "pos": Vector3(0, 0, -19),
 		"half": Vector2(17, 3), "kind": "dark"})
 
+	# ДЕЖУРНЫЙ СВЕТ НАД МОСТКАМИ. Лампы фермы висят НИЖЕ настила, поэтому
+	# сверху он не освещён ничем: без этих двух тусклых лампочек по мосткам
+	# идёшь по чёрной доске, которой не видно под ногами.
+	for z in [-19.0, -9.0]:
+		var w := OmniLight3D.new()
+		w.light_color = Color(0.85, 0.88, 0.95)
+		w.light_energy = 0.9
+		w.omni_range = 14.0
+		w.position = Vector3(3.0, CATWALK_Y + 1.8, z)
+		add_child(w)
+		_stage_lights.append(w)
+
 	# ЩИТ СВЕТОВОЙ ФЕРМЫ. Ради него сюда и лезут: отсюда вырубается весь
 	# фоновый свет зала разом.
 	var breaker_lights: Array = []
