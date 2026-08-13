@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Описание игрового режима на INI-слое",
+  "description": "Режим — это данные, а не код. Файл modes/<id>.json перечисляет правки конфигов; tools/modekit.py проверяет их против каталога ключей и накладывает на эталонные конфиги.",
+  "type": "object",
+  "required": ["id", "name", "overrides"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Идентификатор режима. Обязан совпадать с именем файла."
+    },
+    "name": {
+      "type": "string",
+      "description": "Человеческое название, попадёт в вывод инструмента."
+    },
+    "description": {
+      "type": "string",
+      "description": "Одна-две фразы: как режим меняет игру."
+    },
+    "intent": {
+      "type": "string",
+      "description": "Что режим должен делать с ощущением от игры. Пишется до подбора значений — иначе набор правок расползается в случайный список."
+    },
+    "needs_native": {
+      "type": "boolean",
+      "default": false,
+      "description": "Режиму нужен нативный слой: состояние, счётчик, условие поражения. INI-часть при этом всё равно работает — просто режим остаётся статичным."
+    },
+    "overrides": {
+      "type": "array",
+      "description": "Правки конфигов. Порядок значения не имеет: на один ключ должна приходиться одна запись.",
+      "items": {
+        "type": "object",
+        "required": ["file", "section", "key", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Имя ini как в папке Config, например Player.ini."
+          },
+          "section": {
+            "type": "string",
+            "description": "Секция без квадратных скобок."
+          },
+          "key": {
+            "type": "string",
+            "description": "Имя ключа. Для элементов массива включает префикс: +Key, -Key."
+          },
+          "value": {
+            "type": ["string", "number", "boolean"],
+            "description": "Новое значение. Записывается в файл как есть."
+          },
+          "note": {
+            "type": "string",
+            "description": "Зачем эта правка. Через месяц список голых чисел не читается."
+          },
+          "unverified": {
+            "type": "boolean",
+            "default": false,
+            "description": "Ключ ещё не подтверждён каталогом. Такие правки блокируют сборку, пока не передан --allow-unverified: игра молча игнорирует несуществующие ключи, и режим будет выглядеть рабочим, ничего не меняя."
+          }
+        }
+      }
+    }
+  }
+}
