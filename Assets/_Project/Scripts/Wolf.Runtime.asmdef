@@ -1,0 +1,24 @@
+{
+    "name": "Wolf.Runtime",
+    "rootNamespace": "Wolf",
+    "references": [
+        "UnityEngine.UI",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.HighDefinition.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "12.0",
+            "define": "WOLF_HDRP"
+        }
+    ],
+    "noEngineReferences": false
+}

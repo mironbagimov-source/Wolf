@@ -17,6 +17,7 @@ namespace Wolf.Utils
         public bool PrimaryPressed => Input.GetButtonDown("Fire1");
         public bool SecondaryHeld => Input.GetButton("Fire2");
         public bool AbilityPressed => Input.GetKeyDown(KeyCode.G);
+        public bool ThrowPressed => Input.GetKeyDown(KeyCode.Q);
         public bool FlashlightPressed => Input.GetKeyDown(KeyCode.F);
     }
 }

@@ -1,0 +1,37 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://cgrgdywbs4typ"
+path="res://.godot/imported/heraklios_3.png-67218116c6d24d14a0230a8cfbef74b8.ctex"
+metadata={
+"vram_texture": false
+}
+generator_parameters={
+"md5": "26f21d572aac83fe09ba788afe28380a"
+}
+
+[deps]
+
+source_file="res://assets/characters/bodies/heraklios_3.png"
+dest_files=["res://.godot/imported/heraklios_3.png-67218116c6d24d14a0230a8cfbef74b8.ctex"]
+
+[params]
+
+compress/mode=1
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=1
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=256
+detect_3d/compress_to=1

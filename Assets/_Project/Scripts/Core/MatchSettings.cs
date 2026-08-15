@@ -18,20 +18,20 @@ namespace Wolf.Core
         public int minCannibals = 1;
         public int maxCannibals = 6;
 
-        [Header("Survivor objective")]
-        [Tooltip("How many generators must be completed before the exit gate opens.")]
+        [Header("Victim objective")]
+        [Tooltip("How many nodes must be hacked before the exit from the block opens.")]
         public int generatorsRequired = 3;
-        [Tooltip("How many survivors must reach the exit for Survivors to win.")]
+        [Tooltip("How many victims must reach the exit for the Victims to win.")]
         public int survivorsRequiredToEscape = 1;
 
-        [Header("Cannibal ritual")]
-        [Tooltip("Seconds a captured survivor has on the altar before being sacrificed.")]
+        [Header("Cyberpsycho harvest")]
+        [Tooltip("Seconds a captured victim has on the implant table before being harvested.")]
         public float sacrificeTimer = 30f;
-        [Tooltip("Seconds a downed survivor can be carried before auto-escaping a grab.")]
+        [Tooltip("Seconds a downed victim can be carried before auto-escaping a grab.")]
         public float carryStruggleTime = 15f;
 
-        [Header("Killer hunt")]
-        [Tooltip("Cult Leader max health — killers must burn this down to zero.")]
+        [Header("Mercenary hunt")]
+        [Tooltip("Alpha (cult leader) max health — mercenaries must burn this down to zero.")]
         public float cultLeaderHealth = 300f;
     }
 }

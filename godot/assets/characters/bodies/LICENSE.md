@@ -1,0 +1,17 @@
+# Character body models
+
+Mixamo characters (Adobe Mixamo royalty-free terms; FBX files provided by
+the project owner), one body per playable archetype:
+- medea.fbx       — "Medea" by M. Arrebola (Курьер, civilian A)
+- ch45.fbx        — "Ch45" (Медтех, civilian B)
+- xbot.fbx        — "X Bot" (оба психа)
+- erika.fbx       — "Erika Archer" (Клинок, merc A)
+- heraklios.fbx   — "Heraklios" by A. Dizon (Броня, merc B)
+- pumpkinhulk.fbx — "Pumpkinhulk" by L. Shaw (Альфа)
+- ghoul.fbx       — "Zombiegirl" by W. Kurniawan (Кибер-гуль)
+- vampire.fbx     — "Nightshade" by J. Friedrich (Кибер-вампир, высшая форма)
+
+soldier.glb (../) — "Vanguard" (three.js examples): fallback body and the
+Idle/Walk/Run animation source; clips are retargeted onto every body at bake
+time by tools/retarget.gd (exact local-delta transfer — all rigs share
+Mixamo bone conventions, including the "mixamorig1_" numbered variants).

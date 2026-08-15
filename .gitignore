@@ -50,3 +50,20 @@ crashlytics-build.properties
 
 # WebGL build output
 webgl-build/
+
+# Generated photoreal textures/materials — rebuilt via Tools > Wolf menu
+Assets/_Project/Art/Generated/
+
+# Godot import cache
+godot/.godot/
+
+# Exported game builds
+build/
+
+# Процедурные текстуры — их пересобирает tools/scene_baker.gd, в репозитории
+# им делать нечего (216 МБ сгенерированных .res).
+godot/textures/
+
+# Blender как python-модуль (~1 ГБ). Ставится командой из tools/blender/README.md,
+# в репозитории ему не место.
+.bpy/

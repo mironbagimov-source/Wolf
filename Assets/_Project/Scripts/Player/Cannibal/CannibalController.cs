@@ -27,6 +27,13 @@ namespace Wolf.Player.Cannibal
 
         private float _nextAttackTime;
         private float _nextGrabTime;
+        private float _damageMultiplier = 1f;
+
+        protected override void ApplyArchetype(CharacterArchetype archetype)
+        {
+            base.ApplyArchetype(archetype);
+            _damageMultiplier = archetype.damageMul;
+        }
 
         protected override void Update()
         {
@@ -62,7 +69,7 @@ namespace Wolf.Player.Cannibal
                 multiplier = killer.GetIncomingDamageMultiplier();
             }
 
-            target.TakeDamage(new DamageInfo(attackDamage * multiplier, gameObject, hit.point));
+            target.TakeDamage(new DamageInfo(attackDamage * multiplier * _damageMultiplier, gameObject, hit.point));
         }
 
         private void TryGrab()

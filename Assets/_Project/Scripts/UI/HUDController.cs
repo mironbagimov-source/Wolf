@@ -2,15 +2,18 @@ using UnityEngine;
 using UnityEngine.UI;
 using Wolf.Core;
 using Wolf.Player;
+using Wolf.Player.Killer;
 
 namespace Wolf.UI
 {
-    /// <summary>Minimal in-match readout: health, generator progress, match result banner.</summary>
+    /// <summary>Minimal in-match readout: health, node progress, stance/knives, match result banner.</summary>
     public class HUDController : MonoBehaviour
     {
         [SerializeField] private Text healthText;
         [SerializeField] private Text generatorText;
         [SerializeField] private Text resultBanner;
+        [Tooltip("Optional: character name, knife stock (merc), and stance line.")]
+        [SerializeField] private Text stanceText;
 
         private PlayerControllerBase _local;
 
@@ -49,15 +52,38 @@ namespace Wolf.UI
 
             if (_local != null && healthText != null)
             {
-                healthText.text = $"HP {Mathf.CeilToInt(_local.Health.CurrentHealth)}/{Mathf.CeilToInt(_local.Health.MaxHealth)}";
+                healthText.text = $"Здоровье {Mathf.CeilToInt(_local.Health.CurrentHealth)}/{Mathf.CeilToInt(_local.Health.MaxHealth)}";
             }
+
+            if (_local != null && stanceText != null)
+            {
+                stanceText.text = BuildStance(_local);
+            }
+        }
+
+        private static string BuildStance(PlayerControllerBase local)
+        {
+            string line = local.CharacterName ?? string.Empty;
+
+            if (local is KillerController killer)
+            {
+                line += (line.Length > 0 ? "  ·  " : string.Empty) + $"Ножи {killer.KnivesLeft}";
+            }
+
+            string stance = local.IsCrouching ? "присед" : (local.IsSprinting ? "бег" : string.Empty);
+            if (stance.Length > 0)
+            {
+                line += (line.Length > 0 ? "  ·  " : string.Empty) + stance;
+            }
+
+            return line;
         }
 
         private void OnGeneratorProgress(int completed, int required)
         {
             if (generatorText != null)
             {
-                generatorText.text = $"Generators {completed}/{required}";
+                generatorText.text = $"Узлы {completed}/{required}";
             }
         }
 
@@ -69,13 +95,7 @@ namespace Wolf.UI
             }
 
             resultBanner.gameObject.SetActive(true);
-            resultBanner.text = result switch
-            {
-                MatchState.SurvivorsWin => "Survivors escaped.",
-                MatchState.CannibalsWin => "The cult claims the base.",
-                MatchState.KillersWin => "The Cult Leader is dead.",
-                _ => string.Empty,
-            };
+            resultBanner.text = FactionInfo.ResultText(result);
         }
     }
 }

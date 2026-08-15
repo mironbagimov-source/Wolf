@@ -40,6 +40,9 @@ namespace Wolf.Player
         public bool IsCrouching { get; private set; }
         public bool IsSprinting { get; private set; }
 
+        /// <summary>Name of the chosen character archetype (local human only; null for bots).</summary>
+        public string CharacterName { get; private set; }
+
         /// <summary>
         /// The one human-controlled instance on this machine — what the HUD
         /// reads from. Fine for BotMatch/Multiplayer (one human per client);
@@ -75,6 +78,26 @@ namespace Wolf.Player
         {
             bool isCultLeader = GetComponent<CultLeaderMarker>() != null;
             GameManager.Instance?.RegisterPlayer(Faction, Health, isCultLeader);
+
+            // The local human applies their chosen character; bots keep prefab defaults.
+            if (LocalPlayer == this)
+            {
+                ApplyArchetype(CharacterRoster.Get(Faction, PlayerSelection.ChosenCharacterIndex));
+            }
+        }
+
+        /// <summary>
+        /// Folds a chosen character's modifiers onto this instance. The base applies
+        /// the universal ones (speed, max health); subclasses override to add their
+        /// own (Killer knife stock and block, melee damage) and must call base first.
+        /// </summary>
+        protected virtual void ApplyArchetype(CharacterArchetype archetype)
+        {
+            CharacterName = archetype.name;
+            walkSpeed *= archetype.speedMul;
+            sprintSpeed *= archetype.speedMul;
+            crouchSpeed *= archetype.speedMul;
+            Health.ConfigureMaxHealth(Health.MaxHealth * archetype.hpMul);
         }
 
         protected virtual void Update()

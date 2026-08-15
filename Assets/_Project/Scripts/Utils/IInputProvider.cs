@@ -18,6 +18,7 @@ namespace Wolf.Utils
         bool PrimaryPressed { get; }   // attack
         bool SecondaryHeld { get; }    // block
         bool AbilityPressed { get; }   // faction special: Cannibal grab, etc.
+        bool ThrowPressed { get; }     // Killer: throw a knife
         bool FlashlightPressed { get; }
     }
 }
