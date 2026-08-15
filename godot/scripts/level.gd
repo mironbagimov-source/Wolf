@@ -1412,6 +1412,16 @@ static func _mat_blood_soak() -> StandardMaterial3D:
 	return mat
 
 
+## Все ключи процедурных текстур — для проверки в печке.
+##
+## Список собран из вызовов _texture() в этом файле. Забытая текстура не
+## ломает игру заметно: она просто собирается в бою, отнимая полтора десятка
+## секунд на кадр. Поэтому проверяет её печка, а не глаза.
+static func texture_keys() -> Array[String]:
+	var out: Array[String] = ["carpet", "club", "concrete", "dmg_blood", "dmg_cloth", "explosive", "imp_bone", "imp_char", "imp_char_e", "imp_frost", "imp_gel", "imp_gut", "imp_meat", "imp_steel", "metal", "plaster", "pool", "tile", "wood"]
+	return out
+
+
 ## Материал по ЯРЛЫКУ из Blender.
 ##
 ## Геометрию имплантов печёт tools/blender (настоящие корпуса, платы, кабели),

@@ -27,7 +27,23 @@ func _init() -> void:
 	WolfLevel._mat_imp_gel(Color(0.5, 1.0, 0.15))
 	WolfLevel._mat_imp_frost()
 	WolfLevel._mat_imp_char()
+	# Повреждения одежды рвутся ПРЯМО В БОЮ, и текстуры к ним нужны в тот же
+	# кадр. Незапечёнными они стоили 16 и 18 секунд на первое попадание —
+	# игра просто замирала, и со стороны это неотличимо от зависания.
+	WolfLevel._mat_cloth()
+	WolfLevel._mat_blood_soak()
 	print("IMPLANT TEXTURES BAKED")
+
+	# СТРАХОВКА: любая процедурная текстура, забытая здесь, будет собрана в
+	# игре — по 16 секунд на штуку. Проверяем, что запеклось всё, и валим
+	# сборку, если нет: молча пропустить такое дороже.
+	var missing: Array[String] = []
+	for key: String in WolfLevel.texture_keys():
+		if not FileAccess.file_exists("res://textures/%s.res" % key):
+			missing.append(key)
+	if not missing.is_empty():
+		push_error("НЕ ЗАПЕЧЕНЫ ТЕКСТУРЫ: %s" % ", ".join(missing))
+		printerr("НЕ ЗАПЕЧЕНЫ ТЕКСТУРЫ: %s" % ", ".join(missing))
 
 	# --- district ---
 	var district := Node3D.new()
