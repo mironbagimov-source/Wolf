@@ -27,7 +27,6 @@ const CHAR_SCENE_PATHS := {
 var _char_scenes := {}
 
 var ui: WolfUI
-var audio: WolfAudio
 var district: Node3D
 var menu_cam: Camera3D
 var player_cam: Camera3D = null
@@ -169,9 +168,6 @@ const RESULT_COPY := {
 
 
 func _ready() -> void:
-	audio = WolfAudio.new()
-	audio.name = "Audio"
-	add_child(audio)
 	randomize()
 	district = $District
 	_collect_layout()
@@ -349,11 +345,6 @@ func _load_location(loc: String) -> void:
 
 
 func _start_match(faction: String, arche_index: int, weapon_index: int, _loadout := {}) -> void:
-	# Тема — по фракции игрока: наёмнику ню-метал, психу блэк, гулю кор,
-	# гражданскому эмбиент. Ставим до сборки уровня, чтобы музыка вошла
-	# вместе с первым кадром, а не через секунду тишины.
-	if audio != null:
-		audio.play_theme(faction)
 	_load_location(ui.location_pick if ui != null else "tower")
 	peaceful = location == "city"
 	for e in entities:
@@ -816,8 +807,6 @@ func _vm_arms(parent: Node3D, wid: String) -> void:
 
 
 func _back_to_menu() -> void:
-	if audio != null:
-		audio.play_menu()
 	mode = "menu"
 	_capture_mouse(false)
 	menu_cam.current = true
@@ -6186,8 +6175,6 @@ func _run_test(delta: float) -> void:
 			_test_nostun(delta)
 		"corpse":
 			_test_corpse(delta)
-		"music":
-			_test_music(delta)
 		"civsmart":
 			_test_civsmart(delta)
 		"fit":
@@ -6355,44 +6342,6 @@ func _implant_scar(kind: String, at: Vector3) -> void:
 	mi.rotate_object_local(Vector3.RIGHT, -PI / 2.0)
 	mi.rotate_object_local(Vector3.FORWARD, randf_range(0.0, TAU))
 	_splats.append(mi)
-
-
-## Музыка: своя тема у каждой фракции и она доходит до движка.
-##
-## Услышать её здесь нельзя — в контейнере нет звуковой карты, Godot падает
-## на dummy-драйвер. Проверяем то, что проверяемо: файлы читаются, у каждой
-## фракции СВОЙ трек, тема встаёт при старте матча и меняется вместе с ролью.
-func _test_music(_delta: float) -> void:
-	if _test_t > 0.5 and mode == "menu":
-		_start_match("killer", 0, 0)
-	elif mode == "playing" and _test_t > 1.4 and not _test_staged:
-		_test_staged = true
-		# Прогоняем все четыре роли подряд: каждая обязана позвать свой трек.
-		for f: String in ["cannibal", "ghoul", "survivor", "killer"]:
-			audio.play_theme(f)
-	elif _test_staged and not _test_shot_taken and _test_t > 2.4:
-		_test_shot_taken = true
-		var want := {"killer": "mus_killer", "cannibal": "mus_cannibal",
-				"ghoul": "mus_ghoul", "survivor": "mus_survivor"}
-		var missing: Array[String] = []
-		var files := 0
-		for f: String in want:
-			var track: String = want[f]
-			if int(audio.played.get(track, 0)) <= 0:
-				missing.append(track)
-			if ResourceLoader.exists("res://assets/audio/%s.wav" % track):
-				files += 1
-		# Треки должны быть РАЗНЫЕ: одна тема на всех — это и есть то, чего
-		# быть не должно.
-		var uniq := {}
-		for f: String in want:
-			uniq[want[f]] = true
-		var ok := missing.is_empty() and files == 4 and uniq.size() == 4
-		print("TEST RESULT: music тем=%d/4 файлов=%d/4 запущено=%d%s %s" % [
-			uniq.size(), files, audio.played.size(),
-			"" if missing.is_empty() else " нет: %s" % ", ".join(missing),
-			"OK" if ok else "FAIL"])
-		get_tree().quit(0 if ok else 1)
 
 
 ## Импланты не должны торчать из тела.

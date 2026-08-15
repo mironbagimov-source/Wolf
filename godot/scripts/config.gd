@@ -4,7 +4,7 @@ class_name WolfCfg
 ## psychos, plant the bomb in the club and exfil through the lobby.
 
 ## Версия сборки — печатается в меню, чтобы отличить архивы на глаз.
-const BUILD_VERSION := "v28 · импланты и анимации из Blender"
+const BUILD_VERSION := "v32 · импланты по костям, повреждения одежды, без звука"
 
 const EYE_STAND := 1.62
 const EYE_CROUCH := 1.02
