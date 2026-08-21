@@ -27,15 +27,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CATALOG_PATH = REPO_ROOT / "game-data" / "config-catalog.json"
+DEFAULT_CATALOG_PATH = REPO_ROOT / "game-data" / "config-default-catalog.json"
 
 
-def load_catalog() -> dict:
-    if not CATALOG_PATH.is_file():
+def load_catalog(defaults: bool = False) -> dict:
+    path = DEFAULT_CATALOG_PATH if defaults else CATALOG_PATH
+    if not path.is_file():
+        if defaults:
+            raise SystemExit(
+                "Каталога шаблонов нет. Либо harvest ещё не запускался, либо в\n"
+                "папке установки игры не нашлось Default*.ini."
+            )
         raise SystemExit(
             "Каталога нет — сначала собери данные с машины с игрой:\n"
             "    python tools/harvest.py"
         )
-    return json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def format_values(values: list[str], show_values: bool) -> str:
@@ -128,6 +135,9 @@ def main() -> int:
         description="Запросы к каталогу ключей конфигов Dishonored.")
     parser.add_argument("--names", action="store_true",
                         help="показывать только имена, без значений")
+    parser.add_argument("--defaults", action="store_true",
+                        help="искать в шаблонах Default*.ini из папки игры, "
+                             "а не в пользовательских конфигах")
     parser.add_argument("--limit", type=int, default=60,
                         help="максимум строк в выводе (по умолчанию 60)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -145,7 +155,7 @@ def main() -> int:
     find_command.add_argument("pattern")
 
     args = parser.parse_args()
-    catalog = load_catalog()
+    catalog = load_catalog(args.defaults)
     show_values = not args.names
 
     if args.command == "stats":

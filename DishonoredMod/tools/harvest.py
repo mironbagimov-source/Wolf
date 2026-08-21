@@ -42,6 +42,15 @@ GAME_DATA = REPO_ROOT / "game-data"
 CONTENT_SUBPATH = Path("DishonoredGame") / "CookedPCConsole"
 EXE_SUBPATH = Path("Binaries") / "Win32" / "Dishonored.exe"
 
+# Конфигов у игры две папки, и путать их не стоит.
+#
+# В «Документах» лежат пользовательские — те, что игра читает и перезаписывает,
+# и именно их правит modekit. В самой установке лежат шаблоны Default*.ini, из
+# которых пользовательские порождаются; ключей в них обычно больше, а ещё туда
+# попадает DefaultDebugMenu.ini с отладочным меню Arkane. Для разведки вторая
+# папка ценнее первой, поэтому собираем обе.
+GAME_CONFIG_SUBPATH = Path("DishonoredGame") / "Config"
+
 # Имя папки под «Документами» отличается между изданиями, поэтому ищется
 # по маске, а не по точному пути: у Definitive Edition оно своё.
 CONFIG_GLOB = "My Games/Dishonored*/DishonoredGame/Config"
@@ -191,10 +200,12 @@ def _documents_dirs() -> list[Path]:
 
 # --- сбор -----------------------------------------------------------------
 
-def collect_configs(config_dir: Path, out_dir: Path) -> dict:
-    ini_paths = sorted(config_dir.glob("*.ini"))
+def collect_configs(config_dir: Path, out_dir: Path, required: bool = True) -> dict:
+    ini_paths = sorted(config_dir.glob("*.ini")) if config_dir.is_dir() else []
     if not ini_paths:
-        raise SystemExit(f"В {config_dir} нет ни одного .ini — папка та?")
+        if required:
+            raise SystemExit(f"В {config_dir} нет ни одного .ini — папка та?")
+        return {"catalog": {}, "summary": []}
 
     out_dir.mkdir(parents=True, exist_ok=True)
     catalog: dict[str, dict] = {}
@@ -303,19 +314,26 @@ def main() -> int:
     print()
 
     configs = collect_configs(config_dir, GAME_DATA / "config")
+    defaults = collect_configs(game_dir / GAME_CONFIG_SUBPATH,
+                               GAME_DATA / "config-default", required=False)
     packages = collect_packages(game_dir, args.hash_upk)
     executable = collect_executable(game_dir)
 
     GAME_DATA.mkdir(parents=True, exist_ok=True)
     (GAME_DATA / "config-catalog.json").write_text(
         json.dumps(configs["catalog"], indent=2, ensure_ascii=False), encoding="utf-8")
+    if defaults["summary"]:
+        (GAME_DATA / "config-default-catalog.json").write_text(
+            json.dumps(defaults["catalog"], indent=2, ensure_ascii=False), encoding="utf-8")
 
     manifest = {
         "harvested_at": datetime.now(timezone.utc).isoformat(),
         "game_dir": str(game_dir),
         "config_dir": str(config_dir),
+        "game_config_dir": str(game_dir / GAME_CONFIG_SUBPATH),
         "executable": executable,
         "configs": configs["summary"],
+        "default_configs": defaults["summary"],
         "packages": packages,
         "package_count": len(packages),
     }
@@ -323,9 +341,20 @@ def main() -> int:
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     total_keys = sum(item["keys"] for item in configs["summary"])
-    print(f"Конфигов: {len(configs['summary'])}, ключей всего: {total_keys}")
+    print(f"Пользовательские конфиги: {len(configs['summary'])}, "
+          f"ключей всего: {total_keys}")
     for item in configs["summary"]:
-        print(f"  {item['file']:<24} секций {item['sections']:>4}   ключей {item['keys']:>5}")
+        print(f"  {item['file']:<28} секций {item['sections']:>4}   ключей {item['keys']:>5}")
+
+    if defaults["summary"]:
+        default_keys = sum(item["keys"] for item in defaults["summary"])
+        print(f"\nШаблоны из папки игры: {len(defaults['summary'])}, "
+              f"ключей всего: {default_keys}")
+        for item in defaults["summary"]:
+            print(f"  {item['file']:<28} секций {item['sections']:>4}   "
+                  f"ключей {item['keys']:>5}")
+    else:
+        print(f"\nШаблонов Default*.ini в {game_dir / GAME_CONFIG_SUBPATH} нет.")
 
     print(f"\nПакетов .upk: {len(packages)}")
     if executable:
