@@ -40,8 +40,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 GAME_DATA = REPO_ROOT / "game-data"
 
 CONTENT_SUBPATH = Path("DishonoredGame") / "CookedPCConsole"
-CONFIG_SUBPATH = Path("My Games") / "Dishonored" / "DishonoredGame" / "Config"
 EXE_SUBPATH = Path("Binaries") / "Win32" / "Dishonored.exe"
+
+# Имя папки под «Документами» отличается между изданиями, поэтому ищется
+# по маске, а не по точному пути: у Definitive Edition оно своё.
+CONFIG_GLOB = "My Games/Dishonored*/DishonoredGame/Config"
 
 PE_MACHINE = {0x014C: "x86", 0x8664: "x64", 0x01C0: "arm", 0xAA64: "arm64"}
 
@@ -77,7 +80,10 @@ def _steam_candidates() -> list[Path]:
             r"Program Files (x86)\Steam\steamapps\common\Dishonored",
             r"Program Files\Steam\steamapps\common\Dishonored",
             r"SteamLibrary\steamapps\common\Dishonored",
+            # GOG ставит издания под разными именами, отсюда варианты.
             r"GOG Games\Dishonored",
+            r"GOG Games\Dishonored Definitive Edition",
+            r"Program Files (x86)\GOG Galaxy\Games\Dishonored",
             r"Games\Dishonored",
         ):
             candidates.append(Path(f"{drive}:\\") / suffix)
@@ -141,9 +147,11 @@ def find_config_dir(explicit: str | None) -> Path:
         return path
 
     for documents in _documents_dirs():
-        candidate = documents / CONFIG_SUBPATH
-        if candidate.is_dir():
-            return candidate
+        if not documents.is_dir():
+            continue
+        for candidate in sorted(documents.glob(CONFIG_GLOB)):
+            if candidate.is_dir():
+                return candidate
 
     raise SystemExit(
         "Не нашёл папку конфигов. Обычно это\n"
