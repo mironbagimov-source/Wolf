@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "ue3.h"
+#include "ue3names.h"
 
 // Режим на нативном слое: то, что INI-слой сделать не может — состояние.
 //
@@ -55,6 +56,13 @@ public:
     IGameMode* active() const { return active_; }
     std::vector<std::string> availableIds() const;
 
+    // Общее для всех режимов: разрешение имён и путь к native.ini. Режимы
+    // читают собственные настройки сами — так добавление режима не требует
+    // правок в dllmain.
+    ue3::NameResolver& names() { return names_; }
+    void setConfigPath(const std::string& path) { configPath_ = path; }
+    const std::string& configPath() const { return configPath_; }
+
     // Прогоняет событие через активный режим.
     bool dispatchProcessEvent(ue3::UObject* self, ue3::UFunction* function, void* parms);
 
@@ -63,6 +71,8 @@ private:
 
     std::vector<std::unique_ptr<IGameMode>> modes_;
     IGameMode* active_ = nullptr;
+    ue3::NameResolver names_;
+    std::string configPath_;
 };
 
 // Регистрация встроенных режимов. Объявлена отдельно, чтобы добавление режима

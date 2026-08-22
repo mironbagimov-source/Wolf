@@ -1,6 +1,7 @@
 #include "mode.h"
 
 #include "log.h"
+#include "modes/roleplay.h"
 
 namespace dmk {
 namespace {
@@ -98,6 +99,7 @@ bool ModeRegistry::dispatchProcessEvent(ue3::UObject* self,
 
 void registerBuiltinModes(ModeRegistry& registry) {
     registry.add(std::make_unique<ObserverMode>());
+    registry.add(std::make_unique<RoleplayMode>());
 }
 
 }  // namespace dmk

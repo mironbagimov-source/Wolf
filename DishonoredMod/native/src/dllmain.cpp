@@ -68,6 +68,34 @@ void loadBindings(const std::string& iniPath) {
         GetPrivateProfileIntA("ProcessEvent", "Enabled", 0, iniPath.c_str()) != 0;
 }
 
+// Адреса и смещения таблицы имён. Без них режимы видят поток вызовов, но не
+// могут отличить один от другого — см. ue3names.h.
+void loadNameResolver(const std::string& iniPath, dmk::ue3::NameResolver& names) {
+    char buffer[32] = {0};
+    GetPrivateProfileStringA("Names", "GNamesAddress", "0",
+                             buffer, sizeof(buffer), iniPath.c_str());
+    names.gnamesArray = std::strtoul(buffer, nullptr, 0);
+
+    names.objectNameOffset =
+        GetPrivateProfileIntA("Names", "ObjectNameOffset", 0, iniPath.c_str());
+    names.entryStringOffset =
+        GetPrivateProfileIntA("Names", "EntryStringOffset", 0, iniPath.c_str());
+    names.entryIsWide =
+        GetPrivateProfileIntA("Names", "EntryIsWide", 0, iniPath.c_str()) != 0;
+
+    if (names.configured()) {
+        DMK_INFO("таблица имён: GNames 0x%08X, имя в объекте +0x%X, "
+                 "строка в записи +0x%X, широкие символы %s",
+                 names.gnamesArray,
+                 static_cast<unsigned>(names.objectNameOffset),
+                 static_cast<unsigned>(names.entryStringOffset),
+                 names.entryIsWide ? "да" : "нет");
+    } else {
+        DMK_INFO("таблица имён не настроена — режимы, которым нужны имена "
+                 "событий, работать не будут");
+    }
+}
+
 std::string readActiveMode(const std::string& iniPath) {
     char buffer[128] = {0};
     GetPrivateProfileStringA("General", "Mode", "observer",
@@ -122,7 +150,11 @@ DWORD WINAPI initialize(LPVOID) {
     DMK_INFO("конфигурация: %s", iniPath.c_str());
 
     loadBindings(iniPath);
-    dmk::registerBuiltinModes(dmk::ModeRegistry::instance());
+
+    auto& registry = dmk::ModeRegistry::instance();
+    registry.setConfigPath(iniPath);
+    loadNameResolver(iniPath, registry.names());
+    dmk::registerBuiltinModes(registry);
 
     if (!g_bindings.hookEnabled) {
         // Штатное состояние до того, как снята сигнатура: слой грузится,

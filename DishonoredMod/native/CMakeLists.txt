@@ -19,7 +19,9 @@ add_library(DishonoredModKit SHARED
     src/detour.cpp
     src/log.cpp
     src/mode.cpp
+    src/modes/roleplay.cpp
     src/sigscan.cpp
+    src/ue3names.cpp
 )
 
 # Ultimate ASI Loader подхватывает библиотеки с расширением .asi.
