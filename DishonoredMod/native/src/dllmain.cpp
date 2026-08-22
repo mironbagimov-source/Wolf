@@ -138,11 +138,34 @@ bool resolveProcessEvent() {
     return true;
 }
 
+// Показывает окно с фактом загрузки. Нужно на этапе первичной настройки:
+// отсутствие лога не различает «плагин не загрузился» и «загрузился, но не смог
+// создать файл», а это совершенно разные поломки с разным лечением. Окно
+// снимает эту неоднозначность, потому что не зависит ни от прав на запись, ни
+// от того, найдёт ли пользователь скрытую папку.
+void announceLoad(const std::string& iniPath, const std::string& logPath) {
+    const bool show =
+        iniPath.empty() ||
+        GetPrivateProfileIntA("General", "ShowLoadMessage", 1, iniPath.c_str()) != 0;
+    if (!show) {
+        return;
+    }
+
+    std::string text = "Плагин загрузился в процесс игры.\n\n";
+    text += "Лог: ";
+    text += logPath.empty() ? "не удалось открыть ни в одной папке" : logPath;
+    text += "\n\nОтключить это окно: ShowLoadMessage=0 в native.ini";
+
+    MessageBoxA(nullptr, text.c_str(), "Dishonored Mod Kit",
+                MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+}
+
 DWORD WINAPI initialize(LPVOID) {
     dmk::logInit(g_module, "DishonoredModKit.log");
     DMK_INFO("нативный слой загружен");
 
     const std::string iniPath = configPath();
+    announceLoad(iniPath, dmk::logPath());
     if (iniPath.empty()) {
         DMK_ERROR("не определился путь к native.ini — дальше идти некуда");
         return 0;

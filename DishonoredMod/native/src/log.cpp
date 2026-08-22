@@ -6,12 +6,14 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 namespace dmk {
 namespace {
 
 std::FILE* g_file = nullptr;
 std::mutex g_mutex;
+std::string g_path;
 
 // Открывает лог в указанной папке. Возвращает false, если не вышло — например
 // папка защищена от записи.
@@ -27,6 +29,7 @@ bool tryOpen(const char* directory, const char* fileName) {
     }
 
     g_file = file;
+    g_path = fullPath;
     // Через отладочный вывод путь виден в DebugView даже когда лог ещё пуст.
     // Это единственный способ узнать, куда он лёг, не открывая сам файл.
     char message[MAX_PATH + 64] = {0};
@@ -93,6 +96,11 @@ void logInit(void* moduleHandle, const char* fileName) {
     if (GetTempPathA(MAX_PATH, temp) > 0) {
         tryOpen(temp, fileName);
     }
+}
+
+std::string logPath() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_path;
 }
 
 void logShutdown() {
