@@ -109,6 +109,104 @@ exec <файл>.txt
 командами, без единой правки бинарных файлов. Между слоем конфигов и нативным
 слоем появляется третий, которого не было в плане.
 
+## Персонаж игрока задаётся строкой в конфиге
+
+`DefaultGame.ini`, секция `DishonoredGame.DishonoredGameInfo`:
+
+```
+m_CampaignPawnTweak=Twk_Pawn_Corvo.Twk_Pawn_Corvo_Release
+m_CampaignPawnTweakPackage=Twk_Pawn_Corvo_SF
+m_DefaultPawnTweak=Twk_Pawn_Corvo.Twk_Pawn_Corvo
+m_DefaultPawnTweakPackage=Twk_Pawn_Corvo_SF
+```
+
+Гипотеза, высказанная по `DishonoredInput.ini`, подтвердилась полностью:
+**пешка игрока — это ссылка на твик-объект, и ссылка лежит в текстовом
+конфиге**. Отдельно для кампании и для остальных случаев, с явным указанием
+пакета.
+
+Если в дополнении есть `Twk_Pawn_Daud`, смена персонажа сводится к правке двух
+строк. Проверяется командой `Obj List Package=Twk_Pawn_Daud_SF` или поиском по
+пакетам DLC06.
+
+Это опрокидывает прежнюю оценку: выбор персонажа переезжает из нативного слоя
+в конфиги.
+
+## У игрока есть номер фракции
+
+`DefaultGame.ini`:
+
+```
+[DefaultPlayer]
+Name=Corvo
+Team=255
+```
+
+Плюс в списке отладочных категорий есть **`Factions`** — то есть система
+фракций в игре существует и у неё даже своя отладочная визуализация
+(`ShowDebug Factions`).
+
+`Team=255` — тот самый крючок, через который игрок может принадлежать стороне.
+Это ядро ролевого режима, и оно оказалось в конфиге.
+
+## Меню испытаний — готовый выбор режимов
+
+`DisDLC05GameInfo` описывает испытания Dunwall City Trials **данными**:
+
+```
+.m_Challenges=(m_ID="Arena",m_Type=DDCT_Action,m_Leaderboard=DDCL_Arena,
+               m_LaunchCommand="start L_DLC05_Arena_P")
+m_ChallengeMenuLaunchCommand="start L_DLC05_MainMenu_P"
+```
+
+У каждой записи произвольная **команда запуска**. Список задаётся в конфиге,
+значит в него можно дописывать свои пункты.
+
+То есть в игре уже есть **готовое меню выбора режима**, управляемое текстом.
+Хаб в Бездне остаётся более красивым решением, но меню испытаний доступно
+прямо сейчас и без единой новой карты.
+
+## Интерфейс подменяется по фильтру карты
+
+`DisGlobalUIManager`:
+
+```
+m_DefaultUI=(m_HUDMoviePath="UI_HUD.HUD",m_PowerWheelMoviePath=...,
+             m_JournalMoviePath=...,m_PauseMenuMoviePath=...)
+.m_DLCUI=(m_MapFilter="DLC06",m_HUDClassName="DisDLC06MoviePlayerHUD",...)
+```
+
+Интерфейс выбирается **по префиксу карты**. Для дополнений заданы свои HUD,
+колесо, журнал и меню паузы. Значит, для своего набора карт можно объявить
+свой интерфейс — включая пустой.
+
+Рядом `m_bTutorialsEnabled=TRUE` в `DisGFxMoviePlayerHUD` — обучающие
+подсказки выключаются одной строкой.
+
+## Список способностей в интерфейсе — тоже данные
+
+`DisGFxMoviePlayerJournal` перечисляет активные и пассивные силы записями
+`.m_ActivePowerSlots` / `.m_PassivePowerSlots`. У дополнений свои наборы:
+у DLC06 — `transversal`, `summonAssassin`, `daud_dark_vision`, `arcane_bond`;
+у DLC07 добавляется `pull`.
+
+Набор сил персонажа в интерфейсе задаётся конфигом, а не кодом.
+
+## Имена карт кампании
+
+`m_MissionsGame` перечисляет все карты по миссиям. Нужные нам:
+
+| Что | Карты |
+|---|---|
+| Пролог, Корво до метки | `L_Tower_P` |
+| Затопленный квартал | `L_Flooded_FIntro_P`, `L_Flooded_FStreets_P`, `L_Flooded_FAssassins_P`, `L_Flooded_FGate_P`, `L_Flooded_FRefinery_P` |
+| Особняк Бойл | `L_Boyle_Ext_P`, `L_Boyle_Int_P` |
+| Возвращение в Башню (палач) | `L_TowerRtrn_Yard_P`, `L_TowerRtrn_Int_P` |
+| Бойня Ротвайлда | `DLC06_Slaughter_Ext_P`, `DLC06_Slaughter_Int_P` |
+| Арена испытаний | `L_DLC05_Arena_P` |
+
+Грузятся командой `start <карта>`.
+
 ## Отладочное меню открывается с клавиатуры
 
 Команды навигации по меню живут в привязках клавиш (`DishonoredInput.ini`):
