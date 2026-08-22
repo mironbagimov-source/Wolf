@@ -13,6 +13,31 @@ namespace {
 std::FILE* g_file = nullptr;
 std::mutex g_mutex;
 
+// Открывает лог в указанной папке. Возвращает false, если не вышло — например
+// папка защищена от записи.
+bool tryOpen(const char* directory, const char* fileName) {
+    char fullPath[MAX_PATH] = {0};
+    if (std::snprintf(fullPath, sizeof(fullPath), "%s%s", directory, fileName) >= MAX_PATH) {
+        return false;
+    }
+
+    std::FILE* file = std::fopen(fullPath, "w");
+    if (file == nullptr) {
+        return false;
+    }
+
+    g_file = file;
+    // Через отладочный вывод путь виден в DebugView даже когда лог ещё пуст.
+    // Это единственный способ узнать, куда он лёг, не открывая сам файл.
+    char message[MAX_PATH + 64] = {0};
+    std::snprintf(message, sizeof(message), "[DishonoredModKit] лог: %s\n", fullPath);
+    OutputDebugStringA(message);
+
+    std::fprintf(g_file, "; лог открыт в %s\n", fullPath);
+    std::fflush(g_file);
+    return true;
+}
+
 const char* levelName(LogLevel level) {
     switch (level) {
         case LogLevel::Debug: return "DEBUG";
@@ -31,26 +56,43 @@ void logInit(void* moduleHandle, const char* fileName) {
         return;
     }
 
-    // Лог кладём рядом с DLL, а не в рабочую папку процесса: рабочая папка у
-    // игры под Steam не та, где лежат моды, и файл потом ищи по всему диску.
-    char path[MAX_PATH] = {0};
-    DWORD length = GetModuleFileNameA(static_cast<HMODULE>(moduleHandle), path, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH) {
-        return;
+    // Лог пробуем открыть в трёх местах по очереди.
+    //
+    // Рядом с DLL — самое удобное: там же лежит конфиг, всё в одном месте. Но
+    // игра обычно установлена в Program Files, а туда Windows не даёт писать
+    // без прав администратора, и fopen проваливается молча. Поэтому дальше
+    // идут заведомо доступные на запись папки пользователя.
+    //
+    // Путь, который сработал, дублируется в отладочный вывод: если ни один не
+    // открылся, сообщить об этом через сам лог уже нельзя.
+    char moduleDirectory[MAX_PATH] = {0};
+    DWORD length =
+        GetModuleFileNameA(static_cast<HMODULE>(moduleHandle), moduleDirectory, MAX_PATH);
+    if (length > 0 && length < MAX_PATH) {
+        char* lastSlash = std::strrchr(moduleDirectory, '\\');
+        if (lastSlash != nullptr) {
+            lastSlash[1] = '\0';
+            if (tryOpen(moduleDirectory, fileName)) {
+                return;
+            }
+        }
     }
 
-    char* lastSlash = std::strrchr(path, '\\');
-    if (lastSlash == nullptr) {
-        return;
+    char appData[MAX_PATH] = {0};
+    if (GetEnvironmentVariableA("LOCALAPPDATA", appData, MAX_PATH) > 0) {
+        char folder[MAX_PATH] = {0};
+        if (std::snprintf(folder, sizeof(folder), "%s\\DishonoredModKit\\", appData) < MAX_PATH) {
+            CreateDirectoryA(folder, nullptr);
+            if (tryOpen(folder, fileName)) {
+                return;
+            }
+        }
     }
-    lastSlash[1] = '\0';
 
-    char fullPath[MAX_PATH] = {0};
-    if (std::snprintf(fullPath, sizeof(fullPath), "%s%s", path, fileName) >= MAX_PATH) {
-        return;
+    char temp[MAX_PATH] = {0};
+    if (GetTempPathA(MAX_PATH, temp) > 0) {
+        tryOpen(temp, fileName);
     }
-
-    g_file = std::fopen(fullPath, "w");
 }
 
 void logShutdown() {
