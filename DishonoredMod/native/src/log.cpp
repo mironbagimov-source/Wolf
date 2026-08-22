@@ -53,10 +53,28 @@ const char* levelName(LogLevel level) {
 
 }  // namespace
 
-void logInit(void* moduleHandle, const char* fileName) {
+void logInit(void* moduleHandle, const char* fileName,
+             const char* preferredDirectory) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_file != nullptr) {
         return;
+    }
+
+    // Папка, названная пользователем, идёт первой: она заведомо ему известна,
+    // а значит лог не придётся искать. Остальные варианты остаются запасными
+    // на случай опечатки в пути.
+    if (preferredDirectory != nullptr && preferredDirectory[0] != '\0') {
+        char folder[MAX_PATH] = {0};
+        const std::size_t length = std::strlen(preferredDirectory);
+        const char* separator =
+            (length > 0 && preferredDirectory[length - 1] == '\\') ? "" : "\\";
+        if (std::snprintf(folder, sizeof(folder), "%s%s",
+                          preferredDirectory, separator) < MAX_PATH) {
+            CreateDirectoryA(folder, nullptr);
+            if (tryOpen(folder, fileName)) {
+                return;
+            }
+        }
     }
 
     // Лог пробуем открыть в трёх местах по очереди.

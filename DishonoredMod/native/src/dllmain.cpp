@@ -161,10 +161,19 @@ void announceLoad(const std::string& iniPath, const std::string& logPath) {
 }
 
 DWORD WINAPI initialize(LPVOID) {
-    dmk::logInit(g_module, "DishonoredModKit.log");
-    DMK_INFO("нативный слой загружен");
-
+    // Путь к конфигу вычисляется до открытия лога: в конфиге может быть задана
+    // папка для самого лога. Чтение из Program Files не запрещено — там
+    // запрещена только запись, — поэтому порядок работает.
     const std::string iniPath = configPath();
+
+    char logDirectory[MAX_PATH] = {0};
+    if (!iniPath.empty()) {
+        GetPrivateProfileStringA("General", "LogPath", "", logDirectory,
+                                 sizeof(logDirectory), iniPath.c_str());
+    }
+
+    dmk::logInit(g_module, "DishonoredModKit.log", logDirectory);
+    DMK_INFO("нативный слой загружен");
     announceLoad(iniPath, dmk::logPath());
     if (iniPath.empty()) {
         DMK_ERROR("не определился путь к native.ini — дальше идти некуда");

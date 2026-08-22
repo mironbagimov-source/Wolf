@@ -16,8 +16,13 @@ enum class LogLevel {
     Error,
 };
 
-// Открывает файл лога рядом с модулем. Повторные вызовы игнорируются.
-void logInit(void* moduleHandle, const char* fileName);
+// Открывает файл лога. Повторные вызовы игнорируются.
+//
+// preferredDirectory — папка, заданная пользователем; пробуется первой. Если
+// пуста или недоступна на запись, идут запасные варианты: папка модуля,
+// %LOCALAPPDATA%, временная папка.
+void logInit(void* moduleHandle, const char* fileName,
+             const char* preferredDirectory = nullptr);
 void logShutdown();
 
 // Куда лёг лог. Пустая строка означает, что открыть не удалось нигде — и тогда
