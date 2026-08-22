@@ -1,0 +1,233 @@
+{
+  "id": "horror",
+  "name": "Хоррор — Затопленный квартал",
+  "description": "Тебя сбросили в отрезанный район. Способностей нет, драка бесполезна, а найти тебя здесь умеют все.",
+  "intent": "Здоровье и урон в конфигах недоступны, поэтому страх строится не на летальности, а на обнаружении. Враги слышат втрое дальше, замечают вдвое быстрее, ищут дольше и чаще идут прямо на тебя. Присед почти перестаёт спасать. Ощущение должно быть не «меня убьют с двух ударов», а «меня всё равно найдут».",
+  "needs_native": true,
+  "overrides": [
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DishonoredPlayerPawn",
+      "key": "m_fVisRegionTopHeight_Crouched",
+      "value": "120.000000",
+      "note": "Было 40 при росте 150. Присед переставал делать тебя заметным — теперь почти не помогает. Главная правка режима."
+    },
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DishonoredPlayerPawn",
+      "key": "m_fVisRegionTopHeight",
+      "value": "190.000000",
+      "note": "Силуэт стоя выше — видно из-за укрытий, которые раньше закрывали."
+    },
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DishonoredPlayerPawn",
+      "key": "m_fVisRegionWidth",
+      "value": "4.000000",
+      "note": "Шире профиль — хуже прячешься за узкими колоннами."
+    },
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DishonoredPlayerPawn",
+      "key": "m_fVisRegionOffsetTowardsNPC",
+      "value": "60.000000",
+      "note": "Профиль видимости смещён в сторону врага — раньше замечают при выглядывании."
+    },
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DishonoredPlayerPawn",
+      "key": "m_fOffscreenMeleeDamageReduction[0]",
+      "value": "1.000000",
+      "note": "Игра гасила вдвое урон от врагов вне экрана. Убираем поблажку: удар в спину бьёт полностью. Индексы 0-3 — уровни сложности."
+    },
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DishonoredPlayerPawn",
+      "key": "m_fOffscreenMeleeDamageReduction[1]",
+      "value": "1.000000",
+      "note": "То же для второго уровня сложности."
+    },
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DishonoredPlayerPawn",
+      "key": "m_fOffscreenMeleeDamageReduction[2]",
+      "value": "1.000000",
+      "note": "То же для третьего."
+    },
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DishonoredPlayerPawn",
+      "key": "m_fOffscreenMeleeDamageReduction[3]",
+      "value": "1.000000",
+      "note": "То же для четвёртого."
+    },
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DisThreatPerceptionComponent",
+      "key": "m_fUnawareThreatRadius",
+      "value": "900.000000",
+      "note": "Было 400. Дистанция, с которой тебя воспринимают угрозой, пока не подняли тревогу."
+    },
+    {
+      "file": "Player.ini",
+      "section": "DishonoredGame.DisThreatPerceptionComponent",
+      "key": "m_fEngagedThreatRadius",
+      "value": "1400.000000",
+      "note": "Было 700. После обнаружения от тебя не оторваться просто отбежав."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DishonoredGlobalAIManager",
+      "key": "m_ReactionDelay",
+      "value": "(m_fMinValue=0.050000,m_fMaxValue=0.100000)",
+      "note": "Было 0.18-0.3. Заминка между «увидел» и «среагировал» почти исчезает."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DishonoredGlobalAIManager",
+      "key": "m_MagicReactionDelay",
+      "value": "(m_fMinValue=0.050000,m_fMaxValue=0.100000)",
+      "note": "То же для реакции на применение сил."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DishonoredGlobalAIManager",
+      "key": "m_TetherDelay",
+      "value": "(m_fMinValue=15.000000,m_fMaxValue=20.000000)",
+      "note": "Было 6-8. Дольше не возвращаются на пост — преследование не выдыхается."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DishonoredSearchCrumbsComponent",
+      "key": "m_fChanceOfPsychicSearch",
+      "value": "0.750000",
+      "note": "Было 0.25. Шанс, что поиск пойдёт прямо в твою сторону, а не наугад. Ключевая правка ощущения: они как будто знают."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DishonoredSearchCrumbsComponent",
+      "key": "m_fCrumbLifetime",
+      "value": "400.000000",
+      "note": "Было 150. След живёт втрое дольше — переждать в шкафу не выйдет."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DishonoredSearchCrumbsComponent",
+      "key": "m_iNumSearchCrumbs",
+      "value": "60",
+      "note": "Было 25. Больше точек поиска — плотнее прочёсывают."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DishonoredSearchCrumbsComponent",
+      "key": "m_fDistanceBetweenCrumbs",
+      "value": "400.000000",
+      "note": "Было 800. Точки поиска вдвое плотнее."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DisGlobalCombatManager",
+      "key": "m_InnerSkirmishCaps[0]",
+      "value": "3",
+      "note": "Было 1. Сколько врагов лезет вплотную одновременно."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DisGlobalCombatManager",
+      "key": "m_TotalSkirmishCaps[0]",
+      "value": "5",
+      "note": "Было 2. Общее число участников стычки. Драка перестаёт быть дуэлью."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DisGlobalCombatManager",
+      "key": "m_fInhibitionTimeShortAttack",
+      "value": "0.500000",
+      "note": "Было 2.0. Пауза между короткими атаками — теперь бьют почти без передышки."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DisGlobalCombatManager",
+      "key": "m_fInhibitionTimeMediumAttack",
+      "value": "0.300000",
+      "note": "Было 1.0."
+    },
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DisGlobalCombatManager",
+      "key": "m_fInhibitionTimeBackStep",
+      "value": "2.000000",
+      "note": "Было 8.0. Реже отступают — меньше окон на побег."
+    },
+    {
+      "file": "NPC.ini",
+      "section": "DishonoredGame.DishonoredNPCController",
+      "key": "m_fAutoGlanceRadius",
+      "value": "2000.000000",
+      "note": "Было 1000. Вдвое дальше бросают взгляд по сторонам."
+    },
+    {
+      "file": "NPC.ini",
+      "section": "DishonoredGame.DishonoredNPCController",
+      "key": "m_fAutoLookRadius",
+      "value": "900.000000",
+      "note": "Было 400. Дальше присматриваются."
+    },
+    {
+      "file": "NPC.ini",
+      "section": "DishonoredGame.DishonoredNPCController",
+      "key": "m_fGlanceTime",
+      "value": "1.000000",
+      "note": "Было 2.5. Чаще оглядываются — окон для перебежки меньше."
+    },
+    {
+      "file": "NPC.ini",
+      "section": "DishonoredGame.StateNPCMasterAim",
+      "key": "m_fTimeAimingRequiresBeforeShooting",
+      "value": "0.300000",
+      "note": "Было 0.75. Стрелки целятся вдвое быстрее — выглянул и получил."
+    },
+    {
+      "file": "PlayerState.ini",
+      "section": "DishonoredGame.StatePlayerMasterStunned",
+      "key": "m_fStunDuration",
+      "value": "0.600000",
+      "note": "Было 0.1. Пропущенный удар отнимает контроль почти на секунду — цепочка ударов становится смертельной без правки урона."
+    },
+    {
+      "file": "PlayerState.ini",
+      "section": "DishonoredGame.StatePlayerMasterFalling",
+      "key": "m_fFall_Stun_Vel",
+      "value": "1200.000000",
+      "note": "Было 2200. Прыжок с высоты оглушает — вертикаль перестаёт быть бесплатным путём отхода."
+    },
+    {
+      "file": "PlayerState.ini",
+      "section": "DishonoredGame.StatePlayerMasterDead",
+      "key": "m_fTimeUntilGameover",
+      "value": "2.500000",
+      "note": "Было 7.5. Смерть без долгого разглядывания трупа."
+    }
+  ],
+  "manual_edits": [
+    {
+      "file": "AI.ini",
+      "section": "DishonoredGame.DisAINoiseManager",
+      "key": "m_LoudnessDistanceArray",
+      "note": "Массив из 17 строк, задающий дальность слышимости для каждого уровня громкости. Правится целиком, а не одной строкой, поэтому вынесен отдельно: modekit меняет только первое вхождение ключа и для массивов не годится. Заменить весь блок на значения, умноженные на 2.5 — первую и последнюю строки (нули) оставить как есть.",
+      "replacement": [
+        "0.000000", "500.000000", "750.000000", "1000.000000", "1250.000000",
+        "1500.000000", "2000.000000", "2500.000000", "3000.000000", "3750.000000",
+        "5000.000000", "6250.000000", "7500.000000", "10000.000000", "12500.000000",
+        "15000.000000", "0.000000"
+      ]
+    }
+  ],
+  "not_possible_in_ini": [
+    "Здоровье игрока и NPC — значений в конфигах нет, лежат в твик-объектах внутри .upk",
+    "Числа урона — DefaultWeapon.ini содержит только типы урона и их поведение, без величин",
+    "Регенерация маны и стоимость способностей",
+    "Палач как преследователь — он привязан к миссии «Возвращение в Башню»",
+    "Условие победы и подсчёт — нужен нативный слой"
+  ]
+}
