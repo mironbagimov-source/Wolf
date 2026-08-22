@@ -216,23 +216,31 @@ int main(int argc, char** argv) {
 
     const std::string folder = folderOf(exePath);
     std::printf("\n--- Файлы на месте ---\n\n");
-    const char* expected[] = {"DishonoredModKit.asi", "native.ini"};
+    const char* expected[] = {"dinput8.dll", "native.ini"};
     for (const char* name : expected) {
         const std::string path = folder + "\\" + name;
         std::printf("  %-24s %s\n", name, fileExists(path) ? "есть" : "НЕТ");
     }
 
-    int proxiesFound = 0;
+    // Плагин сам является dinput8.dll, поэтому любая ДРУГАЯ прокси-библиотека
+    // рядом — это лишний перехватчик ввода, а не помощник.
+    int extraProxies = 0;
     for (const char* proxy : kProxyNames) {
+        if (_stricmp(proxy, "dinput8.dll") == 0) {
+            continue;
+        }
         if (fileExists(folder + "\\" + proxy)) {
-            std::printf("  %-24s есть (прокси-загрузчик)\n", proxy);
-            ++proxiesFound;
+            std::printf("  %-24s ЛИШНИЙ — перехватывает ввод вторым, удали\n", proxy);
+            ++extraProxies;
         }
     }
-    if (proxiesFound == 0) {
-        std::printf("  прокси-DLL загрузчика   НЕ НАЙДЕНА НИ ОДНА\n");
-    } else if (proxiesFound > 1) {
-        std::printf("\n  Внимание: прокси-DLL больше одной. Оставь только одну.\n");
+    if (fileExists(folder + "\\DishonoredModKit.asi")) {
+        std::printf("  %-24s от прежней схемы, больше не нужен\n",
+                    "DishonoredModKit.asi");
+        ++extraProxies;
+    }
+    if (extraProxies == 0) {
+        std::printf("  лишних файлов нет\n");
     }
 
     std::printf("\n--- Права на запись ---\n\n");

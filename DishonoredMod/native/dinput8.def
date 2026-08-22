@@ -1,0 +1,9 @@
+; Экспорты настоящей dinput8.dll. Файл нужен, чтобы mingw выдал имена без
+; украшений: игра ищет DirectInput8Create, а не _DirectInput8Create@20.
+LIBRARY dinput8
+EXPORTS
+DirectInput8Create
+DllCanUnloadNow
+DllGetClassObject
+DllRegisterServer
+DllUnregisterServer

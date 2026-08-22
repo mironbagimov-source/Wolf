@@ -20,15 +20,19 @@ add_library(DishonoredModKit SHARED
     src/log.cpp
     src/mode.cpp
     src/modes/roleplay.cpp
+    src/proxy_dinput8.cpp
     src/sigscan.cpp
     src/ue3names.cpp
 )
 
-# Ultimate ASI Loader подхватывает библиотеки с расширением .asi.
+# Плагин сам является прокси-библиотекой dinput8: игра честно импортирует её
+# (подтверждено diagnose.exe), поэтому сторонний загрузчик не нужен.
+# Файл определений даёт неукрашенные имена экспортов.
 set_target_properties(DishonoredModKit PROPERTIES
     PREFIX ""
-    SUFFIX ".asi"
-    OUTPUT_NAME "DishonoredModKit"
+    SUFFIX ".dll"
+    OUTPUT_NAME "dinput8"
+    LINK_FLAGS "\"${CMAKE_CURRENT_SOURCE_DIR}/dinput8.def\""
 )
 
 if(MSVC)

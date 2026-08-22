@@ -18,9 +18,17 @@
 // работа уходит в отдельный поток — стандартная практика для плагинов такого
 // рода.
 
+namespace dmk {
+// Определены в proxy_dinput8.cpp.
+bool proxyInit();
+void proxyShutdown();
+const char* proxyRealPath();
+}  // namespace dmk
+
 namespace {
 
 HMODULE g_module = nullptr;
+bool g_proxyReady = false;
 dmk::Detour g_processEventDetour;
 dmk::ue3::Bindings g_bindings;
 
@@ -174,6 +182,12 @@ DWORD WINAPI initialize(LPVOID) {
 
     dmk::logInit(g_module, "DishonoredModKit.log", logDirectory);
     DMK_INFO("нативный слой загружен");
+    if (g_proxyReady) {
+        DMK_INFO("проброс dinput8 работает: %s", dmk::proxyRealPath());
+    } else {
+        DMK_ERROR("не удалось загрузить системную dinput8 — ввод в игре может "
+                  "не работать");
+    }
     announceLoad(iniPath, dmk::logPath());
     if (iniPath.empty()) {
         DMK_ERROR("не определился путь к native.ini — дальше идти некуда");
@@ -223,6 +237,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         case DLL_PROCESS_ATTACH: {
             g_module = module;
             DisableThreadLibraryCalls(module);
+            // Проброс поднимается первым: игра может вызвать
+            // DirectInput8Create раньше, чем наш поток успеет стартовать.
+            g_proxyReady = dmk::proxyInit();
             HANDLE thread = CreateThread(nullptr, 0, initialize, nullptr, 0, nullptr);
             if (thread != nullptr) {
                 CloseHandle(thread);
@@ -233,6 +250,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
             dmk::ModeRegistry::instance().deactivateAll();
             g_processEventDetour.uninstall();
             dmk::logShutdown();
+            dmk::proxyShutdown();
             break;
         }
         default:
