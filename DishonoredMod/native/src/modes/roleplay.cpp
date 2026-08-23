@@ -63,11 +63,10 @@ void RoleplayMode::onEnable() {
     locked_ = false;
     seenNames_.clear();
 
-    auto& names = ModeRegistry::instance().names();
-    if (!names.configured()) {
-        DMK_WARN("ролевой режим: таблица имён не настроена — без неё нельзя "
-                 "отличить разговор от любого другого события. См. [Names] в "
-                 "native.ini");
+    if (!ModeRegistry::instance().namesReady()) {
+        // Не ошибка: при автоподборе имена появляются через несколько секунд
+        // после старта, и реестр включит режим заново, как только они будут.
+        DMK_INFO("ролевой режим: имена ещё не разобраны, жду автоопределения");
         return;
     }
 
@@ -104,10 +103,11 @@ void RoleplayMode::onDisable() {
 bool RoleplayMode::onProcessEvent(ue3::UObject* self,
                                   ue3::UFunction* function,
                                   void* /*parms*/) {
-    auto& names = ModeRegistry::instance().names();
-    if (!names.configured()) {
+    auto& registry = ModeRegistry::instance();
+    if (!registry.namesReady()) {
         return true;
     }
+    auto& names = registry.names();
 
     char functionName[kNameBuffer];
     if (!names.nameOf(function, functionName, sizeof(functionName))) {

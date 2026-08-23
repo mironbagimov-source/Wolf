@@ -172,14 +172,22 @@ void loadNameResolver(const std::string& iniPath, dmk::ue3::NameResolver& names)
     if (names.configured()) {
         DMK_INFO("таблица имён: GNames 0x%08X, имя в объекте +0x%X, "
                  "строка в записи +0x%X, широкие символы %s",
-                 names.gnamesArray,
+                 static_cast<unsigned>(names.gnamesArray),
                  static_cast<unsigned>(names.objectNameOffset),
                  static_cast<unsigned>(names.entryStringOffset),
                  names.entryIsWide ? "да" : "нет");
     } else {
-        DMK_INFO("таблица имён не настроена — режимы, которым нужны имена "
-                 "событий, работать не будут");
+        DMK_INFO("таблица имён не задана — подберу раскладку сама по живым "
+                 "объектам из потока событий");
     }
+}
+
+// Подбор раскладки имён. Живёт в своём потоке, потому что обходит всю секцию
+// данных игры: сделай это внутри хука — и игра встанет на несколько секунд
+// прямо в кадре.
+DWORD WINAPI detectNamesThread(LPVOID) {
+    dmk::ModeRegistry::instance().runNameDetection();
+    return 0;
 }
 
 std::string readActiveMode(const std::string& iniPath) {
@@ -334,10 +342,22 @@ DWORD WINAPI initialize(LPVOID) {
     report("Хук установлен, пролог %d байт.", g_bindings.processEventPrologue);
 
     const std::string mode = readActiveMode(iniPath);
-    if (dmk::ModeRegistry::instance().activate(mode)) {
+    if (registry.activate(mode)) {
         report("Режим: %s", mode.c_str());
     } else {
         report("Режим '%s' не найден, события никуда не идут.", mode.c_str());
+    }
+
+    // Подбор запускается после активации режима: набирать образцы имеет смысл
+    // только когда через хук уже идут события.
+    registry.setAutoDetectNames(!registry.names().configured());
+    if (!registry.names().configured()) {
+        HANDLE thread = CreateThread(nullptr, 0, detectNamesThread, nullptr, 0, nullptr);
+        if (thread != nullptr) {
+            CloseHandle(thread);
+        } else {
+            DMK_ERROR("не удалось запустить поток подбора имён");
+        }
     }
 
     DMK_INFO("инициализация завершена");

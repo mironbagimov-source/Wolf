@@ -1,5 +1,7 @@
 #include "mode.h"
 
+#include <windows.h>
+
 #include "log.h"
 #include "modes/roleplay.h"
 #include "ue3detect.h"
@@ -92,8 +94,8 @@ std::vector<std::string> ModeRegistry::availableIds() const {
 bool ModeRegistry::dispatchProcessEvent(ue3::UObject* self,
                                         ue3::UFunction* function,
                                         void* parms) {
-    if (autoDetectNames_ && !names_.configured() && !detectionAttempted_) {
-        tryDetectNames(function);
+    if (collectSamples_.load(std::memory_order_acquire)) {
+        collectNameSample(function);
     }
 
     if (active_ == nullptr) {
@@ -102,29 +104,74 @@ bool ModeRegistry::dispatchProcessEvent(ue3::UObject* self,
     return active_->onProcessEvent(self, function, parms);
 }
 
-void ModeRegistry::tryDetectNames(ue3::UObject* function) {
-    // Нужны РАЗНЫЕ объекты: шестнадцать указателей на одну и ту же функцию
-    // ничего не проверяют, а вот шестнадцать разных отсекают случайные
-    // совпадения почти наверняка.
-    constexpr std::size_t kSamplesNeeded = 16;
+void ModeRegistry::setAutoDetectNames(bool enabled) {
+    if (enabled) {
+        namesReady_.store(false, std::memory_order_release);
+        collectSamples_.store(true, std::memory_order_release);
+    } else {
+        collectSamples_.store(false, std::memory_order_release);
+        namesReady_.store(names_.configured(), std::memory_order_release);
+    }
+}
+
+// Вызывается из хука, на горячем пути: никаких аллокаций, никаких блокировок,
+// ничего тяжелее нескольких атомарных операций.
+void ModeRegistry::collectNameSample(const void* function) {
     if (function == nullptr) {
         return;
     }
-    for (const void* known : nameSamples_) {
-        if (known == function) {
+
+    // Нужны РАЗНЫЕ объекты: шестнадцать указателей на одну и ту же функцию
+    // ничего не проверяют, а вот шестнадцать разных отсекают случайные
+    // совпадения почти наверняка.
+    const std::size_t written = readySamples_.load(std::memory_order_acquire);
+    for (std::size_t index = 0; index < written; ++index) {
+        if (nameSamples_[index].load(std::memory_order_relaxed) == function) {
             return;
         }
     }
-    nameSamples_.push_back(function);
-    if (nameSamples_.size() < kSamplesNeeded) {
+
+    const std::size_t slot = claimedSamples_.fetch_add(1, std::memory_order_acq_rel);
+    if (slot >= kMaxSamples) {
+        // Слоты кончились. Счётчик откатывать незачем — сбор всё равно
+        // выключится, как только подбор заберёт набранное.
+        return;
+    }
+    nameSamples_[slot].store(function, std::memory_order_relaxed);
+    readySamples_.fetch_add(1, std::memory_order_release);
+}
+
+void ModeRegistry::runNameDetection() {
+    // Ждём, пока хук наберёт образцы. Через ProcessEvent за секунду проходят
+    // тысячи вызовов, так что в живой игре это доли секунды; минута с запасом
+    // отделяет «ещё грузится» от «хук не работает».
+    constexpr int kWaitSteps = 600;
+    constexpr DWORD kStepMs = 100;
+    for (int step = 0; step < kWaitSteps; ++step) {
+        if (readySamples_.load(std::memory_order_acquire) >= kMaxSamples) {
+            break;
+        }
+        Sleep(kStepMs);
+    }
+
+    std::vector<const void*> samples;
+    const std::size_t have = readySamples_.load(std::memory_order_acquire);
+    samples.reserve(have);
+    for (std::size_t index = 0; index < have; ++index) {
+        samples.push_back(nameSamples_[index].load(std::memory_order_relaxed));
+    }
+    collectSamples_.store(false, std::memory_order_release);
+
+    if (samples.empty()) {
+        DMK_ERROR("автоопределение имён: за минуту не пришло ни одного вызова — "
+                  "хук стоит, но события через него не идут");
         return;
     }
 
-    detectionAttempted_ = true;
     DMK_INFO("автоопределение имён: набрано %u образцов, ищу раскладку",
-             static_cast<unsigned>(nameSamples_.size()));
+             static_cast<unsigned>(samples.size()));
 
-    const ue3::DetectedLayout layout = ue3::detectNameLayout(nameSamples_);
+    const ue3::DetectedLayout layout = ue3::detectNameLayout(samples);
     if (!layout.found) {
         DMK_ERROR("автоопределение имён: раскладка не найдена. Придётся задать "
                   "адреса вручную в секции [Names]");
@@ -135,9 +182,12 @@ void ModeRegistry::tryDetectNames(ue3::UObject* function) {
     names_.objectNameOffset = layout.objectNameOffset;
     names_.entryStringOffset = layout.entryStringOffset;
     names_.entryIsWide = layout.entryIsWide;
+    // Публикация полей: всё, что записано выше, обязано быть видно любому,
+    // кто увидел поднятый флаг.
+    namesReady_.store(true, std::memory_order_release);
 
     DMK_INFO("автоопределение имён: НАЙДЕНО");
-    DMK_INFO("  GNamesAddress=0x%08X", names_.gnamesArray);
+    DMK_INFO("  GNamesAddress=0x%08X", static_cast<unsigned>(names_.gnamesArray));
     DMK_INFO("  ObjectNameOffset=%u", static_cast<unsigned>(names_.objectNameOffset));
     DMK_INFO("  EntryStringOffset=%u", static_cast<unsigned>(names_.entryStringOffset));
     DMK_INFO("  EntryIsWide=%d", names_.entryIsWide ? 1 : 0);
@@ -145,6 +195,14 @@ void ModeRegistry::tryDetectNames(ue3::UObject* function) {
     DMK_INFO("прочитанные имена (проверь глазами, похожи ли на функции игры):");
     for (const std::string& name : layout.sampleNames) {
         DMK_INFO("    %s", name.c_str());
+    }
+
+    // Режим включался до того, как имена стали доступны, и мог отказаться
+    // работать именно из-за этого. Теперь повод исчез.
+    if (active_ != nullptr) {
+        DMK_INFO("перезапускаю режим '%s' — теперь ему доступны имена", active_->id());
+        active_->onDisable();
+        active_->onEnable();
     }
 }
 

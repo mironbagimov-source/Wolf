@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -59,13 +61,24 @@ public:
     // Общее для всех режимов: разрешение имён и путь к native.ini. Режимы
     // читают собственные настройки сами — так добавление режима не требует
     // правок в dllmain.
+    //
+    // Пользоваться этим можно только когда namesReady() истинно: при
+    // автоподборе поля заполняются из чужого потока, и до его окончания
+    // читать их нельзя.
     ue3::NameResolver& names() { return names_; }
+    bool namesReady() const { return namesReady_.load(std::memory_order_acquire); }
 
     // Автоподбор раскладки таблицы имён по живым объектам из потока событий.
     // Включается, когда адреса не заданы в конфиге вручную.
-    void setAutoDetectNames(bool enabled) { autoDetectNames_ = enabled; }
+    void setAutoDetectNames(bool enabled);
     void setConfigPath(const std::string& path) { configPath_ = path; }
     const std::string& configPath() const { return configPath_; }
+
+    // Ждёт, пока хук наберёт образцы, и подбирает по ним раскладку. Работа
+    // тяжёлая — обход всей секции данных, — поэтому вызывается из отдельного
+    // потока, а не из хука. Возвращается, когда подбор кончился, чем бы он ни
+    // кончился.
+    void runNameDetection();
 
     // Прогоняет событие через активный режим.
     bool dispatchProcessEvent(ue3::UObject* self, ue3::UFunction* function, void* parms);
@@ -73,17 +86,29 @@ public:
 private:
     ModeRegistry() = default;
 
+    // Копилка образцов для подбора раскладки имён.
+    //
+    // Заполняется прямо из хука, то есть из игровых потоков и на горячем
+    // пути. Отсюда устройство: массив фиксированной длины и атомарные
+    // счётчики вместо вектора — ни аллокаций, ни блокировок, ни гонки.
+    //
+    // Счётчиков два. claimed_ раздаёт слоты, ready_ считает уже записанные;
+    // без этого разделения читатель мог бы увидеть занятый, но ещё пустой
+    // слот.
+    static constexpr std::size_t kMaxSamples = 16;
+    void collectNameSample(const void* function);
+
     std::vector<std::unique_ptr<IGameMode>> modes_;
     IGameMode* active_ = nullptr;
-    // Подбор раскладки имён: копим образцы объектов, пока их не хватит на
-    // проверку, потом пробуем гипотезы. Делается один раз за сессию.
-    void tryDetectNames(ue3::UObject* function);
 
     ue3::NameResolver names_;
     std::string configPath_;
-    bool autoDetectNames_ = true;
-    bool detectionAttempted_ = false;
-    std::vector<const void*> nameSamples_;
+
+    std::atomic<const void*> nameSamples_[kMaxSamples] = {};
+    std::atomic<std::size_t> claimedSamples_{0};
+    std::atomic<std::size_t> readySamples_{0};
+    std::atomic<bool> collectSamples_{false};
+    std::atomic<bool> namesReady_{false};
 };
 
 // Регистрация встроенных режимов. Объявлена отдельно, чтобы добавление режима
