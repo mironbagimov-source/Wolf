@@ -3,36 +3,29 @@
 #include <windows.h>
 
 #include <atomic>
-#include <cstring>
+
+// Здесь остался только тот кусок, которому действительно нужна Windows:
+// проверка читаемости адреса. Разбор раскладки живёт в заголовке, чтобы его
+// можно было гонять тестами без игры.
 
 namespace dmk {
 namespace ue3 {
 namespace {
 
-// Разумный потолок длины имени. Имена UE3 короткие; если строка тянется
-// дальше, значит указатель ведёт не туда, и продолжать чтение опасно.
-constexpr std::size_t kMaxNameLength = 128;
-
-struct TArrayHeader {
-    void* data;
-    std::int32_t count;
-    std::int32_t max;
-};
-
 // Кэш читаемости страниц.
 //
-// VirtualQuery — системный вызов, а спрашивать приходится часто: entryToString
-// проверяет каждый символ имени, и в потоке ProcessEvent это десятки тысяч
-// обращений в секунду. Без кэша разрешение имён само по себе съедало бы кадр.
+// VirtualQuery — системный вызов, а спрашивать приходится часто: чтение имени
+// проверяет каждый символ, и в потоке ProcessEvent это десятки тысяч обращений
+// в секунду. Без кэша разрешение имён само по себе съедало бы кадр.
 //
-// Таблица прямого отображения: слот на страницу, вытеснение по коллизии,
-// одно атомарное слово на запись. Блокировок нет и не нужно — промах стоит
-// ровно один лишний VirtualQuery, а не ошибку.
+// Таблица прямого отображения: слот на страницу, вытеснение по коллизии, одно
+// атомарное слово на запись. Блокировок нет и не нужно — промах стоит ровно
+// один лишний VirtualQuery, а не ошибку.
 //
 // Кэш положительных ответов означает, что мы поверим в читаемость страницы,
-// которую игра успела освободить. Для того, ради чего он здесь, это
-// безопасно: пул имён UE3 и таблица GNames живут от загрузки до выхода и не
-// возвращаются в кучу.
+// которую игра успела освободить. Для того, ради чего он здесь, это безопасно:
+// пул имён UE3 и таблица GNames живут от загрузки до выхода и не возвращаются
+// в кучу.
 constexpr std::uintptr_t kPageShift = 12;
 constexpr std::size_t kPageCacheSlots = 4096;  // степень двойки
 std::atomic<std::uintptr_t> g_pageCache[kPageCacheSlots];
@@ -85,98 +78,6 @@ bool isReadable(const void* address, std::size_t size) {
         }
     }
     return true;
-}
-
-bool NameResolver::nameOf(const void* object, char* buffer,
-                          std::size_t bufferSize) const {
-    if (buffer == nullptr || bufferSize == 0) {
-        return false;
-    }
-    buffer[0] = '\0';
-
-    if (!configured() || object == nullptr) {
-        return false;
-    }
-
-    const auto* namePointer =
-        reinterpret_cast<const std::int32_t*>(
-            reinterpret_cast<const std::uint8_t*>(object) + objectNameOffset);
-    if (!isReadable(namePointer, sizeof(std::int32_t))) {
-        return false;
-    }
-    const std::int32_t nameIndex = *namePointer;
-    if (nameIndex < 0) {
-        return false;
-    }
-
-    const auto* names = reinterpret_cast<const TArrayHeader*>(gnamesArray);
-    if (!isReadable(names, sizeof(TArrayHeader))) {
-        return false;
-    }
-    if (nameIndex >= names->count || names->data == nullptr) {
-        return false;
-    }
-
-    const auto* entries = reinterpret_cast<const void* const*>(names->data);
-    if (!isReadable(entries + nameIndex, sizeof(void*))) {
-        return false;
-    }
-
-    const void* entry = entries[nameIndex];
-    return entryToString(entry, buffer, bufferSize);
-}
-
-bool NameResolver::entryToString(const void* entry, char* buffer,
-                                 std::size_t bufferSize) const {
-    if (entry == nullptr) {
-        return false;
-    }
-
-    const auto* text =
-        reinterpret_cast<const std::uint8_t*>(entry) + entryStringOffset;
-    const std::size_t limit =
-        (bufferSize - 1 < kMaxNameLength) ? bufferSize - 1 : kMaxNameLength;
-
-    if (entryIsWide) {
-        const auto* wide = reinterpret_cast<const wchar_t*>(text);
-        std::size_t length = 0;
-        while (length < limit) {
-            if (!isReadable(wide + length, sizeof(wchar_t))) {
-                return false;
-            }
-            const wchar_t symbol = wide[length];
-            if (symbol == L'\0') {
-                break;
-            }
-            // Имена UE3 состоят из ASCII. Всё за его пределами означает, что
-            // мы читаем не имя, и лучше отказаться, чем выдать мусор.
-            if (symbol > 0x7F) {
-                return false;
-            }
-            buffer[length] = static_cast<char>(symbol);
-            ++length;
-        }
-        buffer[length] = '\0';
-        return length > 0;
-    }
-
-    std::size_t length = 0;
-    while (length < limit) {
-        if (!isReadable(text + length, sizeof(char))) {
-            return false;
-        }
-        const char symbol = static_cast<char>(text[length]);
-        if (symbol == '\0') {
-            break;
-        }
-        if (static_cast<unsigned char>(symbol) > 0x7F) {
-            return false;
-        }
-        buffer[length] = symbol;
-        ++length;
-    }
-    buffer[length] = '\0';
-    return length > 0;
 }
 
 }  // namespace ue3

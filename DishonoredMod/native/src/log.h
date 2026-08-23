@@ -31,6 +31,19 @@ std::string logPath();
 
 void logWrite(LogLevel level, const char* format, ...);
 
+// Показывает окно с текстом. Второй способ доложиться человеку, помимо лога, и
+// на этапе настройки — главный: окно видно сразу и целиком, а файл в папке
+// игры ещё надо найти и открыть.
+//
+// Текст принимается в UTF-8 и переводится в UTF-16: MessageBoxA трактовал бы
+// байты в системной кодировке, а исходники здесь в UTF-8 — на русской Windows
+// это даёт нечитаемое месиво вместо текста.
+void notify(const std::string& utf8Text);
+
+// Разрешены ли окна. Ставится один раз при старте по ShowLoadMessage; notify
+// сам это учитывает, отдельно проверять не нужно.
+void setNotifyEnabled(bool enabled);
+
 }  // namespace dmk
 
 #define DMK_DEBUG(...) ::dmk::logWrite(::dmk::LogLevel::Debug, __VA_ARGS__)

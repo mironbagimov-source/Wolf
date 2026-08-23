@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -14,6 +15,7 @@ namespace {
 std::FILE* g_file = nullptr;
 std::mutex g_mutex;
 std::string g_path;
+std::atomic<bool> g_notifyEnabled{true};
 
 // Открывает лог в указанной папке. Возвращает false, если не вышло — например
 // папка защищена от записи.
@@ -132,6 +134,26 @@ void logShutdown() {
         std::fclose(g_file);
         g_file = nullptr;
     }
+}
+
+void setNotifyEnabled(bool enabled) {
+    g_notifyEnabled.store(enabled, std::memory_order_relaxed);
+}
+
+void notify(const std::string& utf8Text) {
+    if (!g_notifyEnabled.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    const int wide =
+        MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, nullptr, 0);
+    if (wide <= 0) {
+        return;
+    }
+    std::wstring text(static_cast<std::size_t>(wide), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, text.data(), wide);
+    MessageBoxW(nullptr, text.c_str(), L"Dishonored Mod Kit",
+                MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
 }
 
 void logWrite(LogLevel level, const char* format, ...) {

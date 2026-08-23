@@ -8,12 +8,13 @@
 #include "detour.h"
 #include "log.h"
 #include "mode.h"
+#include "probes.h"
 #include "sigscan.h"
 #include "ue3.h"
 
-// Точка входа нативного слоя. Библиотека грузится в процесс игры
-// Ultimate ASI Loader, находит ProcessEvent по сигнатуре и раздаёт события
-// активному режиму.
+// Точка входа нативного слоя. Библиотека подменяет собой dinput8, поэтому
+// игра грузит её сама, находит функции скриптовой машины по сигнатурам и
+// раздаёт события активному режиму.
 //
 // Никакой инициализации в самом DllMain: он вызывается под блокировкой
 // загрузчика, где нельзя ни грузить модули, ни ждать синхронизацию. Поэтому
@@ -31,7 +32,8 @@ namespace {
 
 HMODULE g_module = nullptr;
 bool g_proxyReady = false;
-dmk::Detour g_processEventDetour;
+dmk::Detour g_callFunctionDetour;
+dmk::Detour g_opcodeDetour;
 dmk::ue3::Bindings g_bindings;
 
 // Итог запуска для окна. Окно пользователь видит всегда, а лог — только если
@@ -51,22 +53,44 @@ void report(const char* format, ...) {
     g_summary += '\n';
 }
 
-// Перехватчик ProcessEvent. Соглашение вызова обязано совпадать с оригиналом,
-// см. подробности в ue3.h.
-void __fastcall hookedProcessEvent(dmk::ue3::UObject* self,
+// Перехватчик CallFunction. Соглашение вызова и число аргументов обязаны
+// совпадать с оригиналом, см. подробности в ue3.h.
+//
+// Это основной источник событий: описание вызываемой функции приходит
+// аргументом, значит имя читается сразу.
+void __fastcall hookedCallFunction(dmk::ue3::UObject* self,
                                    void* edx,
-                                   dmk::ue3::UFunction* function,
-                                   void* parms,
-                                   void* result) {
+                                   dmk::ue3::FFrame* stack,
+                                   void* result,
+                                   dmk::ue3::UFunction* function) {
+    dmk::g_callFunctionHits.fetch_add(1, std::memory_order_relaxed);
+
     const bool proceed =
-        dmk::ModeRegistry::instance().dispatchProcessEvent(self, function, parms);
+        dmk::ModeRegistry::instance().dispatchProcessEvent(self, function, nullptr);
 
     if (proceed) {
         auto original =
-            reinterpret_cast<dmk::ue3::ProcessEventFn>(g_processEventDetour.original());
+            reinterpret_cast<dmk::ue3::CallFunctionFn>(g_callFunctionDetour.original());
         if (original != nullptr) {
-            original(self, edx, function, parms, result);
+            original(self, edx, stack, result, function);
         }
+    }
+}
+
+// Зонд на обработчик опкода. Только считает: описания функции у него в
+// аргументах нет, поэтому имена отсюда не берутся. Нужен, чтобы отличить
+// «скрипты не исполняются вовсе» от «исполняются, но не через CallFunction» —
+// снаружи эти состояния выглядят одинаково, как пустой счётчик.
+void __fastcall hookedOpcodeHandler(dmk::ue3::UObject* self,
+                                    void* edx,
+                                    dmk::ue3::FFrame* stack,
+                                    void* result) {
+    dmk::g_opcodeHits.fetch_add(1, std::memory_order_relaxed);
+
+    auto original =
+        reinterpret_cast<dmk::ue3::OpcodeHandlerFn>(g_opcodeDetour.original());
+    if (original != nullptr) {
+        original(self, edx, stack, result);
     }
 }
 
@@ -84,19 +108,34 @@ std::string configPath() {
     return std::string(path) + "native.ini";
 }
 
-// Сигнатура ProcessEvent для розничной сборки 1.0, вшитая как значение по
-// умолчанию.
+// Сигнатуры для розничной сборки 1.0, вшитые как значения по умолчанию.
 //
-// Держать её только в конфиге оказалось хрупко: файлов у мода два, обновляются
+// Держать их только в конфиге оказалось хрупко: файлов у мода два, обновляются
 // они по отдельности, и достаточно забыть один — плагин молча работает
 // вхолостую, а причина видна только в логе. Значение по умолчанию делает
 // потерянный конфиг безвредным.
-constexpr char kDefaultProcessEventPattern[] =
-    "55 8B EC 6A FF 68 ?? ?? ?? ?? 64 A1 00 00 00 00 50 83 EC 70 A1 ?? ?? ?? ?? 33 C5 89 45 F0 53 56 57 50 8D 45 F4 64 A3 00 00 00 00 89 4D D0 8B";
+//
+// UObject::CallFunction — 0x00470230. Опознана по третьему аргументу: из него
+// читаются FunctionFlags (+0x80) с проверкой бита FUNC_Native 0x400 и iNative
+// (+0x84), а так делает только она. Оттуда же идёт один из двух прямых вызовов
+// ProcessInternal.
+constexpr char kCallFunctionPattern[] =
+    "55 8B EC 6A FF 68 ?? ?? ?? ?? 64 A1 ?? ?? ?? ?? 50 83 EC 58 A1 ?? ?? ?? ?? 33 C5 89 45 F0 53 56";
+
+// Обработчик опкода — 0x0046F8D0. Читает байткод из кадра (+0x18) и уходит в
+// диспетчер GNatives. Раньше эта функция была принята за ProcessEvent: у неё
+// такой же пролог, она вызывает ProcessInternal и стоит в таблице виртуальных
+// функций. Ошибку выдал счётчик — за двадцать секунд игры ноль вызовов, чего с
+// ProcessEvent быть не может.
+constexpr char kOpcodeHandlerPattern[] =
+    "55 8B EC 6A FF 68 ?? ?? ?? ?? 64 A1 ?? ?? ?? ?? 50 83 EC 70 A1 ?? ?? ?? ?? 33 C5 89 45 F0 53 56 57 50 8D 45 F4 64 A3 00 00 00 00 89";
+
+// Пролог у обеих одинаковый: push ebp (1) + mov ebp,esp (2) + push -1 (2).
+// Ровно 5 байт, граница перехода попадает на конец инструкции.
 constexpr int kDefaultPrologueBytes = 5;
 
 // Версия формата конфига. Поднимается, когда меняется смысл ключей в секции
-// [ProcessEvent] — то есть когда старый файл начинает не просто отставать, а
+// с сигнатурами — то есть когда старый файл начинает не просто отставать, а
 // врать.
 //
 // Одних значений по умолчанию мало: ключ, который в старом файле выписан явно,
@@ -104,7 +143,7 @@ constexpr int kDefaultPrologueBytes = 5;
 // от предыдущей версии стояло Enabled=0 (тогда это значило «сигнатура ещё не
 // снята»), и обновлённая DLL послушно легла спать. Версия отличает «человек
 // выключил хук» от «файл остался с тех времён, когда включать было нечего».
-constexpr int kConfigVersion = 2;
+constexpr int kConfigVersion = 3;
 
 enum class ConfigState { Missing, Stale, Current };
 
@@ -120,38 +159,43 @@ ConfigState readConfigState(const std::string& iniPath, int& version) {
 // Привязки к конкретной сборке игры. Из конфига берутся, только если он
 // свежий; иначе — вшитые значения, потому что устаревший файл в этой секции
 // заведомо описывает не то состояние, в котором находится код.
+void loadProbe(const std::string& iniPath, bool trusted, const char* section,
+               const char* defaultPattern, dmk::ue3::ProbeBinding& probe) {
+    if (trusted) {
+        GetPrivateProfileStringA(section, "Pattern", "", probe.pattern,
+                                 sizeof(probe.pattern), iniPath.c_str());
+    } else {
+        probe.pattern[0] = '\0';
+    }
+
+    const bool fromIni = probe.pattern[0] != '\0';
+    if (!fromIni) {
+        std::strncpy(probe.pattern, defaultPattern, sizeof(probe.pattern) - 1);
+    }
+    DMK_INFO("сигнатура %s: %s", section, fromIni ? "из native.ini" : "встроенная");
+
+    probe.prologue = trusted ? GetPrivateProfileIntA(section, "PrologueBytes",
+                                                     kDefaultPrologueBytes,
+                                                     iniPath.c_str())
+                             : kDefaultPrologueBytes;
+    if (probe.prologue == 0) {
+        probe.prologue = kDefaultPrologueBytes;
+    }
+}
+
 void loadBindings(const std::string& iniPath, ConfigState state) {
     const bool trusted = state == ConfigState::Current;
 
-    if (trusted) {
-        GetPrivateProfileStringA("ProcessEvent", "Pattern", "",
-                                 g_bindings.processEventPattern,
-                                 sizeof(g_bindings.processEventPattern),
-                                 iniPath.c_str());
-    } else {
-        g_bindings.processEventPattern[0] = '\0';
-    }
+    loadProbe(iniPath, trusted, "CallFunction", kCallFunctionPattern,
+              g_bindings.callFunction);
+    loadProbe(iniPath, trusted, "OpcodeHandler", kOpcodeHandlerPattern,
+              g_bindings.opcodeHandler);
 
-    const bool fromIni = g_bindings.processEventPattern[0] != '\0';
-    if (!fromIni) {
-        std::strncpy(g_bindings.processEventPattern, kDefaultProcessEventPattern,
-                     sizeof(g_bindings.processEventPattern) - 1);
-    }
-    DMK_INFO("сигнатура ProcessEvent: %s", fromIni ? "из native.ini" : "встроенная");
-
-    g_bindings.processEventPrologue =
-        trusted ? GetPrivateProfileIntA("ProcessEvent", "PrologueBytes",
-                                        kDefaultPrologueBytes, iniPath.c_str())
-                : kDefaultPrologueBytes;
-    if (g_bindings.processEventPrologue == 0) {
-        g_bindings.processEventPrologue = kDefaultPrologueBytes;
-    }
-
-    // По умолчанию включено: сигнатура известна, и отключённый хук — это теперь
+    // По умолчанию включено: сигнатуры известны, и отключённый хук — это теперь
     // осознанный выбор, а не состояние «ещё не настроено».
     g_bindings.hookEnabled =
         !trusted ||
-        GetPrivateProfileIntA("ProcessEvent", "Enabled", 1, iniPath.c_str()) != 0;
+        GetPrivateProfileIntA("General", "HookEnabled", 1, iniPath.c_str()) != 0;
 }
 
 // Адреса и смещения таблицы имён. Без них режимы видят поток вызовов, но не
@@ -197,76 +241,39 @@ std::string readActiveMode(const std::string& iniPath) {
     return std::string(buffer);
 }
 
-bool resolveProcessEvent() {
-    const dmk::ModuleRange range = dmk::mainModuleRange();
-    if (!range.valid()) {
-        report("Не определились границы главного модуля.");
-        return false;
-    }
-    DMK_INFO("главный модуль: база 0x%08X, размер %u байт",
-             range.base, static_cast<unsigned>(range.size));
-
-    const std::size_t matches = dmk::countPattern(range, g_bindings.processEventPattern);
+// Находит один зонд по сигнатуре. Неоднозначная сигнатура опаснее ненайденной:
+// findPattern вернёт первое совпадение, и оно с равной вероятностью окажется
+// не той функцией, а падение случится позже и совсем в другом месте.
+bool resolveProbe(const dmk::ModuleRange& range, dmk::ue3::ProbeBinding& probe,
+                  const char* name) {
+    const std::size_t matches = dmk::countPattern(range, probe.pattern);
     if (matches == 0) {
-        report("ProcessEvent не найден — сигнатура снята с другой сборки игры.");
+        report("%s не найден — сигнатура снята с другой сборки игры.", name);
         return false;
     }
     if (matches > 1) {
-        // Продолжать нельзя: findPattern вернёт первое совпадение, и оно с
-        // равной вероятностью окажется не той функцией. Падение случится
-        // позже и совсем в другом месте.
-        report("Сигнатура ProcessEvent неоднозначна: совпадений %u, нужна ровно "
-               "одна.", static_cast<unsigned>(matches));
+        report("Сигнатура %s неоднозначна: совпадений %u, нужна ровно одна.",
+               name, static_cast<unsigned>(matches));
         return false;
     }
 
-    g_bindings.processEventAddress = dmk::findPattern(range, g_bindings.processEventPattern);
-    report("ProcessEvent найден: 0x%08X (смещение 0x%X от базы)",
-           g_bindings.processEventAddress,
-           static_cast<unsigned>(g_bindings.processEventAddress - range.base));
+    probe.address = dmk::findPattern(range, probe.pattern);
+    report("%s: 0x%08X", name, static_cast<unsigned>(probe.address));
     return true;
-}
-
-// Показывает окно с итогом запуска. Нужно на этапе первичной настройки:
-// отсутствие лога не различает «плагин не загрузился» и «загрузился, но не смог
-// создать файл», а это совершенно разные поломки с разным лечением. Окно
-// снимает эту неоднозначность, потому что не зависит ни от прав на запись, ни
-// от того, найдёт ли пользователь скрытую папку.
-// Окно показывается через широкую версию MessageBox.
-//
-// MessageBoxA трактует байты в системной кодировке, а исходники здесь в UTF-8 —
-// на русской Windows это даёт нечитаемое месиво вместо текста. Перевод в UTF-16
-// снимает вопрос независимо от того, какая кодировка настроена в системе.
-void showMessage(const std::string& utf8) {
-    const int wide = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
-    if (wide <= 0) {
-        return;
-    }
-    std::wstring text(static_cast<std::size_t>(wide), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, text.data(), wide);
-    MessageBoxW(nullptr, text.c_str(), L"Dishonored Mod Kit",
-                MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
 }
 
 // Показывается один раз в самом конце инициализации, независимо от того, чем
 // она кончилась. Раньше окно висело в начале и говорило только «загрузился» —
 // на первом шаге этого хватало, а теперь важнее не сам факт загрузки, а встал
 // ли хук; из окна это видно сразу, без поисков лога.
-void announceResult(const std::string& iniPath) {
-    const bool show =
-        iniPath.empty() ||
-        GetPrivateProfileIntA("General", "ShowLoadMessage", 1, iniPath.c_str()) != 0;
-    if (!show) {
-        return;
-    }
-
+void announceResult() {
     std::string text = g_summary;
     text += "\nЛог: ";
     text += dmk::logPath().empty() ? "не удалось открыть ни в одной папке"
                                    : dmk::logPath();
-    text += "\n\nОтключить это окно: ShowLoadMessage=0 в native.ini";
+    text += "\n\nОтключить окна: ShowLoadMessage=0 в native.ini";
 
-    showMessage(text);
+    dmk::notify(text);
 }
 
 DWORD WINAPI initialize(LPVOID) {
@@ -282,6 +289,12 @@ DWORD WINAPI initialize(LPVOID) {
     }
 
     dmk::logInit(g_module, "DishonoredModKit.log", logDirectory);
+    // Окна разрешаются один раз здесь, чтобы каждое место, которому есть что
+    // сказать, не перечитывало конфиг заново.
+    dmk::setNotifyEnabled(
+        iniPath.empty() ||
+        GetPrivateProfileIntA("General", "ShowLoadMessage", 1, iniPath.c_str()) != 0);
+
     DMK_INFO("нативный слой загружен");
     if (g_proxyReady) {
         DMK_INFO("проброс dinput8 работает: %s", dmk::proxyRealPath());
@@ -292,7 +305,7 @@ DWORD WINAPI initialize(LPVOID) {
 
     if (iniPath.empty()) {
         report("Не определился путь к native.ini — дальше идти некуда.");
-        announceResult(iniPath);
+        announceResult();
         return 0;
     }
     DMK_INFO("конфигурация: %s", iniPath.c_str());
@@ -321,26 +334,49 @@ DWORD WINAPI initialize(LPVOID) {
     dmk::registerBuiltinModes(registry);
 
     if (!g_bindings.hookEnabled) {
-        // Осознанное выключение: конфиг свежий и в нём стоит Enabled=0.
-        report("Хук выключен в native.ini (Enabled=0), работаю вхолостую.");
-        announceResult(iniPath);
+        // Осознанное выключение: конфиг свежий и в нём стоит HookEnabled=0.
+        report("Хуки выключены в native.ini, работаю вхолостую.");
+        announceResult();
         return 0;
     }
 
-    if (!resolveProcessEvent()) {
-        announceResult(iniPath);
+    const dmk::ModuleRange range = dmk::mainModuleRange();
+    if (!range.valid()) {
+        report("Не определились границы главного модуля.");
+        announceResult();
         return 0;
     }
+    DMK_INFO("главный модуль: база 0x%08X, размер %u байт",
+             range.base, static_cast<unsigned>(range.size));
 
-    if (!g_processEventDetour.install(g_bindings.processEventAddress,
-                                      reinterpret_cast<void*>(&hookedProcessEvent),
-                                      g_bindings.processEventPrologue)) {
-        report("Хук на ProcessEvent не установился.");
-        announceResult(iniPath);
+    // Оба зонда ставятся независимо: если один не нашёлся, второй всё равно
+    // даст показания, а вопрос как раз в том, какой из них живой.
+    if (resolveProbe(range, g_bindings.callFunction, "CallFunction")) {
+        if (g_callFunctionDetour.install(
+                g_bindings.callFunction.address,
+                reinterpret_cast<void*>(&hookedCallFunction),
+                g_bindings.callFunction.prologue)) {
+            report("Хук CallFunction установлен.");
+        } else {
+            report("Хук CallFunction не установился.");
+        }
+    }
+
+    if (resolveProbe(range, g_bindings.opcodeHandler, "OpcodeHandler")) {
+        if (g_opcodeDetour.install(g_bindings.opcodeHandler.address,
+                                   reinterpret_cast<void*>(&hookedOpcodeHandler),
+                                   g_bindings.opcodeHandler.prologue)) {
+            report("Хук OpcodeHandler установлен (только счётчик).");
+        } else {
+            report("Хук OpcodeHandler не установился.");
+        }
+    }
+
+    if (!g_callFunctionDetour.installed() && !g_opcodeDetour.installed()) {
+        report("Ни один зонд не встал — дальше идти некуда.");
+        announceResult();
         return 0;
     }
-    report("Хук установлен, пролог %d байт.", g_bindings.processEventPrologue);
-
     const std::string mode = readActiveMode(iniPath);
     if (registry.activate(mode)) {
         report("Режим: %s", mode.c_str());
@@ -361,7 +397,7 @@ DWORD WINAPI initialize(LPVOID) {
     }
 
     DMK_INFO("инициализация завершена");
-    announceResult(iniPath);
+    announceResult();
     return 0;
 }
 
@@ -383,7 +419,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
         }
         case DLL_PROCESS_DETACH: {
             dmk::ModeRegistry::instance().deactivateAll();
-            g_processEventDetour.uninstall();
+            g_callFunctionDetour.uninstall();
+            g_opcodeDetour.uninstall();
             dmk::logShutdown();
             dmk::proxyShutdown();
             break;

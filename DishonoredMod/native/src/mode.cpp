@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include "log.h"
+#include "probes.h"
 #include "modes/roleplay.h"
 #include "ue3detect.h"
 
@@ -142,16 +143,31 @@ void ModeRegistry::collectNameSample(const void* function) {
 }
 
 void ModeRegistry::runNameDetection() {
-    // Ждём, пока хук наберёт образцы. Через ProcessEvent за секунду проходят
-    // тысячи вызовов, так что в живой игре это доли секунды; минута с запасом
-    // отделяет «ещё грузится» от «хук не работает».
-    constexpr int kWaitSteps = 600;
-    constexpr DWORD kStepMs = 100;
-    for (int step = 0; step < kWaitSteps; ++step) {
+    // Ждём, пока хук наберёт образцы.
+    //
+    // Отсчёт идёт от загрузки DLL, а она случается до лаунчера, заставок и
+    // главного меню — до первых скриптовых вызовов может пройти сколько
+    // угодно времени, и короткий срок дал бы ложное «событий нет». Поэтому
+    // ждём долго и вместо тишины пишем в лог, сколько набралось: по этим
+    // строчкам видно, идут события совсем или нет.
+    constexpr DWORD kStepMs = 250;
+    constexpr int kMaxWaitMs = 15 * 60 * 1000;
+    int waited = 0;
+    int nextReportMs = 30 * 1000;
+    while (waited < kMaxWaitMs) {
         if (readySamples_.load(std::memory_order_acquire) >= kMaxSamples) {
             break;
         }
         Sleep(kStepMs);
+        waited += static_cast<int>(kStepMs);
+        if (waited >= nextReportMs) {
+            DMK_INFO("зонды: CallFunction %llu, OpcodeHandler %llu; образцов %u из %u",
+                     g_callFunctionHits.load(std::memory_order_relaxed),
+                     g_opcodeHits.load(std::memory_order_relaxed),
+                     static_cast<unsigned>(readySamples_.load(std::memory_order_acquire)),
+                     static_cast<unsigned>(kMaxSamples));
+            nextReportMs *= 2;
+        }
     }
 
     std::vector<const void*> samples;
@@ -162,9 +178,29 @@ void ModeRegistry::runNameDetection() {
     }
     collectSamples_.store(false, std::memory_order_release);
 
+    const unsigned long long callHits = g_callFunctionHits.load(std::memory_order_relaxed);
+    const unsigned long long opcodeHits = g_opcodeHits.load(std::memory_order_relaxed);
+    DMK_INFO("зонды итого: CallFunction %llu, OpcodeHandler %llu", callHits, opcodeHits);
+
     if (samples.empty()) {
-        DMK_ERROR("автоопределение имён: за минуту не пришло ни одного вызова — "
-                  "хук стоит, но события через него не идут");
+        // Счётчики разводят три разных случая, которые снаружи выглядят
+        // одинаково: скрипты не исполнялись вовсе, исполнялись мимо
+        // перехваченных функций, или исполнялись, но описание функции не
+        // доехало.
+        char text[512];
+        std::snprintf(text, sizeof(text),
+                      "Образцов не набралось.\n\n"
+                      "Счётчики зондов:\n"
+                      "  CallFunction: %llu\n"
+                      "  OpcodeHandler: %llu\n\n"
+                      "%s",
+                      callHits, opcodeHits,
+                      (callHits == 0 && opcodeHits == 0)
+                          ? "Оба по нулю — скрипты игры не исполнялись. Скорее "
+                            "всего игра не дошла до загрузки уровня."
+                          : "Вызовы идут, но описание функции не читается.");
+        DMK_ERROR("автоопределение имён: образцов нет");
+        notify(text);
         return;
     }
 
@@ -175,6 +211,10 @@ void ModeRegistry::runNameDetection() {
     if (!layout.found) {
         DMK_ERROR("автоопределение имён: раскладка не найдена. Придётся задать "
                   "адреса вручную в секции [Names]");
+        notify("События через хук идут — значит перехват работает.\n\n"
+               "Но раскладку таблицы имён подобрать не удалось: ни одна "
+               "гипотеза не дала осмысленных имён сразу для всех образцов.\n\n"
+               "Подробности в логе, строка «кандидатов в таблицу».");
         return;
     }
 
@@ -196,6 +236,32 @@ void ModeRegistry::runNameDetection() {
     for (const std::string& name : layout.sampleNames) {
         DMK_INFO("    %s", name.c_str());
     }
+
+    // То же самое окном. Раскладка либо верна, либо нет — и решается это
+    // взглядом на прочитанные имена: настоящие имена функций игры ни с чем не
+    // спутать, а случайное совпадение даёт бессмыслицу. Показать их сразу
+    // надёжнее, чем рассчитывать, что человек найдёт и откроет лог.
+    char head[256] = {0};
+    std::snprintf(head, sizeof(head),
+                  "Таблица имён разобрана.\n\n"
+                  "GNamesAddress=0x%08X\n"
+                  "ObjectNameOffset=%u\n"
+                  "EntryStringOffset=%u\n"
+                  "EntryIsWide=%d\n\n"
+                  "Прочитанные имена:\n",
+                  static_cast<unsigned>(names_.gnamesArray),
+                  static_cast<unsigned>(names_.objectNameOffset),
+                  static_cast<unsigned>(names_.entryStringOffset),
+                  names_.entryIsWide ? 1 : 0);
+
+    std::string text = head;
+    for (const std::string& name : layout.sampleNames) {
+        text += "  ";
+        text += name;
+        text += '\n';
+    }
+    text += "\nЕсли это похоже на функции игры — раскладка верна.";
+    notify(text);
 
     // Режим включался до того, как имена стали доступны, и мог отказаться
     // работать именно из-за этого. Теперь повод исчез.
