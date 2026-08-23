@@ -1,5 +1,7 @@
 #include <windows.h>
 
+#include <cstdarg>
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -31,6 +33,23 @@ HMODULE g_module = nullptr;
 bool g_proxyReady = false;
 dmk::Detour g_processEventDetour;
 dmk::ue3::Bindings g_bindings;
+
+// Итог запуска для окна. Окно пользователь видит всегда, а лог — только если
+// найдёт файл в папке игры, поэтому решающие факты идут в оба места.
+std::string g_summary;
+
+// Пишет строку и в лог, и в итоговое окно.
+void report(const char* format, ...) {
+    char buffer[512] = {0};
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    DMK_INFO("%s", buffer);
+    g_summary += buffer;
+    g_summary += '\n';
+}
 
 // Перехватчик ProcessEvent. Соглашение вызова обязано совпадать с оригиналом,
 // см. подробности в ue3.h.
@@ -65,15 +84,74 @@ std::string configPath() {
     return std::string(path) + "native.ini";
 }
 
-void loadBindings(const std::string& iniPath) {
-    GetPrivateProfileStringA("ProcessEvent", "Pattern", "",
-                             g_bindings.processEventPattern,
-                             sizeof(g_bindings.processEventPattern),
-                             iniPath.c_str());
+// Сигнатура ProcessEvent для розничной сборки 1.0, вшитая как значение по
+// умолчанию.
+//
+// Держать её только в конфиге оказалось хрупко: файлов у мода два, обновляются
+// они по отдельности, и достаточно забыть один — плагин молча работает
+// вхолостую, а причина видна только в логе. Значение по умолчанию делает
+// потерянный конфиг безвредным.
+constexpr char kDefaultProcessEventPattern[] =
+    "55 8B EC 6A FF 68 ?? ?? ?? ?? 64 A1 00 00 00 00 50 83 EC 70 A1 ?? ?? ?? ?? 33 C5 89 45 F0 53 56 57 50 8D 45 F4 64 A3 00 00 00 00 89 4D D0 8B";
+constexpr int kDefaultPrologueBytes = 5;
+
+// Версия формата конфига. Поднимается, когда меняется смысл ключей в секции
+// [ProcessEvent] — то есть когда старый файл начинает не просто отставать, а
+// врать.
+//
+// Одних значений по умолчанию мало: ключ, который в старом файле выписан явно,
+// перекроет любое умолчание. Прошлый заход сломался ровно на этом — в конфиге
+// от предыдущей версии стояло Enabled=0 (тогда это значило «сигнатура ещё не
+// снята»), и обновлённая DLL послушно легла спать. Версия отличает «человек
+// выключил хук» от «файл остался с тех времён, когда включать было нечего».
+constexpr int kConfigVersion = 2;
+
+enum class ConfigState { Missing, Stale, Current };
+
+ConfigState readConfigState(const std::string& iniPath, int& version) {
+    version = 0;
+    if (GetFileAttributesA(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        return ConfigState::Missing;
+    }
+    version = GetPrivateProfileIntA("General", "ConfigVersion", 0, iniPath.c_str());
+    return version >= kConfigVersion ? ConfigState::Current : ConfigState::Stale;
+}
+
+// Привязки к конкретной сборке игры. Из конфига берутся, только если он
+// свежий; иначе — вшитые значения, потому что устаревший файл в этой секции
+// заведомо описывает не то состояние, в котором находится код.
+void loadBindings(const std::string& iniPath, ConfigState state) {
+    const bool trusted = state == ConfigState::Current;
+
+    if (trusted) {
+        GetPrivateProfileStringA("ProcessEvent", "Pattern", "",
+                                 g_bindings.processEventPattern,
+                                 sizeof(g_bindings.processEventPattern),
+                                 iniPath.c_str());
+    } else {
+        g_bindings.processEventPattern[0] = '\0';
+    }
+
+    const bool fromIni = g_bindings.processEventPattern[0] != '\0';
+    if (!fromIni) {
+        std::strncpy(g_bindings.processEventPattern, kDefaultProcessEventPattern,
+                     sizeof(g_bindings.processEventPattern) - 1);
+    }
+    DMK_INFO("сигнатура ProcessEvent: %s", fromIni ? "из native.ini" : "встроенная");
+
     g_bindings.processEventPrologue =
-        GetPrivateProfileIntA("ProcessEvent", "PrologueBytes", 0, iniPath.c_str());
+        trusted ? GetPrivateProfileIntA("ProcessEvent", "PrologueBytes",
+                                        kDefaultPrologueBytes, iniPath.c_str())
+                : kDefaultPrologueBytes;
+    if (g_bindings.processEventPrologue == 0) {
+        g_bindings.processEventPrologue = kDefaultPrologueBytes;
+    }
+
+    // По умолчанию включено: сигнатура известна, и отключённый хук — это теперь
+    // осознанный выбор, а не состояние «ещё не настроено».
     g_bindings.hookEnabled =
-        GetPrivateProfileIntA("ProcessEvent", "Enabled", 0, iniPath.c_str()) != 0;
+        !trusted ||
+        GetPrivateProfileIntA("ProcessEvent", "Enabled", 1, iniPath.c_str()) != 0;
 }
 
 // Адреса и смещения таблицы имён. Без них режимы видят поток вызовов, но не
@@ -114,39 +192,34 @@ std::string readActiveMode(const std::string& iniPath) {
 bool resolveProcessEvent() {
     const dmk::ModuleRange range = dmk::mainModuleRange();
     if (!range.valid()) {
-        DMK_ERROR("не определились границы главного модуля");
+        report("Не определились границы главного модуля.");
         return false;
     }
     DMK_INFO("главный модуль: база 0x%08X, размер %u байт",
              range.base, static_cast<unsigned>(range.size));
 
-    if (g_bindings.processEventPattern[0] == '\0') {
-        DMK_WARN("сигнатура ProcessEvent не задана в native.ini — хук не ставится");
-        return false;
-    }
-
     const std::size_t matches = dmk::countPattern(range, g_bindings.processEventPattern);
     if (matches == 0) {
-        DMK_ERROR("сигнатура ProcessEvent не найдена — снята с другого билда игры?");
+        report("ProcessEvent не найден — сигнатура снята с другой сборки игры.");
         return false;
     }
     if (matches > 1) {
         // Продолжать нельзя: findPattern вернёт первое совпадение, и оно с
         // равной вероятностью окажется не той функцией. Падение случится
         // позже и совсем в другом месте.
-        DMK_ERROR("сигнатура ProcessEvent неоднозначна: совпадений %u, нужна ровно одна",
-                  static_cast<unsigned>(matches));
+        report("Сигнатура ProcessEvent неоднозначна: совпадений %u, нужна ровно "
+               "одна.", static_cast<unsigned>(matches));
         return false;
     }
 
     g_bindings.processEventAddress = dmk::findPattern(range, g_bindings.processEventPattern);
-    DMK_INFO("ProcessEvent найден по адресу 0x%08X (смещение 0x%X от базы)",
-             g_bindings.processEventAddress,
-             static_cast<unsigned>(g_bindings.processEventAddress - range.base));
+    report("ProcessEvent найден: 0x%08X (смещение 0x%X от базы)",
+           g_bindings.processEventAddress,
+           static_cast<unsigned>(g_bindings.processEventAddress - range.base));
     return true;
 }
 
-// Показывает окно с фактом загрузки. Нужно на этапе первичной настройки:
+// Показывает окно с итогом запуска. Нужно на этапе первичной настройки:
 // отсутствие лога не различает «плагин не загрузился» и «загрузился, но не смог
 // создать файл», а это совершенно разные поломки с разным лечением. Окно
 // снимает эту неоднозначность, потому что не зависит ни от прав на запись, ни
@@ -167,7 +240,11 @@ void showMessage(const std::string& utf8) {
                 MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
 }
 
-void announceLoad(const std::string& iniPath, const std::string& logPath) {
+// Показывается один раз в самом конце инициализации, независимо от того, чем
+// она кончилась. Раньше окно висело в начале и говорило только «загрузился» —
+// на первом шаге этого хватало, а теперь важнее не сам факт загрузки, а встал
+// ли хук; из окна это видно сразу, без поисков лога.
+void announceResult(const std::string& iniPath) {
     const bool show =
         iniPath.empty() ||
         GetPrivateProfileIntA("General", "ShowLoadMessage", 1, iniPath.c_str()) != 0;
@@ -175,9 +252,10 @@ void announceLoad(const std::string& iniPath, const std::string& logPath) {
         return;
     }
 
-    std::string text = "Плагин загрузился в процесс игры.\n\n";
-    text += "Лог: ";
-    text += logPath.empty() ? "не удалось открыть ни в одной папке" : logPath;
+    std::string text = g_summary;
+    text += "\nЛог: ";
+    text += dmk::logPath().empty() ? "не удалось открыть ни в одной папке"
+                                   : dmk::logPath();
     text += "\n\nОтключить это окно: ShowLoadMessage=0 в native.ini";
 
     showMessage(text);
@@ -203,14 +281,31 @@ DWORD WINAPI initialize(LPVOID) {
         DMK_ERROR("не удалось загрузить системную dinput8 — ввод в игре может "
                   "не работать");
     }
-    announceLoad(iniPath, dmk::logPath());
+
     if (iniPath.empty()) {
-        DMK_ERROR("не определился путь к native.ini — дальше идти некуда");
+        report("Не определился путь к native.ini — дальше идти некуда.");
+        announceResult(iniPath);
         return 0;
     }
     DMK_INFO("конфигурация: %s", iniPath.c_str());
 
-    loadBindings(iniPath);
+    int configVersion = 0;
+    const ConfigState configState = readConfigState(iniPath, configVersion);
+    switch (configState) {
+        case ConfigState::Missing:
+            report("native.ini рядом с плагином нет — работаю на вшитых "
+                   "настройках.");
+            break;
+        case ConfigState::Stale:
+            report("native.ini устарел (версия %d, нужна %d) — настройки хука "
+                   "беру вшитые. Замени файл, чтобы убрать это сообщение.",
+                   configVersion, kConfigVersion);
+            break;
+        case ConfigState::Current:
+            break;
+    }
+
+    loadBindings(iniPath, configState);
 
     auto& registry = dmk::ModeRegistry::instance();
     registry.setConfigPath(iniPath);
@@ -218,30 +313,35 @@ DWORD WINAPI initialize(LPVOID) {
     dmk::registerBuiltinModes(registry);
 
     if (!g_bindings.hookEnabled) {
-        // Штатное состояние до того, как снята сигнатура: слой грузится,
-        // пишет лог и подтверждает, что вообще попал в процесс, но в чужой
-        // код не лезет.
-        DMK_INFO("хук отключён (Enabled=0), работаю вхолостую");
+        // Осознанное выключение: конфиг свежий и в нём стоит Enabled=0.
+        report("Хук выключен в native.ini (Enabled=0), работаю вхолостую.");
+        announceResult(iniPath);
         return 0;
     }
 
     if (!resolveProcessEvent()) {
+        announceResult(iniPath);
         return 0;
     }
 
     if (!g_processEventDetour.install(g_bindings.processEventAddress,
                                       reinterpret_cast<void*>(&hookedProcessEvent),
                                       g_bindings.processEventPrologue)) {
-        DMK_ERROR("хук на ProcessEvent не установился");
+        report("Хук на ProcessEvent не установился.");
+        announceResult(iniPath);
         return 0;
     }
+    report("Хук установлен, пролог %d байт.", g_bindings.processEventPrologue);
 
     const std::string mode = readActiveMode(iniPath);
-    if (!dmk::ModeRegistry::instance().activate(mode)) {
-        DMK_WARN("активный режим не выбран, события никуда не идут");
+    if (dmk::ModeRegistry::instance().activate(mode)) {
+        report("Режим: %s", mode.c_str());
+    } else {
+        report("Режим '%s' не найден, события никуда не идут.", mode.c_str());
     }
 
     DMK_INFO("инициализация завершена");
+    announceResult(iniPath);
     return 0;
 }
 

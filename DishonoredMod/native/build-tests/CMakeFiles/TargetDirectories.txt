@@ -1,0 +1,4 @@
+/home/user/Wolf/DishonoredMod/native/build-tests/CMakeFiles/test_bytepattern.dir
+/home/user/Wolf/DishonoredMod/native/build-tests/CMakeFiles/test.dir
+/home/user/Wolf/DishonoredMod/native/build-tests/CMakeFiles/edit_cache.dir
+/home/user/Wolf/DishonoredMod/native/build-tests/CMakeFiles/rebuild_cache.dir
