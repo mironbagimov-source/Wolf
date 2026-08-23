@@ -156,11 +156,38 @@ bool copyInto(const std::string& sourceFolder, const std::string& targetFolder,
 
     if (CopyFileA(source.c_str(), target.c_str(), FALSE) == 0) {
         const DWORD error = GetLastError();
-        std::printf("  %-20s ошибка копирования, код %lu%s\n", name, error,
-                    error == ERROR_ACCESS_DENIED
-                        ? " (нет прав — запусти от администратора)"
-                        : "");
+        const char* hint = "";
+        switch (error) {
+            case ERROR_ACCESS_DENIED:
+                hint = " (нет прав — запусти от администратора)";
+                break;
+            case ERROR_SHARING_VIOLATION:
+            case ERROR_LOCK_VIOLATION:
+                // Самая частая и самая обманчивая: игра держит DLL открытой,
+                // копирование молча не проходит, и дальше работает прежняя
+                // версия — снаружи неотличимо от «исправление не помогло».
+                hint = " (файл занят — ЗАКРОЙ ИГРУ и запусти установщик снова)";
+                break;
+            default:
+                break;
+        }
+        std::printf("  %-20s ошибка копирования, код %lu%s\n", name, error, hint);
         return false;
+    }
+
+    // Сверка размеров: копирование могло пройти частично, а молчаливо
+    // установленный огрызок хуже честной ошибки.
+    WIN32_FILE_ATTRIBUTE_DATA src = {};
+    WIN32_FILE_ATTRIBUTE_DATA dst = {};
+    if (GetFileAttributesExA(source.c_str(), GetFileExInfoStandard, &src) &&
+        GetFileAttributesExA(target.c_str(), GetFileExInfoStandard, &dst)) {
+        if (src.nFileSizeLow != dst.nFileSizeLow) {
+            std::printf("  %-20s скопирован НЕ ПОЛНОСТЬЮ (%lu из %lu байт)\n",
+                        name, dst.nFileSizeLow, src.nFileSizeLow);
+            return false;
+        }
+        std::printf("  %-20s установлен (%lu байт)\n", name, dst.nFileSizeLow);
+        return true;
     }
 
     std::printf("  %-20s установлен\n", name);

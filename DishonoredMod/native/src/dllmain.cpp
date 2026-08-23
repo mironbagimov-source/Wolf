@@ -11,6 +11,7 @@
 #include "probes.h"
 #include "sigscan.h"
 #include "ue3.h"
+#include "version.h"
 
 // Точка входа нативного слоя. Библиотека подменяет собой dinput8, поэтому
 // игра грузит её сама, находит функции скриптовой машины по сигнатурам и
@@ -295,7 +296,9 @@ DWORD WINAPI initialize(LPVOID) {
         iniPath.empty() ||
         GetPrivateProfileIntA("General", "ShowLoadMessage", 1, iniPath.c_str()) != 0);
 
-    DMK_INFO("нативный слой загружен");
+    // Номер сборки — первой строкой и в лог, и в окно: по нему сразу видно,
+    // какая версия на самом деле работает, если файлы обновились не полностью.
+    report("Dishonored Mod Kit, сборка %d (%s)", DMK_BUILD_NUMBER, __DATE__);
     if (g_proxyReady) {
         DMK_INFO("проброс dinput8 работает: %s", dmk::proxyRealPath());
     } else {
