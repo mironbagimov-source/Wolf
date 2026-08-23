@@ -60,6 +60,10 @@ public:
     // читают собственные настройки сами — так добавление режима не требует
     // правок в dllmain.
     ue3::NameResolver& names() { return names_; }
+
+    // Автоподбор раскладки таблицы имён по живым объектам из потока событий.
+    // Включается, когда адреса не заданы в конфиге вручную.
+    void setAutoDetectNames(bool enabled) { autoDetectNames_ = enabled; }
     void setConfigPath(const std::string& path) { configPath_ = path; }
     const std::string& configPath() const { return configPath_; }
 
@@ -71,8 +75,15 @@ private:
 
     std::vector<std::unique_ptr<IGameMode>> modes_;
     IGameMode* active_ = nullptr;
+    // Подбор раскладки имён: копим образцы объектов, пока их не хватит на
+    // проверку, потом пробуем гипотезы. Делается один раз за сессию.
+    void tryDetectNames(ue3::UObject* function);
+
     ue3::NameResolver names_;
     std::string configPath_;
+    bool autoDetectNames_ = true;
+    bool detectionAttempted_ = false;
+    std::vector<const void*> nameSamples_;
 };
 
 // Регистрация встроенных режимов. Объявлена отдельно, чтобы добавление режима

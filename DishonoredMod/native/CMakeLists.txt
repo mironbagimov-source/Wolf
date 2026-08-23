@@ -22,6 +22,7 @@ add_library(DishonoredModKit SHARED
     src/modes/roleplay.cpp
     src/proxy_dinput8.cpp
     src/sigscan.cpp
+    src/ue3detect.cpp
     src/ue3names.cpp
 )
 
