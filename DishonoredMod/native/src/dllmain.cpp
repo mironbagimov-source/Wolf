@@ -151,6 +151,22 @@ bool resolveProcessEvent() {
 // создать файл», а это совершенно разные поломки с разным лечением. Окно
 // снимает эту неоднозначность, потому что не зависит ни от прав на запись, ни
 // от того, найдёт ли пользователь скрытую папку.
+// Окно показывается через широкую версию MessageBox.
+//
+// MessageBoxA трактует байты в системной кодировке, а исходники здесь в UTF-8 —
+// на русской Windows это даёт нечитаемое месиво вместо текста. Перевод в UTF-16
+// снимает вопрос независимо от того, какая кодировка настроена в системе.
+void showMessage(const std::string& utf8) {
+    const int wide = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
+    if (wide <= 0) {
+        return;
+    }
+    std::wstring text(static_cast<std::size_t>(wide), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, text.data(), wide);
+    MessageBoxW(nullptr, text.c_str(), L"Dishonored Mod Kit",
+                MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+}
+
 void announceLoad(const std::string& iniPath, const std::string& logPath) {
     const bool show =
         iniPath.empty() ||
@@ -164,8 +180,7 @@ void announceLoad(const std::string& iniPath, const std::string& logPath) {
     text += logPath.empty() ? "не удалось открыть ни в одной папке" : logPath;
     text += "\n\nОтключить это окно: ShowLoadMessage=0 в native.ini";
 
-    MessageBoxA(nullptr, text.c_str(), "Dishonored Mod Kit",
-                MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+    showMessage(text);
 }
 
 DWORD WINAPI initialize(LPVOID) {
