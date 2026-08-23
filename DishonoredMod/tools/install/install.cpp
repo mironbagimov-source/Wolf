@@ -325,13 +325,16 @@ int main(int argc, char** argv) {
         std::printf("  Оставь только dinput8.dll.\n");
     }
 
-    const int expected = static_cast<int>(sizeof(kFilesToInstall) / sizeof(kFilesToInstall[0]));
+    // Файлы из списка плюс конфиг: он больше не лежит рядом с установщиком, но
+    // ставится всегда — из файла, если он есть, иначе из вшитого текста.
+    const int expected =
+        static_cast<int>(sizeof(kFilesToInstall) / sizeof(kFilesToInstall[0])) + 1;
     std::printf("\n");
     if (installed == expected) {
         std::printf("Готово. Запускай игру — должно появиться окно о загрузке плагина.\n");
     } else {
-        std::printf("Установлено %d из %d. Проверь, что оба файла лежат рядом с install.exe.\n",
-                    installed, expected);
+        std::printf("Установлено %d из %d. Проверь, что dinput8.dll лежит рядом "
+                    "с install.exe.\n", installed, expected);
     }
 
     std::printf("\nНажми Enter...");
