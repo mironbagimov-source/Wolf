@@ -4,13 +4,21 @@
 // длинный, папка защищена, а любая ошибка выглядит одинаково — «ничего не
 // происходит». Программа находит игру сама и кладёт файлы туда, куда нужно.
 //
-// Работает с тем, что лежит рядом с ней: dinput8.dll и native.ini берутся из
-// собственной папки установщика, поэтому распаковал всё в одно место и запустил.
+// Рядом с ней нужен только dinput8.dll. Конфиг вшит внутрь и создаётся сам:
+// отдельный файл слишком легко теряется по дороге — Windows дописывает
+// расширение при скачивании, и «native.ini» превращается в «native.ini.txt».
+// Если файл всё же лежит рядом, ставится он.
 //
 // Сборка:
 //   i686-w64-mingw32-g++ -std=c++17 -O2 -static -o install.exe install.cpp
 
 #include <windows.h>
+
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
+
+#include "native_ini.h"
 
 #include <cstdio>
 #include <string>
@@ -18,7 +26,7 @@
 
 namespace {
 
-const char* kFilesToInstall[] = {"dinput8.dll", "native.ini"};
+const char* kFilesToInstall[] = {"dinput8.dll"};
 
 // Остатки прежней схемы с Ultimate ASI Loader. Если они лежат рядом, ввод в
 // игре может перехватываться дважды, поэтому о них стоит сказать.
@@ -194,6 +202,61 @@ bool copyInto(const std::string& sourceFolder, const std::string& targetFolder,
     return true;
 }
 
+// Пишет конфиг из вшитого текста. Вызывается, когда файла рядом нет — то есть
+// почти всегда: отдельный native.ini больше не нужен.
+bool writeEmbeddedIni(const std::string& targetFolder) {
+    const std::string target = targetFolder + "\\native.ini";
+
+    std::FILE* file = std::fopen(target.c_str(), "wb");
+    if (file == nullptr) {
+        std::printf("  %-20s не удалось создать (%d)\n", "native.ini", errno);
+        return false;
+    }
+
+    const std::size_t length = std::strlen(dmk::kEmbeddedNativeIni);
+    const std::size_t written =
+        std::fwrite(dmk::kEmbeddedNativeIni, 1, length, file);
+    std::fclose(file);
+
+    if (written != length) {
+        std::printf("  %-20s записан не полностью\n", "native.ini");
+        return false;
+    }
+    std::printf("  %-20s создан из встроенного (%u байт)\n", "native.ini",
+                static_cast<unsigned>(written));
+    return true;
+}
+
+// Показывает, что установщик реально видит рядом с собой.
+//
+// Написано после того, как «файла нет» и «файл лежит в папке» разошлись:
+// Windows дописывает расширение при скачивании, и рядом оказывается
+// native.ini.txt, а не native.ini. Список снимает этот спор за секунду.
+void listNeighbours(const std::string& folder) {
+    std::printf("\nЧто лежит рядом с установщиком (%s):\n", folder.c_str());
+
+    WIN32_FIND_DATAA found = {};
+    HANDLE search = FindFirstFileA((folder + "\\*").c_str(), &found);
+    if (search == INVALID_HANDLE_VALUE) {
+        std::printf("  не удалось прочитать папку\n");
+        return;
+    }
+
+    int count = 0;
+    do {
+        if ((found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+            continue;
+        }
+        std::printf("  %s\n", found.cFileName);
+        ++count;
+    } while (FindNextFileA(search, &found) != 0 && count < 40);
+    FindClose(search);
+
+    if (count == 0) {
+        std::printf("  (пусто)\n");
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -232,6 +295,19 @@ int main(int argc, char** argv) {
         if (copyInto(sourceFolder, target, name)) {
             ++installed;
         }
+    }
+
+    // Конфиг: файл рядом главнее, но его отсутствие ничего не ломает.
+    if (fileExists(sourceFolder + "\\native.ini")) {
+        if (copyInto(sourceFolder, target, "native.ini")) {
+            ++installed;
+        }
+    } else if (writeEmbeddedIni(target)) {
+        ++installed;
+    }
+
+    if (!fileExists(sourceFolder + "\\dinput8.dll")) {
+        listNeighbours(sourceFolder);
     }
 
     std::printf("\n--- Проверка на остатки прежней схемы ---\n\n");
