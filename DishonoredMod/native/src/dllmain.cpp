@@ -255,9 +255,21 @@ DWORD WINAPI detectNamesThread(LPVOID) {
     return 0;
 }
 
-std::string readActiveMode(const std::string& iniPath) {
+// Активный режим по умолчанию. Наблюдатель ничего не меняет и ничего не
+// собирает — с него безопасно начинать, но выбор должен быть осознанным.
+constexpr char kDefaultMode[] = "observer";
+
+std::string readActiveMode(const std::string& iniPath, ConfigState state) {
+    // Устаревшему конфигу не верим и здесь. Сигнатуры из него уже игнорируются,
+    // а вот режим раньше читался — и файл от первой версии тихо подменил dump
+    // на observer, из-за чего сеанс игры прошёл впустую. Устаревший файл не
+    // «частично устарел»: доверять ему нельзя целиком.
+    if (state != ConfigState::Current) {
+        return kDefaultMode;
+    }
+
     char buffer[128] = {0};
-    GetPrivateProfileStringA("General", "Mode", "observer",
+    GetPrivateProfileStringA("General", "Mode", kDefaultMode,
                              buffer, sizeof(buffer), iniPath.c_str());
     return std::string(buffer);
 }
@@ -341,8 +353,9 @@ DWORD WINAPI initialize(LPVOID) {
                    "настройках.");
             break;
         case ConfigState::Stale:
-            report("native.ini устарел (версия %d, нужна %d) — настройки хука "
-                   "беру вшитые. Замени файл, чтобы убрать это сообщение.",
+            report("ВНИМАНИЕ: native.ini устарел (версия %d, нужна %d).\n"
+                   "Все настройки из него игнорируются, включая режим. "
+                   "Запусти install.exe, чтобы обновить конфиг.",
                    configVersion, kConfigVersion);
             break;
         case ConfigState::Current:
@@ -400,7 +413,7 @@ DWORD WINAPI initialize(LPVOID) {
         announceResult();
         return 0;
     }
-    const std::string mode = readActiveMode(iniPath);
+    const std::string mode = readActiveMode(iniPath, configState);
     if (registry.activate(mode)) {
         report("Режим: %s", mode.c_str());
     } else {
