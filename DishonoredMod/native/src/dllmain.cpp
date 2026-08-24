@@ -144,7 +144,7 @@ constexpr int kDefaultPrologueBytes = 5;
 // от предыдущей версии стояло Enabled=0 (тогда это значило «сигнатура ещё не
 // снята»), и обновлённая DLL послушно легла спать. Версия отличает «человек
 // выключил хук» от «файл остался с тех времён, когда включать было нечего».
-constexpr int kConfigVersion = 3;
+constexpr int kConfigVersion = 4;
 
 enum class ConfigState { Missing, Stale, Current };
 
@@ -201,6 +201,18 @@ void loadBindings(const std::string& iniPath, ConfigState state) {
 
 // Адреса и смещения таблицы имён. Без них режимы видят поток вызовов, но не
 // могут отличить один от другого — см. ue3names.h.
+// Раскладка таблицы имён, снятая автоподбором с розничной сборки 1.0 и
+// подтверждённая прочитанными именами: GetOnlineSubsystem, AddLoginChangeDelegate,
+// NotEqual_InterfaceInterface — это UnrealScript, ни с чем не спутать.
+//
+// Адрес статичен: GNames — глобал в секции данных, а не выделенная память.
+// Вшито, чтобы не гонять полный обход .data при каждом запуске; если сборка
+// игры окажется другой, проверка это заметит и подбор запустится сам.
+constexpr std::uintptr_t kDefaultGNames = 0x01435674;
+constexpr std::size_t kDefaultObjectNameOffset = 0x28;
+constexpr std::size_t kDefaultEntryStringOffset = 0x10;
+constexpr bool kDefaultEntryIsWide = false;
+
 void loadNameResolver(const std::string& iniPath, dmk::ue3::NameResolver& names) {
     char buffer[32] = {0};
     GetPrivateProfileStringA("Names", "GNamesAddress", "0",
@@ -213,6 +225,14 @@ void loadNameResolver(const std::string& iniPath, dmk::ue3::NameResolver& names)
         GetPrivateProfileIntA("Names", "EntryStringOffset", 0, iniPath.c_str());
     names.entryIsWide =
         GetPrivateProfileIntA("Names", "EntryIsWide", 0, iniPath.c_str()) != 0;
+
+    if (!names.configured()) {
+        names.gnamesArray = kDefaultGNames;
+        names.objectNameOffset = kDefaultObjectNameOffset;
+        names.entryStringOffset = kDefaultEntryStringOffset;
+        names.entryIsWide = kDefaultEntryIsWide;
+        DMK_INFO("таблица имён: взята вшитая раскладка, проверю на живых объектах");
+    }
 
     if (names.configured()) {
         DMK_INFO("таблица имён: GNames 0x%08X, имя в объекте +0x%X, "
@@ -387,16 +407,16 @@ DWORD WINAPI initialize(LPVOID) {
         report("Режим '%s' не найден, события никуда не идут.", mode.c_str());
     }
 
-    // Подбор запускается после активации режима: набирать образцы имеет смысл
-    // только когда через хук уже идут события.
-    registry.setAutoDetectNames(!registry.names().configured());
-    if (!registry.names().configured()) {
-        HANDLE thread = CreateThread(nullptr, 0, detectNamesThread, nullptr, 0, nullptr);
-        if (thread != nullptr) {
-            CloseHandle(thread);
-        } else {
-            DMK_ERROR("не удалось запустить поток подбора имён");
-        }
+    // Образцы копятся всегда: даже когда раскладка задана, её надо на чём-то
+    // проверить — иначе неверные адреса вскроются молчаливым мусором вместо
+    // имён. Проверка дешёвая, полный подбор запускается только если она не
+    // прошла.
+    registry.setAutoDetectNames(true);
+    HANDLE thread = CreateThread(nullptr, 0, detectNamesThread, nullptr, 0, nullptr);
+    if (thread != nullptr) {
+        CloseHandle(thread);
+    } else {
+        DMK_ERROR("не удалось запустить поток проверки имён");
     }
 
     DMK_INFO("инициализация завершена");

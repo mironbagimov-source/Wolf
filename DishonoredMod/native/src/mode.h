@@ -97,6 +97,8 @@ private:
     // слот.
     static constexpr std::size_t kMaxSamples = 16;
     void collectNameSample(const void* function);
+    bool layoutReads(const std::vector<const void*>& samples) const;
+    void reEnableActiveMode();
 
     std::vector<std::unique_ptr<IGameMode>> modes_;
     IGameMode* active_ = nullptr;

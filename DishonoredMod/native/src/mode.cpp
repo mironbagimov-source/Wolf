@@ -1,9 +1,12 @@
 #include "mode.h"
 
+#include <algorithm>
+
 #include <windows.h>
 
 #include "log.h"
 #include "probes.h"
+#include "modes/dump.h"
 #include "modes/roleplay.h"
 #include "ue3detect.h"
 
@@ -204,8 +207,18 @@ void ModeRegistry::runNameDetection() {
         return;
     }
 
-    DMK_INFO("автоопределение имён: набрано %u образцов, ищу раскладку",
-             static_cast<unsigned>(samples.size()));
+    // Сначала проверяем ту раскладку, что уже есть — вшитую или из конфига.
+    // Полный обход секции данных стоит секунд, а проверка шестнадцати образцов
+    // мгновенна; гонять первое, когда достаточно второго, незачем.
+    if (names_.configured() && layoutReads(samples)) {
+        namesReady_.store(true, std::memory_order_release);
+        DMK_INFO("таблица имён: заданная раскладка читает имена, подбор не нужен");
+        reEnableActiveMode();
+        return;
+    }
+
+    DMK_INFO("автоопределение имён: набрано %u образцов, заданная раскладка не "
+             "подошла — ищу", static_cast<unsigned>(samples.size()));
 
     const ue3::DetectedLayout layout = ue3::detectNameLayout(samples);
     if (!layout.found) {
@@ -263,8 +276,38 @@ void ModeRegistry::runNameDetection() {
     text += "\nЕсли это похоже на функции игры — раскладка верна.";
     notify(text);
 
-    // Режим включался до того, как имена стали доступны, и мог отказаться
-    // работать именно из-за этого. Теперь повод исчез.
+    reEnableActiveMode();
+}
+
+// Проверяет текущую раскладку на образцах: все обязаны дать осмысленные имена,
+// и среди них должно быть хотя бы два разных. Одинаковое имя у всех означает,
+// что читается не имя, а какое-то общее поле.
+bool ModeRegistry::layoutReads(const std::vector<const void*>& samples) const {
+    std::vector<std::string> distinct;
+    for (const void* sample : samples) {
+        char buffer[128];
+        if (!names_.nameOf(sample, buffer, sizeof(buffer))) {
+            return false;
+        }
+        if (!ue3::detail::looksLikeIdentifier(buffer)) {
+            return false;
+        }
+        if (std::find(distinct.begin(), distinct.end(), buffer) == distinct.end()) {
+            distinct.push_back(buffer);
+        }
+    }
+    if (distinct.size() < 2) {
+        return false;
+    }
+
+    DMK_INFO("проверка раскладки: прочитано, например %s и %s",
+             distinct[0].c_str(), distinct[1].c_str());
+    return true;
+}
+
+// Режим включался до того, как имена стали доступны, и мог отказаться работать
+// именно из-за этого. Теперь повод исчез.
+void ModeRegistry::reEnableActiveMode() {
     if (active_ != nullptr) {
         DMK_INFO("перезапускаю режим '%s' — теперь ему доступны имена", active_->id());
         active_->onDisable();
@@ -274,6 +317,7 @@ void ModeRegistry::runNameDetection() {
 
 void registerBuiltinModes(ModeRegistry& registry) {
     registry.add(std::make_unique<ObserverMode>());
+    registry.add(std::make_unique<DumpMode>());
     registry.add(std::make_unique<RoleplayMode>());
 }
 
