@@ -74,6 +74,9 @@ void __fastcall hookedCallFunction(dmk::ue3::UObject* self,
             reinterpret_cast<dmk::ue3::CallFunctionFn>(g_callFunctionDetour.original());
         if (original != nullptr) {
             original(self, edx, stack, result, function);
+            // Возвращённое значение существует только здесь: режим, которому
+            // нужно его подменить, получает управление после игры, а не вместо.
+            dmk::ModeRegistry::instance().dispatchCallReturned(self, function, result);
         }
     }
 }
@@ -144,7 +147,7 @@ constexpr int kDefaultPrologueBytes = 5;
 // от предыдущей версии стояло Enabled=0 (тогда это значило «сигнатура ещё не
 // снята»), и обновлённая DLL послушно легла спать. Версия отличает «человек
 // выключил хук» от «файл остался с тех времён, когда включать было нечего».
-constexpr int kConfigVersion = 4;
+constexpr int kConfigVersion = 5;
 
 enum class ConfigState { Missing, Stale, Current };
 

@@ -53,8 +53,48 @@ public:
     // Хранятся ли имена в широких символах. В UE3 встречается и так и так.
     bool entryIsWide = false;
 
+    // Смещение поля Class внутри UObject. Отдельно от имени: имя отвечает на
+    // вопрос «как зовут этот объект», класс — «что это за вещь». Для подмены
+    // тела нужно второе.
+    std::size_t objectClassOffset = 0;
+
     bool configured() const {
         return gnamesArray != 0 && entryStringOffset != 0;
+    }
+
+    bool classesConfigured() const {
+        return configured() && objectClassOffset != 0;
+    }
+
+    // Класс объекта — сам по себе объект (UClass), поэтому его имя читается тем
+    // же nameOf. Возвращает nullptr, если смещение не задано или по нему лежит
+    // не указатель.
+    const void* classOf(const void* object, ReadableFn readable) const {
+        if (object == nullptr || objectClassOffset == 0) {
+            return nullptr;
+        }
+        const auto* field = reinterpret_cast<const void* const*>(
+            reinterpret_cast<const std::uint8_t*>(object) + objectClassOffset);
+        if (!readable(field, sizeof(void*))) {
+            return nullptr;
+        }
+        const void* result = *field;
+        return readable(result, 16) ? result : nullptr;
+    }
+
+    const void* classOf(const void* object) const {
+        return classOf(object, &isReadable);
+    }
+
+    // Имя класса объекта. Пустой результат означает, что прочитать не вышло.
+    bool classNameOf(const void* object, char* buffer, std::size_t bufferSize,
+                     ReadableFn readable) const {
+        const void* type = classOf(object, readable);
+        return type != nullptr && nameOf(type, buffer, bufferSize, readable);
+    }
+
+    bool classNameOf(const void* object, char* buffer, std::size_t bufferSize) const {
+        return classNameOf(object, buffer, bufferSize, &isReadable);
     }
 
     // Пишет имя объекта в buffer. Возвращает false, если что-то по дороге

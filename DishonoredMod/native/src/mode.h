@@ -3,7 +3,10 @@
 #include <atomic>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "ue3.h"
@@ -43,6 +46,14 @@ public:
                                 void* /*parms*/) {
         return true;
     }
+
+    // Вызывается после того, как игра выполнила функцию. Здесь лежит
+    // возвращённое значение, и только здесь его можно подменить: до вызова его
+    // ещё нет, а переписать его вместо игры значило бы повторить всю функцию
+    // самим.
+    virtual void onCallReturned(ue3::UObject* /*self*/,
+                                ue3::UFunction* /*function*/,
+                                void* /*result*/) {}
 };
 
 class ModeRegistry {
@@ -67,6 +78,19 @@ public:
     // читать их нельзя.
     ue3::NameResolver& names() { return names_; }
     bool namesReady() const { return namesReady_.load(std::memory_order_acquire); }
+    bool classesReady() const { return classesReady_.load(std::memory_order_acquire); }
+
+    // Каталог классов: имя → UClass*.
+    //
+    // Нужен, чтобы подменить класс тела игрока: сказать движку «спавни
+    // DishonoredNPCPawn» можно только указателем на класс, а взять его неоткуда,
+    // кроме как из живого объекта этого класса. Каталог копится из потока
+    // событий — там рано или поздно проходит всё, что есть на карте.
+    void setCollectClasses(bool enabled) {
+        collectClasses_.store(enabled, std::memory_order_release);
+    }
+    const void* findClass(const std::string& name) const;
+    std::vector<std::string> knownClasses() const;
 
     // Автоподбор раскладки таблицы имён по живым объектам из потока событий.
     // Включается, когда адреса не заданы в конфиге вручную.
@@ -82,6 +106,7 @@ public:
 
     // Прогоняет событие через активный режим.
     bool dispatchProcessEvent(ue3::UObject* self, ue3::UFunction* function, void* parms);
+    void dispatchCallReturned(ue3::UObject* self, ue3::UFunction* function, void* result);
 
 private:
     ModeRegistry() = default;
@@ -111,6 +136,17 @@ private:
     std::atomic<std::size_t> readySamples_{0};
     std::atomic<bool> collectSamples_{false};
     std::atomic<bool> namesReady_{false};
+    std::atomic<bool> classesReady_{false};
+    std::atomic<bool> collectClasses_{false};
+
+    void rememberClass(const void* object);
+    void detectClasses(const std::vector<const void*>& samples);
+
+    // Мьютекс, а не блокировки-фрии трюки: каталог пополняется редко (число
+    // классов на карте конечно и мало), а читается ещё реже.
+    mutable std::mutex classMutex_;
+    std::unordered_set<const void*> seenClasses_;
+    std::unordered_map<std::string, const void*> classesByName_;
 };
 
 // Регистрация встроенных режимов. Объявлена отдельно, чтобы добавление режима

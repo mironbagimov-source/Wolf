@@ -6,6 +6,7 @@
 
 #include "log.h"
 #include "probes.h"
+#include "modes/bodyswap.h"
 #include "modes/dump.h"
 #include "modes/roleplay.h"
 #include "ue3detect.h"
@@ -101,11 +102,22 @@ bool ModeRegistry::dispatchProcessEvent(ue3::UObject* self,
     if (collectSamples_.load(std::memory_order_acquire)) {
         collectNameSample(function);
     }
+    if (collectClasses_.load(std::memory_order_acquire)) {
+        rememberClass(self);
+    }
 
     if (active_ == nullptr) {
         return true;
     }
     return active_->onProcessEvent(self, function, parms);
+}
+
+void ModeRegistry::dispatchCallReturned(ue3::UObject* self,
+                                       ue3::UFunction* function,
+                                       void* result) {
+    if (active_ != nullptr) {
+        active_->onCallReturned(self, function, result);
+    }
 }
 
 void ModeRegistry::setAutoDetectNames(bool enabled) {
@@ -143,6 +155,81 @@ void ModeRegistry::collectNameSample(const void* function) {
     }
     nameSamples_[slot].store(function, std::memory_order_relaxed);
     readySamples_.fetch_add(1, std::memory_order_release);
+}
+
+// Вызывается из хука. Дешевле, чем кажется: классов на карте конечное число,
+// поэтому после первых секунд вставки прекращаются и остаётся один поиск по
+// указателю.
+void ModeRegistry::rememberClass(const void* object) {
+    if (object == nullptr || !classesReady()) {
+        return;
+    }
+
+    const void* type = names_.classOf(object);
+    if (type == nullptr) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(classMutex_);
+        if (!seenClasses_.insert(type).second) {
+            return;
+        }
+    }
+
+    char className[128];
+    if (!names_.nameOf(type, className, sizeof(className))) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(classMutex_);
+    classesByName_.emplace(className, type);
+}
+
+const void* ModeRegistry::findClass(const std::string& name) const {
+    std::lock_guard<std::mutex> lock(classMutex_);
+    const auto found = classesByName_.find(name);
+    return found == classesByName_.end() ? nullptr : found->second;
+}
+
+std::vector<std::string> ModeRegistry::knownClasses() const {
+    std::lock_guard<std::mutex> lock(classMutex_);
+    std::vector<std::string> names;
+    names.reserve(classesByName_.size());
+    for (const auto& entry : classesByName_) {
+        names.push_back(entry.first);
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+// Смещение поля Class ищется сразу после имён и по тем же образцам: без имён
+// его не проверить, а порознь оба подбора делать незачем.
+void ModeRegistry::detectClasses(const std::vector<const void*>& samples) {
+    if (names_.objectClassOffset != 0) {
+        classesReady_.store(true, std::memory_order_release);
+        DMK_INFO("смещение класса задано: +0x%X",
+                 static_cast<unsigned>(names_.objectClassOffset));
+        return;
+    }
+
+    const ue3::DetectedClassOffset detected =
+        ue3::detectClassOffset(samples, names_, &ue3::isReadable);
+    if (!detected.found) {
+        DMK_WARN("смещение поля Class не подобралось — подмена тела работать не "
+                 "будет");
+        return;
+    }
+
+    names_.objectClassOffset = detected.offset;
+    classesReady_.store(true, std::memory_order_release);
+
+    DMK_INFO("смещение класса найдено: ObjectClassOffset=%u",
+             static_cast<unsigned>(detected.offset));
+    DMK_INFO("прочитанные классы образцов:");
+    for (const std::string& name : detected.sampleClassNames) {
+        DMK_INFO("    %s", name.c_str());
+    }
 }
 
 void ModeRegistry::runNameDetection() {
@@ -213,6 +300,7 @@ void ModeRegistry::runNameDetection() {
     if (names_.configured() && layoutReads(samples)) {
         namesReady_.store(true, std::memory_order_release);
         DMK_INFO("таблица имён: заданная раскладка читает имена, подбор не нужен");
+        detectClasses(samples);
         reEnableActiveMode();
         return;
     }
@@ -276,6 +364,7 @@ void ModeRegistry::runNameDetection() {
     text += "\nЕсли это похоже на функции игры — раскладка верна.";
     notify(text);
 
+    detectClasses(samples);
     reEnableActiveMode();
 }
 
@@ -318,6 +407,7 @@ void ModeRegistry::reEnableActiveMode() {
 void registerBuiltinModes(ModeRegistry& registry) {
     registry.add(std::make_unique<ObserverMode>());
     registry.add(std::make_unique<DumpMode>());
+    registry.add(std::make_unique<BodySwapMode>());
     registry.add(std::make_unique<RoleplayMode>());
 }
 

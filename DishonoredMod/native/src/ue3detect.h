@@ -236,5 +236,84 @@ inline DetectedLayout detectNameLayoutIn(const std::uint8_t* dataStart,
 // поиска в лог.
 DetectedLayout detectNameLayout(const std::vector<const void*>& samples);
 
+struct DetectedClassOffset {
+    bool found = false;
+    std::size_t offset = 0;
+
+    // Имена классов, прочитанные при проверке, — чтобы человек мог глазами
+    // убедиться, что это классы игры, а не совпадение.
+    std::vector<std::string> sampleClassNames;
+};
+
+// Подбирает смещение поля Class внутри UObject.
+//
+// Критерий самопроверяющийся и не требует ничего знать заранее: класс объекта
+// сам является объектом, а класс класса — всегда UClass, чьё имя буквально
+// «Class». То есть по верному смещению цепочка obj → Class → Class приводит к
+// объекту с известным именем, и вероятность случайно наткнуться на такую
+// цепочку у неверного смещения исчезающе мала.
+inline DetectedClassOffset detectClassOffset(const std::vector<const void*>& samples,
+                                             const NameResolver& names,
+                                             ReadableFn readable) {
+    using namespace detail;
+
+    DetectedClassOffset result;
+    if (samples.size() < 4 || !names.configured()) {
+        return result;
+    }
+
+    for (std::size_t offset = kMinNameOffset; offset <= kMaxNameOffset; offset += 4) {
+        std::vector<std::string> classNames;
+        std::set<std::string> distinct;
+        bool ok = true;
+
+        for (const void* sample : samples) {
+            const auto readPointer = [&](const void* base) -> const void* {
+                const auto* field = reinterpret_cast<const void* const*>(
+                    reinterpret_cast<const std::uint8_t*>(base) + offset);
+                if (!readable(field, sizeof(void*))) {
+                    return nullptr;
+                }
+                const void* value = *field;
+                return readable(value, 16) ? value : nullptr;
+            };
+
+            const void* type = readPointer(sample);
+            const void* metaType = type != nullptr ? readPointer(type) : nullptr;
+            if (metaType == nullptr) {
+                ok = false;
+                break;
+            }
+
+            char metaName[128];
+            if (!names.nameOf(metaType, metaName, sizeof(metaName), readable) ||
+                std::strcmp(metaName, "Class") != 0) {
+                ok = false;
+                break;
+            }
+
+            char className[128];
+            if (!names.nameOf(type, className, sizeof(className), readable) ||
+                !looksLikeIdentifier(className)) {
+                ok = false;
+                break;
+            }
+            classNames.emplace_back(className);
+            distinct.insert(className);
+        }
+
+        // Один и тот же класс у всех образцов ничего не доказывает: так
+        // выглядело бы и попадание в какое-нибудь общее поле.
+        if (ok && distinct.size() >= 2) {
+            result.found = true;
+            result.offset = offset;
+            result.sampleClassNames = classNames;
+            return result;
+        }
+    }
+
+    return result;
+}
+
 }  // namespace ue3
 }  // namespace dmk

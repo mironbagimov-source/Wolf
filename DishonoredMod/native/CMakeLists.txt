@@ -19,6 +19,7 @@ add_library(DishonoredModKit SHARED
     src/detour.cpp
     src/log.cpp
     src/mode.cpp
+    src/modes/bodyswap.cpp
     src/modes/dump.cpp
     src/modes/roleplay.cpp
     src/proxy_dinput8.cpp
