@@ -4,10 +4,14 @@
 // длинный, папка защищена, а любая ошибка выглядит одинаково — «ничего не
 // происходит». Программа находит игру сама и кладёт файлы туда, куда нужно.
 //
-// Рядом с ней нужен только dinput8.dll. Конфиг вшит внутрь и пишется всегда из
-// вшитого: отдельный файл слишком легко теряется по дороге — Windows дописывает
-// расширение при скачивании, — а забытый в загрузках старый экземпляр однажды
-// подменил собой свежий и увёл плагин не в тот режим на целый сеанс игры.
+// Рядом с ней нужен только dinput8.dll, и назван он может быть как угодно:
+// браузер дописывает суффикс при повторной загрузке, и рядом оказывается
+// dinput8_1.dll. Своя библиотека опознаётся по метке внутри, а не по имени.
+//
+// Конфиг вшит внутрь и пишется всегда из вшитого: отдельный файл слишком легко
+// теряется по дороге — Windows дописывает расширение при скачивании, — а
+// забытый в загрузках старый экземпляр однажды подменил собой свежий и увёл
+// плагин не в тот режим на целый сеанс игры.
 //
 // Сборка:
 //   i686-w64-mingw32-g++ -std=c++17 -O2 -static -o install.exe install.cpp
@@ -151,14 +155,123 @@ std::string findGameBinaries() {
     return {};
 }
 
+// Наша ли это библиотека. Проверка нужна, потому что искать файл приходится не
+// только по точному имени: подставить чужую dll под видом нашей — куда хуже,
+// чем не найти свою.
+bool looksLikeOurDll(const std::string& path) {
+    std::FILE* file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr) {
+        return false;
+    }
+
+    static const char kMarker[] = "Dishonored Mod Kit";
+    const std::size_t markerLength = std::strlen(kMarker);
+
+    // Читаем перекрывающимися кусками, иначе метка, попавшая на границу,
+    // потеряется.
+    char chunk[64 * 1024];
+    std::string tail;
+    bool found = false;
+    std::size_t read = 0;
+    while (!found && (read = std::fread(chunk, 1, sizeof(chunk), file)) > 0) {
+        std::string window = tail + std::string(chunk, read);
+        found = window.find(kMarker) != std::string::npos;
+        tail = window.size() > markerLength
+                   ? window.substr(window.size() - markerLength)
+                   : window;
+    }
+    std::fclose(file);
+    return found;
+}
+
+// Ищет файл рядом с установщиком.
+//
+// По точному имени — и, если не вышло, по маске. Браузеры дописывают суффикс
+// при повторной загрузке: рядом оказывается dinput8_1.dll или dinput8 (1).dll,
+// установщик ищет dinput8.dll и честно не находит. Спорить с этим бесполезно,
+// проще перестать зависеть от имени.
+//
+// Из нескольких кандидатов берётся самый свежий: если файл качали дважды,
+// нужен второй.
+std::string findSourceFile(const std::string& folder, const std::string& wanted) {
+    const std::string exact = folder + "\\" + wanted;
+    if (fileExists(exact)) {
+        return exact;
+    }
+
+    const std::size_t dot = wanted.find_last_of('.');
+    const std::string base = wanted.substr(0, dot);
+    const std::string extension = wanted.substr(dot);
+
+    WIN32_FIND_DATAA found = {};
+    HANDLE search =
+        FindFirstFileA((folder + "\\" + base + "*" + extension).c_str(), &found);
+    if (search == INVALID_HANDLE_VALUE) {
+        return {};
+    }
+
+    std::string best;
+    FILETIME bestTime = {};
+    do {
+        if ((found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+            continue;
+        }
+        const std::string candidate = folder + "\\" + found.cFileName;
+        if (!looksLikeOurDll(candidate)) {
+            continue;
+        }
+        if (best.empty() ||
+            CompareFileTime(&found.ftLastWriteTime, &bestTime) > 0) {
+            best = candidate;
+            bestTime = found.ftLastWriteTime;
+        }
+    } while (FindNextFileA(search, &found) != 0);
+    FindClose(search);
+    if (!best.empty()) {
+        return best;
+    }
+
+    // Последний рубеж: перебрать вообще все библиотеки рядом. Метка внутри
+    // отличает нашу от чужой надёжнее любого имени, так что переименовать файл
+    // как угодно уже не страшно.
+    search = FindFirstFileA((folder + "\\*" + extension).c_str(), &found);
+    if (search == INVALID_HANDLE_VALUE) {
+        return {};
+    }
+    do {
+        if ((found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+            continue;
+        }
+        const std::string candidate = folder + "\\" + found.cFileName;
+        if (!looksLikeOurDll(candidate)) {
+            continue;
+        }
+        if (best.empty() ||
+            CompareFileTime(&found.ftLastWriteTime, &bestTime) > 0) {
+            best = candidate;
+            bestTime = found.ftLastWriteTime;
+        }
+    } while (FindNextFileA(search, &found) != 0);
+    FindClose(search);
+
+    return best;
+}
+
 bool copyInto(const std::string& sourceFolder, const std::string& targetFolder,
               const char* name) {
-    const std::string source = sourceFolder + "\\" + name;
+    const std::string source = findSourceFile(sourceFolder, name);
     const std::string target = targetFolder + "\\" + name;
 
-    if (!fileExists(source)) {
+    if (source.empty()) {
         std::printf("  %-20s НЕТ рядом с установщиком\n", name);
         return false;
+    }
+
+    // Имя источника может отличаться — ставится он всё равно под правильным.
+    if (source != sourceFolder + "\\" + name) {
+        const std::size_t slash = source.find_last_of('\\');
+        std::printf("  %-20s взят файл %s\n", name,
+                    source.substr(slash + 1).c_str());
     }
 
     if (CopyFileA(source.c_str(), target.c_str(), FALSE) == 0) {
@@ -308,7 +421,7 @@ int main(int argc, char** argv) {
         ++installed;
     }
 
-    if (!fileExists(sourceFolder + "\\dinput8.dll")) {
+    if (findSourceFile(sourceFolder, "dinput8.dll").empty()) {
         listNeighbours(sourceFolder);
     }
 
