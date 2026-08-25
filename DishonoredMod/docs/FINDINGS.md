@@ -288,6 +288,96 @@ m_DefaultUI=(m_HUDMoviePath="UI_HUD.HUD",m_PowerWheelMoviePath=...,
 
 Для стелса бесполезно, для ловушек кастомного режима — наоборот.
 
+## Словарь скриптовых функций
+
+Снят с живой игры режимом `dump`: 303 функции с объектами, на которых они
+впервые вызвались. Полный список — [names-dump-1.txt](names-dump-1.txt).
+
+Это первые данные, полученные из работающей игры, а не из конфигов. Всё ниже —
+не догадки, а имена, которые движок произнёс сам.
+
+### Классы, из которых собран мир
+
+| Класс | Что это |
+|---|---|
+| `DishonoredGameInfo` | правила забега: спавн, смерть, пауза |
+| `DishonoredPlayerController` | контроллер игрока |
+| `DishonoredPlayerPawn` | тело игрока |
+| `DishonoredNPCPawn` | тело NPC |
+| `DishonoredNPCController` | мозг NPC |
+| `DisPossessionProxyPawn` | **пешка-посредник при вселении** |
+| `DishonoredViewportClient` | окно вывода, в том числе разделённое |
+| `DishonoredPlayerCamera`, `DishonoredPlayerInput`, `DishonoredHUD` | камера, ввод, интерфейс |
+
+### Играть за NPC: путь найден
+
+Утверждённый дизайн требует, чтобы контроллер игрока владел `DishonoredNPCPawn`.
+В словаре видна вся цепочка, по которой игра выдаёт игроку тело:
+
+```
+DishonoredGameInfo::RestartPlayer
+  → SpawnDefaultPawnFor
+      → GetDefaultPlayerClass     ← здесь решается, кем ты будешь
+      → SpawnPlayer
+  → DishonoredPlayerController::Possess
+```
+
+`GetDefaultPlayerClass` — единственная точка, где выбирается класс тела. Хук на
+неё подменяет ответ, и дальше игра сама заспавнит NPC и сама привяжет к нему
+контроллер: `Possess` вызывается тем же кодом и ничего не знает о том, какой
+класс ему дали.
+
+Существование `DisPossessionProxyPawn` подтверждает догадку из дизайна: игра
+уже умеет отдавать игроку чужое тело, для этого у неё заведён отдельный класс.
+
+### Смерть: игра сама разрешает её отменить
+
+```
+DishonoredGameInfo::PreventDeath  /  PreventDeath_Native
+DishonoredNPCPawn::ChooseAndTriggerDeathEvent_Native
+DishonoredNPCPawn::PlayDying_Native
+DishonoredNPCController::NotifyKilled
+DishonoredPlayerController::PawnDied
+```
+
+`PreventDeath` — готовая точка отмены. Трёхступенчатая смерть, которую мы
+придумали (агония → тело → переход), не требует обхода движка: он сам
+спрашивает разрешения, прежде чем убить.
+
+`ChooseAndTriggerDeathEvent` и `PlayDying` есть **и у NPC, и у пешки игрока** —
+то есть выбор конкретной анимации смерти проходит через одну и ту же функцию, и
+играя NPC-телом, мы попадаем в неё автоматически.
+
+### Сплит-скрин существует в этой сборке
+
+```
+DishonoredViewportClient::UpdateActiveSplitscreenType
+DishonoredViewportClient::GetSplitscreenConfiguration
+```
+
+Обе вызываются при обычном одиночном запуске. Значит поддержка разделённого
+экрана в коде есть и просто не включена — это не отсутствующая функция, а
+неактивная.
+
+### Прочее, что пригодится
+
+| Функция | Зачем |
+|---|---|
+| `DishonoredPlayerController::SetCharacter` | выбор персонажа, вызывается при старте |
+| `DishonoredGameInfo::AddDefaultInventory` | выдача снаряжения — набор китобоя для Томаса |
+| `IgnoreMoveInput`, `IgnoreLookInput`, `SetCinematicMode` | отобрать управление, не трогая камеру: ровно то, что нужно, когда Корво вселяется в игрока |
+| `DishonoredNPCController::NotifyTakeHit` | реакция NPC на попадание |
+| `SeqEvent_Death`, `SeqEvent_Touch` | события Kismet — связь с логикой карты |
+
+### Чего в словаре нет
+
+Разговоров: ни `Convo`, ни `Dialog`, ни `Talk`. В этом заходе с гостями не
+разговаривали, поэтому имя события выбора фракции по-прежнему неизвестно.
+Нужен ещё один проход — с разговорами и боем.
+
+Не видно и состояний `StateNPCMaster*` из конфигов: состояния в UE3 — не
+функции, через `CallFunction` они не проходят. Их имена придётся ловить иначе.
+
 ## Что искать дальше
 
 - **Команды спавна и смены пешки** в отладочном меню отсутствуют. Меню — лишь
