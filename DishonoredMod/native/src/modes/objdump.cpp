@@ -92,10 +92,20 @@ void ObjectDumpMode::onEnable() {
 }
 
 void ObjectDumpMode::onDisable() {
-    if (!done_) {
-        DMK_INFO("обход объектов: снимаю досрочно, событий было %llu", events_);
-        dump();
+    if (done_) {
+        return;
     }
+    // Досрочный дамп имеет смысл, только если режим успел что-то увидеть:
+    // выход из игры на середине лучше снять неполным, чем никаким. А вот
+    // выключение сразу после старта — не повод: уровень ещё не загружен, и
+    // снимать нечего.
+    if (events_ < kMinEventsToDump) {
+        DMK_INFO("обход объектов: выключен, событий было всего %llu — снимать "
+                 "нечего", events_);
+        return;
+    }
+    DMK_INFO("обход объектов: снимаю досрочно, событий было %llu", events_);
+    dump();
 }
 
 bool ObjectDumpMode::onProcessEvent(ue3::UObject* /*self*/,

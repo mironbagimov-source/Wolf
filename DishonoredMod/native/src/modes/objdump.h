@@ -38,6 +38,10 @@ private:
     // движка, но не карты. Ждём, пока пойдут события уровня.
     static constexpr unsigned long long kSettleEvents = 200000;
 
+    // Ниже этого порога снимать нечего: уровень ещё не загружен, и в памяти
+    // только объекты движка.
+    static constexpr unsigned long long kMinEventsToDump = 5000;
+
     bool done_ = false;
     unsigned long long events_ = 0;
 

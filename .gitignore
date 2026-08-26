@@ -50,3 +50,6 @@ crashlytics-build.properties
 
 # WebGL build output
 webgl-build/
+
+# Каталоги сборки нативного слоя
+DishonoredMod/native/build-tests/

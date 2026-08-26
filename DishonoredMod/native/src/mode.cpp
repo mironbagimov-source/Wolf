@@ -218,8 +218,9 @@ void ModeRegistry::detectClasses(const std::vector<const void*>& samples) {
     const ue3::DetectedClassOffset detected =
         ue3::detectClassOffset(samples, names_, &ue3::isReadable);
     if (!detected.found) {
-        DMK_WARN("смещение поля Class не подобралось — подмена тела работать не "
-                 "будет");
+        DMK_WARN("смещение поля Class не подобралось по %u образцам — обход "
+                 "объектов и подмена тела работать не будут",
+                 static_cast<unsigned>(samples.size()));
         return;
     }
 
@@ -398,10 +399,16 @@ bool ModeRegistry::layoutReads(const std::vector<const void*>& samples) const {
 
 // Режим включался до того, как имена стали доступны, и мог отказаться работать
 // именно из-за этого. Теперь повод исчез.
+//
+// Только onEnable, без onDisable: режим не выключается, ему лишь стали
+// доступны имена. Пара «выключить и включить» выглядела симметричнее, но
+// означала для режима конец работы — а режимы выгрузки на конец работы
+// сбрасывают данные, чтобы не потерять их при выходе из игры. Получалось, что
+// дамп срабатывал сразу на старте, когда уровень ещё не загружен и смещение
+// класса не найдено.
 void ModeRegistry::reEnableActiveMode() {
     if (active_ != nullptr) {
-        DMK_INFO("перезапускаю режим '%s' — теперь ему доступны имена", active_->id());
-        active_->onDisable();
+        DMK_INFO("режиму '%s' стали доступны имена, включаю заново", active_->id());
         active_->onEnable();
     }
 }

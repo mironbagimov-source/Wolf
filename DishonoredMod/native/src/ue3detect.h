@@ -365,7 +365,10 @@ inline DetectedClassOffset detectClassOffset(const std::vector<const void*>& sam
         return result;
     }
 
-    for (std::size_t offset = kMinNameOffset; offset <= kMaxNameOffset; offset += 4) {
+    // Диапазон шире, чем у имени: поле Class у разных сборок UE3 стоит и до, и
+    // после имени, и упереться в чужой потолок было бы обидно.
+    constexpr std::size_t kMaxClassOffset = 0x100;
+    for (std::size_t offset = 4; offset <= kMaxClassOffset; offset += 4) {
         std::vector<std::string> classNames;
         std::set<std::string> distinct;
         bool ok = true;
