@@ -116,8 +116,19 @@ public:
         if (!readable(namePointer, sizeof(std::int32_t))) {
             return false;
         }
-        const std::int32_t nameIndex = *namePointer;
-        if (nameIndex < 0) {
+        return nameByIndex(*namePointer, buffer, bufferSize, readable);
+    }
+
+    // Имя по номеру в таблице. Нужно, когда объекта нет: при выгрузке всей
+    // таблицы имена берутся подряд по индексу, а не через чей-то UObject.
+    bool nameByIndex(std::int32_t nameIndex, char* buffer, std::size_t bufferSize,
+                     ReadableFn readable) const {
+        if (buffer == nullptr || bufferSize == 0) {
+            return false;
+        }
+        buffer[0] = '\0';
+
+        if (!configured() || nameIndex < 0) {
             return false;
         }
 
@@ -136,6 +147,22 @@ public:
 
         return entryToString(entries[nameIndex], buffer, bufferSize, readable);
     }
+
+    bool nameByIndex(std::int32_t nameIndex, char* buffer,
+                     std::size_t bufferSize) const {
+        return nameByIndex(nameIndex, buffer, bufferSize, &isReadable);
+    }
+
+    // Сколько имён в таблице. Ноль означает, что читать нечего.
+    std::int32_t nameCount(ReadableFn readable) const {
+        if (!configured()) {
+            return 0;
+        }
+        const auto* names = reinterpret_cast<const TArrayHeader*>(gnamesArray);
+        return readable(names, sizeof(TArrayHeader)) ? names->count : 0;
+    }
+
+    std::int32_t nameCount() const { return nameCount(&isReadable); }
 
     // То же с настоящей проверкой читаемости — для кода, работающего в игре.
     bool nameOf(const void* object, char* buffer, std::size_t bufferSize) const {

@@ -8,6 +8,7 @@
 #include "probes.h"
 #include "modes/bodyswap.h"
 #include "modes/dump.h"
+#include "modes/namedump.h"
 #include "modes/roleplay.h"
 #include "ue3detect.h"
 
@@ -408,6 +409,7 @@ void registerBuiltinModes(ModeRegistry& registry) {
     registry.add(std::make_unique<ObserverMode>());
     registry.add(std::make_unique<DumpMode>());
     registry.add(std::make_unique<BodySwapMode>());
+    registry.add(std::make_unique<NameDumpMode>());
     registry.add(std::make_unique<RoleplayMode>());
 }
 
