@@ -12,9 +12,9 @@
 
 namespace dmk {
 namespace ue3 {
-namespace {
 
-// Секция данных главного модуля: там лежат глобалы движка, включая GNames.
+// Секция данных главного модуля: там лежат глобалы движка, включая GNames и
+// глобальный список объектов.
 bool mainModuleData(const std::uint8_t*& start, std::size_t& size) {
     auto base = reinterpret_cast<const std::uint8_t*>(GetModuleHandleA(nullptr));
     if (base == nullptr) {
@@ -40,8 +40,6 @@ bool mainModuleData(const std::uint8_t*& start, std::size_t& size) {
     }
     return false;
 }
-
-}  // namespace
 
 DetectedLayout detectNameLayout(const std::vector<const void*>& samples) {
     if (samples.size() < 4) {

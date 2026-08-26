@@ -232,9 +232,112 @@ inline DetectedLayout detectNameLayoutIn(const std::uint8_t* dataStart,
     return result;
 }
 
+// Секция данных главного модуля: там лежат глобалы движка. Объявлена здесь,
+// потому что нужна и подбору раскладки, и обходу объектов.
+bool mainModuleData(const std::uint8_t*& start, std::size_t& size);
+
 // То же для живой игры: сама находит секцию данных главного модуля и пишет ход
 // поиска в лог.
 DetectedLayout detectNameLayout(const std::vector<const void*>& samples);
+
+struct DetectedObjectArray {
+    bool found = false;
+    std::uintptr_t address = 0;
+    std::int32_t count = 0;
+
+    // Что удалось прочитать — для проверки глазами.
+    std::vector<std::string> sampleNames;
+};
+
+// Ищет глобальный список объектов UE3.
+//
+// Каталог классов, собираемый из потока событий, знает только то, что успело
+// поучаствовать в происходящем: китобоя на приёме у Бойл нет, и указатель на
+// него так не получить. Список объектов знает всё, что игра загрузила, — по
+// нему можно найти что угодно по имени, не обходя карты ради каждого предмета.
+//
+// Устроен так же, как таблица имён: TArray из указателей. Отличить одно от
+// другого просто и надёжно — элементы здесь обязаны быть объектами, то есть у
+// каждого читается имя и цепочка Class → Class приводит к «Class». У записей
+// таблицы имён классов нет вовсе.
+inline DetectedObjectArray detectObjectArray(const std::uint8_t* dataStart,
+                                             std::size_t dataSize,
+                                             const NameResolver& names,
+                                             ReadableFn readable) {
+    using namespace detail;
+
+    DetectedObjectArray result;
+    if (dataStart == nullptr || !names.classesConfigured()) {
+        return result;
+    }
+
+    // Объектов в загруженной игре десятки тысяч. Нижняя граница отсекает
+    // мелкие массивы, верхняя — случайные числа, похожие на размер.
+    constexpr std::int32_t kMinObjects = 5000;
+    constexpr std::int32_t kMaxObjects = 4 << 20;
+    // Сколько элементов проверить. Дыры в списке — обычное дело: уничтоженные
+    // объекты оставляют пустые слоты, поэтому проверяются только ненулевые, а
+    // требуется набрать достаточно подтверждений.
+    constexpr int kProbeSlots = 64;
+    constexpr int kNeedValid = 8;
+
+    for (std::size_t offset = 0; offset + sizeof(ArrayHeader) <= dataSize; offset += 4) {
+        const auto* header = reinterpret_cast<const ArrayHeader*>(dataStart + offset);
+        if (header->count < kMinObjects || header->count > kMaxObjects) {
+            continue;
+        }
+        if (header->max < header->count || header->data == nullptr) {
+            continue;
+        }
+
+        const auto* entries = reinterpret_cast<const void* const*>(header->data);
+        if (!readable(entries, sizeof(void*) * kProbeSlots)) {
+            continue;
+        }
+
+        std::vector<std::string> sample;
+        std::set<std::string> distinct;
+        bool broken = false;
+        for (int index = 0; index < kProbeSlots && !broken; ++index) {
+            const void* object = entries[index];
+            if (object == nullptr) {
+                continue;
+            }
+            if (!readable(object, 64)) {
+                broken = true;
+                break;
+            }
+
+            // Настоящий объект обязан знать своё имя и свой класс. Запись
+            // таблицы имён провалит вторую проверку.
+            char objectName[128];
+            char className[128];
+            if (!names.nameOf(object, objectName, sizeof(objectName), readable) ||
+                !names.classNameOf(object, className, sizeof(className), readable) ||
+                !looksLikeIdentifier(className)) {
+                broken = true;
+                break;
+            }
+            if (sample.size() < 8) {
+                sample.emplace_back(std::string(objectName) + " : " + className);
+            }
+            distinct.insert(className);
+        }
+
+        // Разные классы среди образцов: список объектов разнороден, а вот
+        // массив однотипных структур дал бы один и тот же класс всюду.
+        if (!broken && sample.size() >= static_cast<std::size_t>(kNeedValid) &&
+            distinct.size() >= 3) {
+            result.found = true;
+            result.address = reinterpret_cast<std::uintptr_t>(header);
+            result.count = header->count;
+            result.sampleNames = sample;
+            return result;
+        }
+    }
+
+    return result;
+}
 
 struct DetectedClassOffset {
     bool found = false;
