@@ -375,6 +375,13 @@ DishonoredViewportClient::GetSplitscreenConfiguration
 разговаривали, поэтому имя события выбора фракции по-прежнему неизвестно.
 Нужен ещё один проход — с разговорами и боем.
 
+> **Отменено.** Второй проход не понадобился, и вывод «нужен ещё заход» был
+> неверен по самой постановке. Словарь событий показывает только то, что
+> успело вызваться, — искать в нём отсутствующее бессмысленно. В таблице имён
+> разговоры нашлись сразу и целиком: 114 классов `DisConv_*`, см. «Разговоры:
+> система найдена» ниже. Урок общий: об устройстве игры спрашивать надо
+> таблицу имён, а поток событий — только о том, что происходит прямо сейчас.
+
 Не видно и состояний `StateNPCMaster*` из конфигов: состояния в UE3 — не
 функции, через `CallFunction` они не проходят. Их имена придётся ловить иначе.
 
@@ -476,7 +483,7 @@ Dunwall City Trials.
 
 ### Готовые роли: `Twk_Pawn_*`
 
-Двадцать семь настроенных пешек, и почти весь ролевой режим уже назван:
+Тридцать три настроенные пешки, и почти весь ролевой режим уже назван:
 
 ```
 Twk_Pawn_Corvo            Twk_Pawn_Executioner      Twk_Pawn_Tallboy
@@ -484,10 +491,175 @@ Twk_Pawn_LadyEsmaBoyle    Twk_Pawn_GuardCaptain     Twk_Pawn_WolfHound
 Twk_Pawn_LadyLydiaBoyle   Twk_Pawn_LordPendleton    Twk_Pawn_PossessionProxy
 Twk_Pawn_LadyWaverlyBoyle Twk_Pawn_OverseerCampbell Twk_Pawn_DefaultNPC
 Twk_Pawn_LadyEmily        Twk_Pawn_OverseerMartin   Twk_Pawn_DefaultPlayer
+Twk_Pawn_Boyle            Twk_Pawn_Outsider         Twk_Pawn_Empress
+Twk_Pawn_AdmiralHavelock  Twk_Pawn_AntonSokolov     Twk_Pawn_LordRegent
+Twk_Pawn_PendletonBrother Twk_Pawn_Piero            Twk_Pawn_Calista
+Twk_Pawn_Boatman          Twk_Pawn_BoatmanHub       Twk_Pawn_Martin
+Twk_Pawn_Lighthouse       Twk_Pawn_Tower            Twk_Pawn_E3
 ```
 
 **Все три сестры Бойл — отдельными настроенными объектами.** Роль хозяйки дома
 не нужно собирать: она в игре уже есть, вместе с Палачом и капитаном стражи.
+
+Список — поимённые персонажи сюжета. Массовку игра держит отдельно, под
+префиксом `Pwn_`, и для приёма у Бойл она важнее: гостей на этой карте больше,
+чем сестёр.
+
+```
+Pwn_Aristo        Pwn_TowerAristo   Pwn_MiddleClass   Pwn_Servant
+Pwn_AristoFlooded Pwn_WeeperAristo  Pwn_Prostitute    Pwn_ServantLydia
+Pwn_Civ           Pwn_BrothelMadam  Pwn_MusicOverseer Pwn_Cecelia
+Pwn_Guard         Pwn_CityGuard     Pwn_EliteGuard    Pwn_LowerGuard
+Pwn_Overseer      Pwn_OverseerHMaster Pwn_Thug        Pwn_ThugWhiskey
+Pwn_Assassin      Pwn_AssassinIntro Pwn_Daud          Pwn_WolfHound
+```
+
+Аристократы трёх сортов, слуги, музыканты-смотрители и четыре ступени стражи —
+это и есть гости приёма. Ролевому режиму не нужно придумывать, кем играть:
+роли уже разложены по сословиям.
+
+### Класс твика читается прямо из таблицы имён
+
+Часть записей — не имена, а строки вида `пакет+++объект класс`:
+
+```
+Twk_Pawn_Corvo+++Twk_Pawn_Corvo DisTweaks_PlayerPawn
+Twk_Pawn_LadyEsmaBoyle+++Twk_Pawn_LadyEsmaBoyle DisTweaks_NPCPawn
+Pwn_Daud_MTall_1+++Pwn_Daud_MTall DisTweaks_NPCPawn
+```
+
+Это меняет цену вопроса. Раньше связка «объект → его класс» добывалась только
+обходом памяти, ради которого писался режим `objdump`. Здесь она лежит
+готовой строкой, и по ней сразу видно главное различие: **`DisTweaks_PlayerPawn`
+против `DisTweaks_NPCPawn`**. Ровно на нём стоит решение играть за настоящего
+NPC, а не за Корво в чужой одежде.
+
+Разбор по классам даёт 83 объекта `DisTweaks_NPCPawn` и три
+`DisTweaks_PlayerPawn` — `Twk_Pawn_Corvo`, `Twk_Pawn_Corvo_Release` и
+`Twk_Pawn_DefaultPlayer`. Игровых тел в игре ровно три, всё остальное —
+неигровые.
+
+### Разговоры: система найдена
+
+Открытый вопрос «как называется событие разговора» закрыт, и ответ оказался
+шире вопроса. Разговоры в Dishonored — не событие, а движок из 114 классов с
+префиксом `DisConv_`, и он управляется данными.
+
+Условия — чем разговор начинается:
+
+```
+DisConv_Hook_KismetActivated      DisConv_Hook_WitnessedInteraction
+DisConv_Hook_Notice               DisConv_Hook_WitnessedMagic
+DisConv_Hook_NoticeBroken         DisConv_Hook_SuspicionLevel
+DisConv_Hook_PlayerLookAt         DisConv_Hook_SuspicionDist
+DisConv_Hook_PlayerLoiter         DisConv_Hook_DeathMode
+```
+
+Ветвления и проверки — чем разговор идёт дальше:
+
+```
+DisConv_PlayerChoice              DisConv_CheckSpeakerRelationship
+DisConv_FactionBranch             DisConv_CheckSpeakerSuspicionLevel
+DisConv_SpawnerBranch             DisConv_CheckStoryFlag
+DisConv_SpeakerHasTweaks          DisConv_SetStoryFlag
+DisConv_SpeakerInStoryGroup       DisConv_IsPossessed
+DisConv_RandomBranch              DisConv_CompareDarknessLevel
+```
+
+Три из них снимают отдельные задачи мода целиком:
+
+- **`DisConv_PlayerChoice`** — выбор игрока в разговоре. Меню выбора фракции не
+  нужно рисовать: это узел разговора.
+- **`DisConv_FactionBranch`** — ветка по фракции говорящего. Один и тот же
+  разговор ведёт себя по-разному со стражником и с гостем, и это данные, а не
+  код.
+- **`DisConv_Hook_KismetActivated`** — разговор запускается из скрипта уровня.
+  Отсюда мод входит в систему.
+
+### Опасность «увидеть лишнее» уже реализована
+
+Дизайн NPC-Корво держится на том, что смертельно не быть выслеженным, а
+застать его за делом. Оказалось, что игра умеет это без нас:
+
+| Что нужно | Чем сделано |
+|---|---|
+| Тебя заметили за незаконным | `DisConv_Hook_WitnessedInteraction` |
+| Увидели, как ты колдуешь | `DisConv_Hook_WitnessedMagic` |
+| Ты слишком долго смотришь | `DisConv_Hook_PlayerLookAt` |
+| Ты околачиваешься где не надо | `DisConv_Hook_PlayerLoiter` |
+| Нашли следы — сломанное, труп | `DisConv_Hook_NoticeBroken` |
+| Накопленное подозрение | `DisConv_Hook_SuspicionLevel`, `DisConv_Hook_SuspicionDist` |
+
+Свидетель, подозрение и реакция на увиденное — это готовая петля. Ролевому
+режиму остаётся подключить к ней своего Корво, а не строить её заново.
+
+### Приём у Бойл: своя фракция и сорок флагов
+
+У карты собственный пакет фракций:
+
+```
+Boyle_Factions.Neutral_Civilian
+Boyle_Factions.Neutral_Guard
+```
+
+**Нейтральные гость и стражник уже существуют** — именно те две стороны, за
+которые задуман ролевой режим. Плюс общие умолчания:
+`DisFaction_Defaults.Faction_Corvo_Default`, `Faction_Assassin_Default`,
+`Faction_Guard_Default`, `Faction_Civilian_Default`, `Faction_Conspiracy_Default`.
+
+Фракция переопределяется на ходу: `m_pFactionTweakOverride`,
+`m_FactionOverrideMap`, `m_FriendlyFactionsOverride`. То есть стать гостем — это
+подмена ссылки, а не переписывание отношений.
+
+Состояние миссии — около сорока сюжетных флагов, и читаются они как сценарий:
+
+```
+Boyle_Has_Invitation        Boyle_SuspectEsma        Boyle_HasDrink
+Boyle_against_rules         Boyle_SuspectLydia       Boyle_RequestDrinkOk
+Boyle_Alarm_Rung            Boyle_SuspectWaverly     Boyle_TalkedwithOutsider
+Boyle_RamseyTellsOnPlayer   Boyle_PlayerKnowsGuiltyGirl
+Boyle_Player_Knows_All3_Girls  Boyle_Waverly_Red     Boyle_Waverly_White
+```
+
+**`Boyle_against_rules`** — флаг «ты нарушаешь правила приёма». Основной цикл
+ролевого режима уже назван по имени и уже проверяется разговорами через
+`DisConv_CheckStoryFlag`.
+
+### Светский приём — отдельная подсистема
+
+```
+StatePlayerMasterSoiree           DisConv_Soiree
+DisBehaviorSoiree                 DisConvoEndReason_SoireeRejection
+DisTweaks_AIBehavior_Soiree       InterpTrackSoireeControl
+AnimNotify_SoireeIn / Loop / Out / Accent / Apex / End
+```
+
+`StatePlayerMasterSoiree` — **состояние игрока на приёме**, не NPC. Игра уже
+умеет ставить игрока в светский режим: с танцем (шесть анимационных отметок),
+с поведением гостей вокруг и с возможностью получить отказ
+(`SoireeRejection`). Социальный стелз ролевого режима опирается на готовую
+подсистему.
+
+Видимость игрока переопределяется на трёх уровнях —
+`m_pGlobalPlayerVisSettings`, `m_pMapPlayerVisSettings`,
+`m_pScriptedPlayerVisSettings` — и переключается из скрипта:
+`DisSeqAct_SetPlayerVisSettings`, `DisSeqAct_ClearPlayerVisSettings`. Это ручка
+«насколько ты сейчас свой».
+
+### Смерть игрока умеет отменяться штатно
+
+```
+DisSeqAct_DLC05_PlayerBusted      DisSeqAct_DLC05_PlayerResurrect
+DisSeqAct_OverridePossess         DisPossessionProxyPawn
+```
+
+Испытания используют пару «попался» + «воскрес» как обычные действия скрипта.
+Утверждённое правило «удушение и вселение не заканчивают забег, а после смерти
+продолжаешь другим гостем» ложится на них напрямую.
+
+`DisPossessionProxyPawn` вместе с `Twk_Pawn_PossessionProxy` и его полным
+набором подтвиков (`Actions`, `Animation`, `Attributes`, `Body`, `Combat`) —
+готовое тело-посредник, через которое игрок управляет чужой пешкой.
 
 ### Кем можно стать: `Twk_Possessable_*`
 
@@ -551,4 +723,28 @@ DisDLC06SummonedAssassinNPCPawn  DisDLC07TentacleNPCPawn
 - **Файлы `Debug*.txt`** где-то в установке — по ним видно синтаксис
   exec-скриптов.
 - **Содержимое дополнений** — риг и оружие китобоев лежат в пакетах DLC06 и
-  DLC07, в базовой игре их нет.
+  DLC07, в базовой игре их нет. Но `Pwn_Assassin_MTBase` и `Pwn_Daud_MTall_1`
+  идут с базовой игрой как `DisTweaks_NPCPawn`, поэтому Томас собирается и без
+  дополнений.
+- **Формат данных разговора.** Классы `DisConv_*` найдены, а вот в каком виде
+  разговор лежит в пакете — нет. Без этого узел `DisConv_PlayerChoice` не
+  добавить, а на нём стоит выбор фракции.
+- **Чем задаётся фракция пешки.** `m_pFactionTweakOverride` и
+  `m_FactionOverrideMap` найдены как имена свойств; какому классу они
+  принадлежат и правятся ли из конфига — неизвестно.
+
+## Что изменилось в оценке работы
+
+Пересчёт после разбора таблицы имён. Раньше предполагалось, что ролевой режим —
+это в основном нативный код: перехватить события, подменить тело, свести
+фракции, нарисовать выбор персонажа.
+
+Оказалось наоборот. Фракции, разговоры с выбором игрока, светский приём,
+видимость, свидетели и подозрение, отмена смерти — всё это подсистемы,
+управляемые данными, и у каждой есть имя. Нативный слой нужен там, где данных
+не хватает: подменить пешку игрока помимо конфига, связать чужие подсистемы
+между собой, добавить поведение, которого в игре нет вовсе.
+
+Это не отменяет нативный слой — он остаётся точкой входа и страховкой. Но
+основной объём работы переезжает в данные, а значит правится без пересборки
+DLL и без ещё одного захода в игру на каждую проверку.
