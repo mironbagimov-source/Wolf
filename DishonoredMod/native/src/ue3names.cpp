@@ -2,7 +2,6 @@
 
 #include <windows.h>
 
-#include <atomic>
 
 // Здесь остался только тот кусок, которому действительно нужна Windows:
 // проверка читаемости адреса. Разбор раскладки живёт в заголовке, чтобы его
@@ -12,45 +11,35 @@ namespace dmk {
 namespace ue3 {
 namespace {
 
-// Кэш читаемости страниц.
+// Читаемость страницы спрашивается у системы каждый раз, без кэша.
 //
-// VirtualQuery — системный вызов, а спрашивать приходится часто: чтение имени
-// проверяет каждый символ, и в потоке ProcessEvent это десятки тысяч обращений
-// в секунду. Без кэша разрешение имён само по себе съедало бы кадр.
+// Кэш здесь был, и он уронил игру. Устроен он был как таблица прямого
+// отображения с запоминанием положительных ответов, а обоснование звучало так:
+// пул имён UE3 и таблица GNames живут от загрузки до выхода и в кучу не
+// возвращаются, поэтому устаревший положительный ответ невозможен.
 //
-// Таблица прямого отображения: слот на страницу, вытеснение по коллизии, одно
-// атомарное слово на запись. Блокировок нет и не нужно — промах стоит ровно
-// один лишний VirtualQuery, а не ошибку.
+// Обоснование было верным ровно до того дня, когда тем же isReadable начал
+// пользоваться обход объектов. Он идёт не по именам, а по указателям на актёров
+// уровня, и вот они как раз уничтожаются и освобождаются по ходу игры. Между
+// первым и вторым срезом прошло три с половиной минуты, страница успела уйти,
+// кэш продолжал утверждать, что она на месте, — и чтение по ней сняло игру.
 //
-// Кэш положительных ответов означает, что мы поверим в читаемость страницы,
-// которую игра успела освободить. Для того, ради чего он здесь, это безопасно:
-// пул имён UE3 и таблица GNames живут от загрузки до выхода и не возвращаются
-// в кучу.
+// Причина, по которой кэш вообще понадобился, устранена отдельно: чтение имени
+// больше не проверяет каждый символ, а спрашивает страницу целиком (см.
+// entryToString в ue3names.h). После этого на разбор имени приходится один-два
+// системных вызова вместо двух десятков, и платить за скорость чужими
+// падениями больше не нужно.
 constexpr std::uintptr_t kPageShift = 12;
-constexpr std::size_t kPageCacheSlots = 4096;  // степень двойки
-std::atomic<std::uintptr_t> g_pageCache[kPageCacheSlots];
 
-// Пустой слот — ноль. Как упаковка он означал бы «страница 0 нечитаема», а
-// нулевая страница нечитаема всегда, так что путаницы не возникает.
 bool pageIsReadable(std::uintptr_t page) {
-    const std::size_t slot = static_cast<std::size_t>(page) & (kPageCacheSlots - 1);
-    const std::uintptr_t cached = g_pageCache[slot].load(std::memory_order_relaxed);
-    if (cached != 0 && (cached >> 1) == page) {
-        return (cached & 1) != 0;
-    }
-
     const auto* address = reinterpret_cast<const void*>(page << kPageShift);
-    bool readable = false;
 
     MEMORY_BASIC_INFORMATION info = {};
-    if (VirtualQuery(address, &info, sizeof(info)) != 0 && info.State == MEM_COMMIT) {
-        constexpr DWORD kNoRead = PAGE_NOACCESS | PAGE_GUARD;
-        readable = (info.Protect & kNoRead) == 0;
+    if (VirtualQuery(address, &info, sizeof(info)) == 0 || info.State != MEM_COMMIT) {
+        return false;
     }
-
-    g_pageCache[slot].store((page << 1) | (readable ? 1u : 0u),
-                            std::memory_order_relaxed);
-    return readable;
+    constexpr DWORD kNoRead = PAGE_NOACCESS | PAGE_GUARD;
+    return (info.Protect & kNoRead) == 0;
 }
 
 }  // namespace

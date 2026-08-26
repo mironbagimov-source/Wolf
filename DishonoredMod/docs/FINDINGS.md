@@ -777,6 +777,73 @@ AI_BrainTweaks_Assassin.BrainTweaks_Assassin
 Ни одна не требует новой механики. «Неблокируемый удар, выводящий из
 равновесия» — это два готовых поля, а не задача программирования.
 
+## Приём у Бойл снят с живой карты
+
+Срез сделан прямо на `L_Boyle_Int_P`. Против прошлой сессии таблица имён
+выросла на 3459 записей, и это целиком начинка приёма. Она отвечает на главный
+вопрос ролевого режима — из чего собирать роль гостя — и ответ оказался
+«ни из чего, она уже собрана».
+
+### Дерево светских сцен
+
+```
+Soiree_Directory
+    Soiree_JumpTo_BilliardRoom        Soiree_JumpTo_RegentBadMouthing
+    Soiree_JumpTo_BusinessSucks       Soiree_JumpTo_SawTheft
+    Soiree_JumpTo_ChatWithBuddy       Soiree_JumpTo_UpstairsWarning
+    Soiree_JumpTo_IdleWithJack        Soiree_JumpTo_LordBrisbyQuestStart
+```
+
+`Soiree_Directory` — узел разговора с восемью переходами, то есть готовое
+ветвление светских сцен. Выбор фракции — это ещё одна ветка в структуре,
+которая уже существует, а не новое меню.
+
+Две ветки стоят особняком. **`Soiree_JumpTo_SawTheft`** — сцена «гость увидел
+кражу», **`Soiree_JumpTo_UpstairsWarning`** — «тебе не место наверху». Ровно та
+механика, вокруг которой строился NPC-Корво: опасно не быть выслеженным, а
+попасться на глаза за неположенным. Она написана и лежит на карте.
+
+Рядом — управление сценами из скрипта: `entersimplesoiree`,
+`BilliardRoomSoireeStart`, `RegentBadMouthingSoireeStart`,
+`StartBusinessSuxSoiree`, `StartIdleWithJackSoiree`, `StopIdleWithJackSoiree`,
+`EndBoatSoiree`, `stop stephen soiree`. И подбор собеседника: `randomguest`,
+`guestused`, `two_guest_idle`.
+
+### Роли гостей и стражи
+
+```
+Pwn_AristoParty_MTall_1 … _6      Pwn_EliteGuard_MTall_0 … _5
+Pwn_Aristo_F_1 … _4               Pwn_EliteGuard_MTall_2_Doorman
+Pwn_Aristo_MTall_1                Pwn_EliteGuard_MTall_*_Party
+Pwn_MusicOverseer_MTall_1         Pwn_EliteGuard_MTall_2_ShawGuard2
+```
+
+Шесть мужских гостей, четыре женских, музыкант-смотритель. У стражи отдельные
+праздничные варианты `_Party`, свой швейцар `_Doorman` и личный охранник Шоу.
+Гости разложены по комнатам: `BallroomGuests`, `BilliardRoomGuests`,
+`SmokingRoomGuests`, `PartyGuests`.
+
+### Правила приёма уже сделаны предметами и задачами
+
+| Правило | Чем реализовано |
+|---|---|
+| Вход по приглашению | `BoyleInvitation_twk`, `boyleinvitation_AbsItm`, `Brisby_Boyle_Invite` |
+| Маска обязательна | `BoyleMaskBlack/Red/White`, `BlackMask`, `BlueMask`, `Female_BlackMask`, `Mask_Overseer_inst`, `Twk_Inv_OverseerMask`, `skm_Boylemask` |
+| Гость с бокалом | `BoylePartyDrink_twk`, `DrinkingGlass_twk`, `Drink_Cider_01_twk`, жесты `Gesture_ReachForDrink`, `TakesDrink`, `FillDrinkIn` / `Out` |
+| Светские поручения | `Get A Drink Task`, `Quest For the Drink`, `HasDrinkLogicCheck`, `MissWhitesDrink`, `Complete Talk to Guests Objective` |
+| Список приглашённых | `Twk_Boyle_Guest_Book` |
+
+Маски трёх цветов сестёр, бокал как предмет с анимациями, приглашение как
+инвентарь, гостевая книга — всё то, из чего должен состоять социальный стелз,
+уже лежит на карте отдельными объектами.
+
+### Живые объекты разговоров
+
+В срезе 26 объектов `DisDialogOneShot` — по одному на реплику, которую можно
+услышать на приёме. Плюс мозги гостей под задачу:
+`AI_BrainTwk_Civ_BoyleInBoat`, `AI_BrainTwk_Civ_WoLConfident`,
+`Twk_Brain_OverSeerMusical_Default`.
+
 ## Что изменилось в оценке работы
 
 Пересчёт после разбора таблицы имён. Раньше предполагалось, что ролевой режим —
