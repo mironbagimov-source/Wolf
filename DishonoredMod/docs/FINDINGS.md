@@ -469,6 +469,78 @@ Dunwall City Trials.
 сработал с `CallFunction`: поставить счётчики на кандидатов и дать ответить
 самой игре.
 
+## Таблица имён: 66 417 имён из живой игры
+
+Снята режимом `namedump`, сжатая копия — [gnames-dump.txt.gz](gnames-dump.txt.gz).
+Это то, ради чего иначе пришлось бы разбирать пакеты игры.
+
+### Готовые роли: `Twk_Pawn_*`
+
+Двадцать семь настроенных пешек, и почти весь ролевой режим уже назван:
+
+```
+Twk_Pawn_Corvo            Twk_Pawn_Executioner      Twk_Pawn_Tallboy
+Twk_Pawn_LadyEsmaBoyle    Twk_Pawn_GuardCaptain     Twk_Pawn_WolfHound
+Twk_Pawn_LadyLydiaBoyle   Twk_Pawn_LordPendleton    Twk_Pawn_PossessionProxy
+Twk_Pawn_LadyWaverlyBoyle Twk_Pawn_OverseerCampbell Twk_Pawn_DefaultNPC
+Twk_Pawn_LadyEmily        Twk_Pawn_OverseerMartin   Twk_Pawn_DefaultPlayer
+```
+
+**Все три сестры Бойл — отдельными настроенными объектами.** Роль хозяйки дома
+не нужно собирать: она в игре уже есть, вместе с Палачом и капитаном стражи.
+
+### Кем можно стать: `Twk_Possessable_*`
+
+```
+Twk_Possessable_BaseNPC     Twk_Possessable_Daud      Twk_Possessable_Rat
+Twk_Possessable_Servant     Twk_Possessable_Emily     Twk_Possessable_Fish
+Twk_Possessable_BaseAnimal  Twk_Possessable_Outsider  Twk_Possessable_Wolfhound
+```
+
+Список важен вдвойне. Он подтверждает, что игрок может владеть NPC-телом — это
+опора утверждённого дизайна. И в нём есть **`Twk_Possessable_Daud`**: вселение
+в китобоя предусмотрено самой игрой.
+
+### Смертей больше, чем считалось
+
+```
+StateNPCMasterBeingAssassinated   StateNPCMasterDead_Limp
+StateNPCMasterBeingChoked         StateNPCMasterDead_Electrocuted
+StateNPCMasterDead                StateNPCMasterDead_BeingCarried
+StateNPCMasterActionImmolate      StateNPCMasterThrown
+```
+
+У каждого есть парный `_Template` — то есть это настраиваемые твик-объекты, а
+не зашитые состояния.
+
+**`StateNPCMasterDead_BeingCarried`** в дизайне не учитывалось, а зря: Корво
+таскает тела, и играя за жертву, ты попадёшь именно в него. Ровно та сцена,
+которую мы придумали для второй ступени смерти, — уже есть под своим именем.
+
+### Код дополнений в игре есть, нет только ассетов
+
+```
+DisDLC06AssassinNPCPawn      DisDLC07AssassinNPCPawn
+DisDLC06ButcherNPCPawn       DisDLC07GravehoundNPCPawn
+DisDLC06SummonedAssassinNPCPawn  DisDLC07TentacleNPCPawn
+```
+
+Классы вкомпилированы в исполняемый файл, хотя пакетов нет. Значит недостача —
+только в моделях и анимациях, а не в логике.
+
+### На что опираются способности Томаса
+
+| Способность | Что уже есть в игре |
+|---|---|
+| **Void Hunt** — ярость | `TwkAttackPattern_BerserkerElite`, `TwkAttackPattern_SwordBerserker` — паттерны атаки берсерка; `Attribute_AdrenalineBurnRate`, `Attribute_AdrenalineMultWhenTakingDamage` — система адреналина |
+| **Вышибание дверей** | `DisDoorBreakSteps`, `DoorBreakable`, `doors_twk.BreakableDoorBase` — ломание дверей существует и настраивается по шагам |
+| **Пробитие блока** | `Attribute_BlockBreakRate_Min` и `_Max` |
+| **Похищение души** | `DisSoulRenderInterface`, `DisSoulMaterial`, `m_pSoul`, `m_aDisplayedSouls`, `m_bSoulRendering`, `DarkVision_Souls_INST` — душа как отображаемая сущность со своим материалом и шейдерами |
+
+Ни одна из двух новых способностей не требует придумывать механику с нуля:
+берсерк, ломаемые двери, пробитие блока и видимая душа — всё это игра уже
+умеет, и настраивается твиками.
+
 ## Что искать дальше
 
 - **Команды спавна и смены пешки** в отладочном меню отсутствуют. Меню — лишь
