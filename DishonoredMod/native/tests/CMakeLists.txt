@@ -14,5 +14,10 @@ add_executable(test_bytepattern test_bytepattern.cpp)
 target_include_directories(test_bytepattern PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 target_compile_options(test_bytepattern PRIVATE -Wall -Wextra)
 
+add_executable(test_ue3detect test_ue3detect.cpp)
+target_include_directories(test_ue3detect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_compile_options(test_ue3detect PRIVATE -Wall -Wextra)
+
 enable_testing()
 add_test(NAME bytepattern COMMAND test_bytepattern)
+add_test(NAME ue3detect COMMAND test_ue3detect)

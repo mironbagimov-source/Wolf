@@ -355,6 +355,17 @@ struct DetectedClassOffset {
 // «Class». То есть по верному смещению цепочка obj → Class → Class приводит к
 // объекту с известным именем, и вероятность случайно наткнуться на такую
 // цепочку у неверного смещения исчезающе мала.
+//
+// Вторая проверка — неподвижная точка: класс класса классов есть он сам,
+// поэтому по верному смещению третий шаг цепочки обязан вернуться туда же,
+// откуда пришёл. Совпасть случайно с этим уже невозможно.
+//
+// Требования «классы образцов должны различаться» здесь нет и быть не может.
+// Образцы приходят из хука как указатели на UFunction, то есть класс у них
+// один на всех — «Function». Такое требование стояло в первой версии и не
+// давало подбору сойтись никогда: в живом запуске он честно перебирал все
+// смещения, находил верное и отбраковывал его за однообразие. Различие между
+// объектами проверяется цепочкой, а не разбросом имён.
 inline DetectedClassOffset detectClassOffset(const std::vector<const void*>& samples,
                                              const NameResolver& names,
                                              ReadableFn readable) {
@@ -370,7 +381,6 @@ inline DetectedClassOffset detectClassOffset(const std::vector<const void*>& sam
     constexpr std::size_t kMaxClassOffset = 0x100;
     for (std::size_t offset = 4; offset <= kMaxClassOffset; offset += 4) {
         std::vector<std::string> classNames;
-        std::set<std::string> distinct;
         bool ok = true;
 
         for (const void* sample : samples) {
@@ -398,6 +408,12 @@ inline DetectedClassOffset detectClassOffset(const std::vector<const void*>& sam
                 break;
             }
 
+            // Неподвижная точка: класс UClass — это сам UClass.
+            if (readPointer(metaType) != metaType) {
+                ok = false;
+                break;
+            }
+
             char className[128];
             if (!names.nameOf(type, className, sizeof(className), readable) ||
                 !looksLikeIdentifier(className)) {
@@ -405,12 +421,9 @@ inline DetectedClassOffset detectClassOffset(const std::vector<const void*>& sam
                 break;
             }
             classNames.emplace_back(className);
-            distinct.insert(className);
         }
 
-        // Один и тот же класс у всех образцов ничего не доказывает: так
-        // выглядело бы и попадание в какое-нибудь общее поле.
-        if (ok && distinct.size() >= 2) {
+        if (ok && !classNames.empty()) {
             result.found = true;
             result.offset = offset;
             result.sampleClassNames = classNames;

@@ -396,6 +396,12 @@ Tower, Prison, Streets, Distillery, Brothel, Bridge, Boyle, Overseer, Flooded,
 Island, Lighthouse. Ни «Knife of Dunwall», ни «Brigmore Witches», ни арены
 Dunwall City Trials.
 
+> **Неверно.** `DLC06_Slaughter_Int_Assassin.upk` нашёлся в установке: 7 МБ,
+> 9655 экспортов, 7911 имён — полноценный пакет содержимого, а не заглушка.
+> Значит «Knife of Dunwall» на месте, и обзор его не увидел. Скорее всего
+> обзор смотрел не туда: пакеты дополнений лежат отдельно от кампании.
+> Разбор пакета — в разделе «Что лежит в пакете дополнения» ниже.
+
 ### Но китобои в базовой игре есть
 
 Это меняет вывод про Томаса, который иначе упирался бы в шесть недостающих
@@ -732,6 +738,44 @@ DisDLC06SummonedAssassinNPCPawn  DisDLC07TentacleNPCPawn
 - **Чем задаётся фракция пешки.** `m_pFactionTweakOverride` и
   `m_FactionOverrideMap` найдены как имена свойств; какому классу они
   принадлежат и правятся ли из конфига — неизвестно.
+
+## Что лежит в пакете дополнения
+
+`DLC06_Slaughter_Int_Assassin.upk` — бойня из «Knife of Dunwall» вместе с
+китобоями. Заголовок пакета сжат кусками по 128 КБ, кодек LZO1X; распаковав
+их, таблицы читаются обычным разбором пакета UE3 (`tools/upk.py`).
+
+Китобой как настроенная пешка — со всем набором подтвиков:
+
+```
+DLC06_Pwn_Assassin_1+++DLC06_Pwn_Assassin_Base DisDLC06Tweaks_NPCPawn
+    :pActionTweaks      :pAnimationTweaks   :pAttributeTweaksNormal
+    :pBodyTweaks        :pCombatTweaks      :pInteractableTweaks
+    :pStateNPCMasterDead_BeingCarriedTweaks
+DLC06_Pwn_Assassin_Lieut
+AI_BrainTweaks_Assassin.BrainTweaks_Assassin
+```
+
+Способности китобоя названы отдельно: `AI_Assassin_Pwr_Teleport_Start` и
+`_End` — перенос, `AI_Assassin_Pwr_Attract_Loop` — притягивание,
+`AI_Assassin_Ranged_Attack_Fire` — стрельба.
+
+Анимации на месте: полный набор `ADD_Sword_Aim*`, семейство `Crossbow_Fire`,
+`Crossbow_Reload*`, `Crossbow_FastReload`, и добивания
+`DisNPCAnim_AssassinationDramatic_Back`, `DisNPCAnim_AssassinationDrop`,
+`DisNPCAnim_ShortFatality_Backhand` и `_Forehand`.
+
+### Обе способности Томаса — настройки, а не код
+
+| Что нужно | Чем задаётся |
+|---|---|
+| Удар не блокируется | `m_bUnblockable` — готовый флаг твика |
+| Выводит из равновесия | `eDisVulnerabilityType_OffBalance`, окно уязвимости `m_fVulnerableTime_Knockdown` и `_Dizzy`, ограничение действий `m_bAllowWhenOffBalance` |
+| Арбалет как скрытый клинок | `Crossbow_Fire`, `Crossbow_Reload_In` / `_Out` — анимации есть |
+| Ярость Void Hunt | `TwkAttackPattern_SwordBerserker` — паттерн атаки берсерка; адреналин копится, в том числе `m_fAdrenalineAddedParryWin` |
+
+Ни одна не требует новой механики. «Неблокируемый удар, выводящий из
+равновесия» — это два готовых поля, а не задача программирования.
 
 ## Что изменилось в оценке работы
 
