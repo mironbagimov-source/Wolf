@@ -8,6 +8,7 @@
 #include "probes.h"
 #include "modes/bodyswap.h"
 #include "modes/dump.h"
+#include "modes/harvest.h"
 #include "modes/namedump.h"
 #include "modes/objdump.h"
 #include "modes/roleplay.h"
@@ -416,6 +417,7 @@ void ModeRegistry::reEnableActiveMode() {
 void registerBuiltinModes(ModeRegistry& registry) {
     registry.add(std::make_unique<ObserverMode>());
     registry.add(std::make_unique<DumpMode>());
+    registry.add(std::make_unique<HarvestMode>());
     registry.add(std::make_unique<BodySwapMode>());
     registry.add(std::make_unique<NameDumpMode>());
     registry.add(std::make_unique<ObjectDumpMode>());

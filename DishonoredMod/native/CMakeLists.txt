@@ -21,6 +21,7 @@ add_library(DishonoredModKit SHARED
     src/mode.cpp
     src/modes/bodyswap.cpp
     src/modes/dump.cpp
+    src/modes/harvest.cpp
     src/modes/namedump.cpp
     src/modes/objdump.cpp
     src/modes/roleplay.cpp
