@@ -275,11 +275,30 @@ inline DetectedObjectArray detectObjectArray(const std::uint8_t* dataStart,
     // мелкие массивы, верхняя — случайные числа, похожие на размер.
     constexpr std::int32_t kMinObjects = 5000;
     constexpr std::int32_t kMaxObjects = 4 << 20;
-    // Сколько элементов проверить. Дыры в списке — обычное дело: уничтоженные
-    // объекты оставляют пустые слоты, поэтому проверяются только ненулевые, а
-    // требуется набрать достаточно подтверждений.
-    constexpr int kProbeSlots = 64;
-    constexpr int kNeedValid = 8;
+
+    // Сколько мест проверить и сколько обязано опознаться.
+    //
+    // Проверяются не первые подряд, а разбросанные по всей длине. Это не про
+    // экономию: начало списка в UE3 занято встроенными объектами движка —
+    // пакетом Core и классами Class, Field, Struct, Function. Класс почти у
+    // всех один и тот же, «Class», и по первым записям список выглядит
+    // однородным, хотя на деле разнороден.
+    //
+    // Первая версия на этом и споткнулась: она требовала не меньше трёх разных
+    // классов среди первых шестидесяти четырёх записей, а получала два. Живой
+    // запуск отверг настоящий список. Ошибка та же по форме, что была с
+    // подбором смещения Class: требование разнообразия, которого в данных нет.
+    constexpr int kProbeSlots = 128;
+    constexpr int kNeedValid = 24;
+
+    // Дыры в списке — обычное дело: уничтоженный объект оставляет пустой слот.
+    // Поэтому одна негодная запись ничего не доказывает, и порог задан долей.
+    constexpr int kMaxBadPercent = 25;
+
+    // Читает указатель по смещению и проверяет, что по нему что-то есть.
+    const auto followClass = [&](const void* object) -> const void* {
+        return names.classOf(object, readable);
+    };
 
     for (std::size_t offset = 0; offset + sizeof(ArrayHeader) <= dataSize; offset += 4) {
         const auto* header = reinterpret_cast<const ArrayHeader*>(dataStart + offset);
@@ -291,48 +310,74 @@ inline DetectedObjectArray detectObjectArray(const std::uint8_t* dataStart,
         }
 
         const auto* entries = reinterpret_cast<const void* const*>(header->data);
-        if (!readable(entries, sizeof(void*) * kProbeSlots)) {
+        if (!readable(entries, sizeof(void*) * 8)) {
             continue;
         }
 
+        const std::int32_t step =
+            header->count > kProbeSlots ? header->count / kProbeSlots : 1;
+
         std::vector<std::string> sample;
-        std::set<std::string> distinct;
-        bool broken = false;
-        for (int index = 0; index < kProbeSlots && !broken; ++index) {
-            const void* object = entries[index];
-            if (object == nullptr) {
+        int valid = 0;
+        int bad = 0;
+        for (int probe = 0; probe < kProbeSlots; ++probe) {
+            const std::int32_t index = probe * step;
+            if (index >= header->count) {
+                break;
+            }
+            if (!readable(entries + index, sizeof(void*))) {
+                ++bad;
                 continue;
             }
+            const void* object = entries[index];
+            if (object == nullptr) {
+                continue;  // дыра, не в счёт ни туда ни сюда
+            }
             if (!readable(object, 64)) {
-                broken = true;
-                break;
+                ++bad;
+                continue;
             }
 
-            // Настоящий объект обязан знать своё имя и свой класс. Запись
-            // таблицы имён провалит вторую проверку.
+            // Настоящий объект знает своё имя, а его класс — сам объект, чей
+            // класс зовётся «Class». Записи таблицы имён и любые чужие массивы
+            // указателей эту цепочку не проходят.
             char objectName[128];
-            char className[128];
-            if (!names.nameOf(object, objectName, sizeof(objectName), readable) ||
-                !names.classNameOf(object, className, sizeof(className), readable) ||
-                !looksLikeIdentifier(className)) {
-                broken = true;
-                break;
+            const void* type = followClass(object);
+            const void* metaType = type != nullptr ? followClass(type) : nullptr;
+            if (metaType == nullptr ||
+                !names.nameOf(object, objectName, sizeof(objectName), readable)) {
+                ++bad;
+                continue;
             }
+
+            char metaName[128];
+            char className[128];
+            if (!names.nameOf(metaType, metaName, sizeof(metaName), readable) ||
+                std::strcmp(metaName, "Class") != 0 ||
+                !names.nameOf(type, className, sizeof(className), readable) ||
+                !looksLikeIdentifier(className)) {
+                ++bad;
+                continue;
+            }
+
+            ++valid;
             if (sample.size() < 8) {
                 sample.emplace_back(std::string(objectName) + " : " + className);
             }
-            distinct.insert(className);
         }
 
-        // Разные классы среди образцов: список объектов разнороден, а вот
-        // массив однотипных структур дал бы один и тот же класс всюду.
-        if (!broken && sample.size() >= static_cast<std::size_t>(kNeedValid) &&
-            distinct.size() >= 3) {
+        if (valid < kNeedValid || bad * 100 > (valid + bad) * kMaxBadPercent) {
+            continue;
+        }
+
+        // Массивов указателей на объекты в UE3 несколько — есть и списки
+        // загруженного, и очереди на удаление. Нужен самый длинный: он и есть
+        // глобальный.
+        if (!result.found || header->count > result.count) {
             result.found = true;
             result.address = reinterpret_cast<std::uintptr_t>(header);
             result.count = header->count;
             result.sampleNames = sample;
-            return result;
         }
     }
 

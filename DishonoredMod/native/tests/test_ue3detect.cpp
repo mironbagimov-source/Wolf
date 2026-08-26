@@ -118,6 +118,37 @@ private:
     }
 
 public:
+    // Собирает массив указателей на объекты и заголовок TArray перед ним —
+    // так глобальный список выглядит в памяти игры.
+    //
+    // Порядок объектов повторяет игровой: сперва встроенные объекты движка,
+    // у которых класс почти всегда один и тот же, и только потом разнородная
+    // начинка уровня. Именно на этом порядке сломался первый поиск списка.
+    void buildObjectArray(const std::vector<std::int32_t>& indices) {
+        arrayEntries_.clear();
+        arrayEntries_.reserve(indices.size());
+        for (std::int32_t index : indices) {
+            // Отрицательный номер — дыра: уничтоженный объект оставляет в
+            // списке пустой слот, и живой список без них не встречается.
+            arrayEntries_.push_back(index < 0 ? nullptr : pointerTo(index));
+        }
+        arrayHeader_.data = arrayEntries_.data();
+        arrayHeader_.count = static_cast<std::int32_t>(arrayEntries_.size());
+        arrayHeader_.max = arrayHeader_.count;
+    }
+
+    // Кусок «секции данных»: заголовок массива, окружённый мусором, — искать
+    // его придётся перебором, как в игре.
+    const std::vector<std::uint8_t>& dataSection() {
+        section_.assign(4096, 0x00);
+        std::memcpy(section_.data() + 2048, &arrayHeader_, sizeof(arrayHeader_));
+        return section_;
+    }
+
+    std::uintptr_t arrayAddressInSection() const {
+        return reinterpret_cast<std::uintptr_t>(section_.data() + 2048);
+    }
+
     // Что вообще можно читать. Подбор перебирает смещения вслепую и лезет за
     // край объекта — в игре его останавливает VirtualQuery, здесь останавливать
     // должен этот список.
@@ -125,6 +156,14 @@ public:
         std::vector<std::pair<const std::uint8_t*, std::size_t>> result;
         for (const auto& object : objects_) {
             result.emplace_back(object.data(), object.size());
+        }
+        if (!arrayEntries_.empty()) {
+            result.emplace_back(
+                reinterpret_cast<const std::uint8_t*>(arrayEntries_.data()),
+                arrayEntries_.size() * sizeof(const void*));
+        }
+        if (!section_.empty()) {
+            result.emplace_back(section_.data(), section_.size());
         }
         for (const std::string& entry : names_) {
             result.emplace_back(reinterpret_cast<const std::uint8_t*>(entry.data()),
@@ -150,6 +189,10 @@ private:
     std::vector<const void*> entryPointers_;
     mutable ArrayHeader header_;
     std::int32_t classOfClass_ = 0;
+
+    std::vector<const void*> arrayEntries_;
+    ArrayHeader arrayHeader_;
+    std::vector<std::uint8_t> section_;
 };
 
 // Та же роль, что у VirtualQuery в игре: сказать, лежит ли этот адрес в
@@ -323,6 +366,97 @@ void testNoClassAtAll() {
                .found);
 }
 
+// Собирает список объектов в игровом порядке: сначала встроенные объекты
+// движка (класс у всех «Class»), потом начинка уровня.
+std::vector<std::int32_t> engineThenLevel(FakeGame& game, int engineCount,
+                                          int levelCount) {
+    std::vector<std::int32_t> indices;
+    const std::int32_t classClass = game.addClass("Class");
+    for (int index = 0; index < engineCount; ++index) {
+        char name[64];
+        std::snprintf(name, sizeof(name), "CoreClass%d", index);
+        indices.push_back(game.addObject(name, classClass));
+    }
+    const char* const levelClasses[] = {"DishonoredNPCPawn", "TargetPoint",
+                                        "Emitter", "DisTrigger"};
+    std::int32_t types[4];
+    for (int index = 0; index < 4; ++index) {
+        types[index] = game.addClass(levelClasses[index]);
+    }
+    for (int index = 0; index < levelCount; ++index) {
+        char name[64];
+        std::snprintf(name, sizeof(name), "LevelActor%d", index);
+        indices.push_back(game.addObject(name, types[index % 4]));
+    }
+    return indices;
+}
+
+void testObjectArrayEngineFirst() {
+    std::printf("Список объектов: движок в начале, уровень дальше\n");
+
+    // Ровно случай из игры: первые записи однородны, и по ним одним список
+    // выглядит массивом одинаковых структур.
+    FakeGame game;
+    const std::vector<std::int32_t> indices = engineThenLevel(game, 200, 6000);
+    game.buildNameTable();
+    game.buildObjectArray(indices);
+    const std::vector<std::uint8_t>& section = game.dataSection();
+    const ScopedRanges bounds(game);
+
+    dmk::ue3::NameResolver names = resolverFor(game);
+    names.objectClassOffset = FakeGame::kClassOffset;
+
+    const dmk::ue3::DetectedObjectArray found = dmk::ue3::detectObjectArray(
+        section.data(), section.size(), names, &readableInFake);
+
+    check("список найден", found.found);
+    check("адрес верный", found.address == game.arrayAddressInSection());
+    check("длина верная", found.count == static_cast<std::int32_t>(indices.size()),
+          "получено " + std::to_string(found.count));
+    check("образцы прочитаны", !found.sampleNames.empty(),
+          found.sampleNames.empty() ? "пусто" : found.sampleNames.front());
+}
+
+void testObjectArrayWithHoles() {
+    std::printf("Список объектов: дыры от уничтоженных\n");
+
+    FakeGame game;
+    std::vector<std::int32_t> indices = engineThenLevel(game, 50, 6000);
+    for (std::size_t at = 0; at < indices.size(); at += 3) {
+        indices[at] = -1;  // каждый третий слот пуст
+    }
+    game.buildNameTable();
+    game.buildObjectArray(indices);
+    const std::vector<std::uint8_t>& section = game.dataSection();
+    const ScopedRanges bounds(game);
+
+    dmk::ue3::NameResolver names = resolverFor(game);
+    names.objectClassOffset = FakeGame::kClassOffset;
+
+    const dmk::ue3::DetectedObjectArray found = dmk::ue3::detectObjectArray(
+        section.data(), section.size(), names, &readableInFake);
+    check("список с дырами всё равно найден", found.found);
+}
+
+void testObjectArrayTooSmall() {
+    std::printf("Список объектов: короткий массив отвергается\n");
+
+    // Массивов указателей на объекты в UE3 несколько; короткие — не тот.
+    FakeGame game;
+    const std::vector<std::int32_t> indices = engineThenLevel(game, 10, 100);
+    game.buildNameTable();
+    game.buildObjectArray(indices);
+    const std::vector<std::uint8_t>& section = game.dataSection();
+    const ScopedRanges bounds(game);
+
+    dmk::ue3::NameResolver names = resolverFor(game);
+    names.objectClassOffset = FakeGame::kClassOffset;
+
+    check("короткий массив не принят",
+          !dmk::ue3::detectObjectArray(section.data(), section.size(), names,
+                                       &readableInFake).found);
+}
+
 }  // namespace
 
 int main() {
@@ -332,6 +466,9 @@ int main() {
     testMixedSamples();
     testRefusals();
     testNoClassAtAll();
+    testObjectArrayEngineFirst();
+    testObjectArrayWithHoles();
+    testObjectArrayTooSmall();
     std::printf("\nПройдено %d, провалено %d\n", g_passed, g_failed);
     return g_failed == 0 ? 0 : 1;
 }
