@@ -11,6 +11,7 @@
 #include "modes/harvest.h"
 #include "modes/namedump.h"
 #include "modes/objdump.h"
+#include "modes/patch.h"
 #include "modes/roleplay.h"
 #include "ue3detect.h"
 
@@ -421,6 +422,7 @@ void registerBuiltinModes(ModeRegistry& registry) {
     registry.add(std::make_unique<BodySwapMode>());
     registry.add(std::make_unique<NameDumpMode>());
     registry.add(std::make_unique<ObjectDumpMode>());
+    registry.add(std::make_unique<PatchMode>());
     registry.add(std::make_unique<RoleplayMode>());
 }
 

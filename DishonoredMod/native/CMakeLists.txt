@@ -24,6 +24,7 @@ add_library(DishonoredModKit SHARED
     src/modes/harvest.cpp
     src/modes/namedump.cpp
     src/modes/objdump.cpp
+    src/modes/patch.cpp
     src/modes/roleplay.cpp
     src/proxy_dinput8.cpp
     src/sigscan.cpp
