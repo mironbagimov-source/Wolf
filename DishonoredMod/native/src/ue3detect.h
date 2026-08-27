@@ -479,5 +479,313 @@ inline DetectedClassOffset detectClassOffset(const std::vector<const void*>& sam
     return result;
 }
 
+struct DetectedFieldLayout {
+    bool found = false;
+
+    // UField::Next — следующее поле в списке класса.
+    std::size_t nextOffset = 0;
+    // UStruct::Children — первое поле класса.
+    std::size_t childrenOffset = 0;
+    // UProperty::Offset — где значение свойства лежит внутри объекта.
+    std::size_t propertyOffsetOffset = 0;
+    // UStruct::SuperStruct — родительский класс.
+    //
+    // Без него поиск свойства по имени находил бы только объявленные в самом
+    // классе. Половина нужного объявлена у предков: у пешки на приёме своё имя,
+    // а здоровье и фракция достались от общего родителя.
+    std::size_t superOffset = 0;
+
+    // UBoolProperty::BitMask — какой бит слова занимает булево свойство.
+    //
+    // В UE3 булевы поля не байты: несколько соседних флагов делят одно слово,
+    // и у каждого своя маска. Записать `m_bUnblockable` как обычное целое —
+    // значит заодно погасить всё, что лежит в тех же битах. Маска обязательна.
+    std::size_t boolBitMaskOffset = 0;
+
+    // Что прочиталось: «Класс.Свойство +0x??» — чтобы человек мог глазами
+    // сверить пару строк с известной раскладкой.
+    std::vector<std::string> sampleProperties;
+};
+
+// Подбирает раскладку списка полей класса.
+//
+// Зачем. Всё, ради чего затевался мод, — это правка свойств у конкретных
+// объектов: отношения фракций, «удар не блокируется» у Томаса, враждебность
+// плакальщиков. Конфиги игры такого не дают: секция INI задаёт умолчания
+// класса, то есть меняет сразу все объекты этого класса, а нужен один.
+//
+// Чтобы записать свойство по имени, надо знать, по какому смещению внутри
+// объекта оно лежит. Игра это знает: у каждого UClass есть цепочка полей, и у
+// каждого поля-свойства записано его смещение. Остаётся прочитать цепочку —
+// а для этого подобрать три смещения в самих служебных структурах.
+//
+// Критерии, как и раньше, самопроверяющиеся, без опоры на догадки о сборке:
+//
+//   1. Цепочка полей обязана состоять из объектов, чьи классы называются
+//      осмысленно и в основном оканчиваются на «Property»: список полей класса
+//      — это его свойства, функции и вложенные типы, и ничем иным быть не
+//      может.
+//   2. Цепочка обязана заканчиваться нулём, а не уходить в бесконечность.
+//   3. Смещения свойств внутри класса обязаны не убывать: UE3 раскладывает
+//      поля в порядке объявления. Не убывать, а не возрастать — потому что
+//      подряд идущие булевы делят одно слово, и смещение у них общее.
+//      Требование строгого роста отвергало бы любой класс с парой флагов.
+inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& classSamples,
+                                             const NameResolver& names,
+                                             ReadableFn readable) {
+    using namespace detail;
+
+    DetectedFieldLayout result;
+    if (classSamples.size() < 3 || !names.classesConfigured()) {
+        return result;
+    }
+
+    // Служебные поля лежат сразу за концом UObject, то есть за полем Class.
+    const std::size_t minOffset = names.objectClassOffset + 4;
+    constexpr std::size_t kMaxOffset = 0x120;
+    constexpr std::size_t kMaxChain = 4096;   // защита от кольца в мусоре
+    constexpr std::size_t kMinFields = 3;     // короткая цепочка ничего не значит
+    constexpr std::size_t kNeedClasses = 3;   // на скольких классах должно сойтись
+
+    const auto follow = [&](const void* base, std::size_t offset) -> const void* {
+        if (base == nullptr) {
+            return nullptr;
+        }
+        const auto* field = reinterpret_cast<const void* const*>(
+            reinterpret_cast<const std::uint8_t*>(base) + offset);
+        if (!readable(field, sizeof(void*))) {
+            return nullptr;
+        }
+        const void* value = *field;
+        if (value == nullptr) {
+            return nullptr;
+        }
+        return readable(value, 64) ? value : nullptr;
+    };
+
+    // Собирает цепочку полей класса. Пустой результат означает, что пара
+    // смещений неверна.
+    const auto chainOf = [&](const void* type, std::size_t childrenOffset,
+                             std::size_t nextOffset) -> std::vector<const void*> {
+        std::vector<const void*> chain;
+        const void* node = follow(type, childrenOffset);
+        while (node != nullptr && chain.size() < kMaxChain) {
+            char className[128];
+            if (!names.classNameOf(node, className, sizeof(className), readable) ||
+                !looksLikeIdentifier(className)) {
+                return {};
+            }
+            chain.push_back(node);
+            node = follow(node, nextOffset);
+        }
+        return chain.size() >= kMaxChain ? std::vector<const void*>{} : chain;
+    };
+
+    const auto endsWithProperty = [](const char* text) {
+        const std::size_t length = std::strlen(text);
+        constexpr char kSuffix[] = "Property";
+        constexpr std::size_t kSuffixLength = sizeof(kSuffix) - 1;
+        return length > kSuffixLength &&
+               std::strcmp(text + length - kSuffixLength, kSuffix) == 0;
+    };
+
+    for (std::size_t childrenOffset = minOffset; childrenOffset <= kMaxOffset;
+         childrenOffset += 4) {
+        // Next живёт в UField, Children — в UStruct, наследнике UField.
+        // Поэтому Next стоит раньше, и обратный порядок можно не проверять.
+        for (std::size_t nextOffset = minOffset; nextOffset < childrenOffset;
+             nextOffset += 4) {
+            std::vector<std::vector<const void*>> chains;
+            for (const void* type : classSamples) {
+                std::vector<const void*> chain = chainOf(type, childrenOffset, nextOffset);
+                if (chain.size() < kMinFields) {
+                    continue;
+                }
+                // Среди полей класса обязаны быть свойства, иначе это не
+                // список полей, а совпадение.
+                std::size_t properties = 0;
+                for (const void* node : chain) {
+                    char className[128];
+                    if (names.classNameOf(node, className, sizeof(className), readable) &&
+                        endsWithProperty(className)) {
+                        ++properties;
+                    }
+                }
+                if (properties >= kMinFields) {
+                    chains.push_back(std::move(chain));
+                }
+            }
+            if (chains.size() < kNeedClasses) {
+                continue;
+            }
+
+            // Пара смещений подошла. Осталось найти, где у свойства записано
+            // его собственное смещение.
+            for (std::size_t offsetField = minOffset; offsetField <= kMaxOffset;
+                 offsetField += 4) {
+                std::size_t agreeing = 0;
+                std::vector<std::string> samples;
+
+                for (const std::vector<const void*>& chain : chains) {
+                    std::int32_t previous = -1;
+                    std::size_t seen = 0;
+                    std::set<std::int32_t> distinctOffsets;
+                    bool increasing = true;
+
+                    for (const void* node : chain) {
+                        char className[128];
+                        if (!names.classNameOf(node, className, sizeof(className),
+                                               readable) ||
+                            !endsWithProperty(className)) {
+                            continue;
+                        }
+                        const auto* slot = reinterpret_cast<const std::int32_t*>(
+                            reinterpret_cast<const std::uint8_t*>(node) + offsetField);
+                        if (!readable(slot, sizeof(std::int32_t))) {
+                            increasing = false;
+                            break;
+                        }
+                        const std::int32_t value = *slot;
+                        // Объект больше шестидесяти четырёх килобайт — это уже
+                        // не объект, а неверное поле.
+                        if (value < previous || value < 0 || value > 0x10000) {
+                            increasing = false;
+                            break;
+                        }
+                        previous = value;
+                        distinctOffsets.insert(value);
+                        ++seen;
+
+                        if (samples.size() < 8) {
+                            char propertyName[128];
+                            if (names.nameOf(node, propertyName, sizeof(propertyName),
+                                             readable)) {
+                                // Два имени по 128 плюс разделители: с запасом,
+                                // чтобы строка не обрезалась молча.
+                                char line[288];
+                                std::snprintf(line, sizeof(line), "%s : %s +0x%X",
+                                              propertyName, className,
+                                              static_cast<unsigned>(value));
+                                samples.emplace_back(line);
+                            }
+                        }
+                    }
+                    // Разные смещения обязательны: класс, у которого все поля
+                    // легли по одному адресу, подтверждает любое смещение и
+                    // потому не подтверждает ничего. Так выглядит класс из
+                    // одних флагов — он законен, но в свидетели не годится.
+                    if (increasing && seen >= kMinFields && distinctOffsets.size() >= 2) {
+                        ++agreeing;
+                    }
+                }
+
+                if (agreeing < kNeedClasses) {
+                    continue;
+                }
+
+                result.found = true;
+                result.childrenOffset = childrenOffset;
+                result.nextOffset = nextOffset;
+                result.propertyOffsetOffset = offsetField;
+                result.sampleProperties = std::move(samples);
+
+                // SuperStruct лежит в UStruct рядом с Children. Признак: по
+                // этому смещению либо ноль, либо снова класс — объект, чей
+                // класс зовётся «Class». Поле Class в перебор не попадает,
+                // оно осталось ниже начала диапазона.
+                for (std::size_t superField = minOffset; superField <= childrenOffset;
+                     superField += 4) {
+                    std::size_t withSuper = 0;
+                    bool consistent = true;
+
+                    for (const void* type : classSamples) {
+                        const void* super = follow(type, superField);
+                        std::size_t steps = 0;
+                        while (super != nullptr && steps < 32) {
+                            char className[128];
+                            if (!names.classNameOf(super, className, sizeof(className),
+                                                   readable) ||
+                                std::strcmp(className, "Class") != 0) {
+                                consistent = false;
+                                break;
+                            }
+                            super = follow(super, superField);
+                            ++steps;
+                        }
+                        if (!consistent || steps >= 32) {
+                            consistent = false;
+                            break;
+                        }
+                        if (steps > 0) {
+                            ++withSuper;
+                        }
+                    }
+
+                    // Смещение, по которому всюду ноль, «согласуется» с чем
+                    // угодно и не значит ничего. Нужен хотя бы один настоящий
+                    // предок.
+                    if (consistent && withSuper > 0) {
+                        result.superOffset = superField;
+                        break;
+                    }
+                }
+
+                // BitMask булева свойства. Признак простой и почти
+                // неподделываемый: у всякого булева поля здесь лежит ненулевая
+                // степень двойки — один бит, и только один.
+                std::vector<const void*> bools;
+                for (const std::vector<const void*>& chain : chains) {
+                    for (const void* node : chain) {
+                        char className[128];
+                        if (names.classNameOf(node, className, sizeof(className),
+                                              readable) &&
+                            std::strcmp(className, "BoolProperty") == 0) {
+                            bools.push_back(node);
+                        }
+                    }
+                }
+                if (bools.size() >= 3) {
+                    for (std::size_t maskField = minOffset; maskField <= kMaxOffset;
+                         maskField += 4) {
+                        // Поле Offset само проходит проверку на степень двойки,
+                        // когда флаги легли по адресу вроде 0x40, — и первым
+                        // попадается в переборе. Его надо пропустить явно.
+                        if (maskField == offsetField) {
+                            continue;
+                        }
+                        bool allPowersOfTwo = true;
+                        std::set<std::uint32_t> masks;
+                        for (const void* node : bools) {
+                            const auto* slot = reinterpret_cast<const std::uint32_t*>(
+                                reinterpret_cast<const std::uint8_t*>(node) + maskField);
+                            if (!readable(slot, sizeof(std::uint32_t))) {
+                                allPowersOfTwo = false;
+                                break;
+                            }
+                            const std::uint32_t mask = *slot;
+                            if (mask == 0 || (mask & (mask - 1)) != 0) {
+                                allPowersOfTwo = false;
+                                break;
+                            }
+                            masks.insert(mask);
+                        }
+                        // Маски обязаны различаться: соседние флаги делят слово
+                        // и потому занимают разные биты. Поле, одинаковое у
+                        // всех, — это что угодно, только не маска.
+                        if (allPowersOfTwo && masks.size() >= 2) {
+                            result.boolBitMaskOffset = maskField;
+                            break;
+                        }
+                    }
+                }
+
+                return result;
+            }
+        }
+    }
+
+    return result;
+}
+
 }  // namespace ue3
 }  // namespace dmk

@@ -21,11 +21,20 @@
 #include <vector>
 
 #include "ue3detect.h"
+#include "ue3props.h"
 
 namespace {
 
 int g_passed = 0;
 int g_failed = 0;
+
+// Смещения печатаются шестнадцатерично: их и в игре, и в отладчике видно
+// только так, а «получено 0x84» при значении 84 десятичных сбивает с толку.
+std::string hex(std::size_t value) {
+    char buffer[32];
+    std::snprintf(buffer, sizeof(buffer), "0x%X", static_cast<unsigned>(value));
+    return buffer;
+}
 
 void check(const char* name, bool condition, const std::string& detail = {}) {
     if (condition) {
@@ -118,6 +127,105 @@ private:
     }
 
 public:
+    // Смещения служебных полей: как в UE3, они идут сразу за концом UObject.
+    //
+    // Разнесены на восемь байт, а не на четыре, хотя игра 32-битная и в ней
+    // указатель занимает четыре. Причина в том, что тесты собираются под
+    // хозяина, а он 64-битный: при шаге в четыре байта записанный указатель
+    // залезал на соседнее поле и затирал его. Первая версия так и сделала —
+    // Children оказывался испорчен указателем на предка, и подбор SuperStruct
+    // не находил ничего. Раскладка стенда обязана быть валидной для той
+    // разрядности, в которой стенд исполняется.
+    static constexpr std::size_t kNextOffset = 0x40;      // UField::Next
+    static constexpr std::size_t kChildrenOffset = 0x50;  // UStruct::Children
+    static constexpr std::size_t kPropOffset = 0x58;      // UProperty::Offset
+
+    // Заводит класс со списком свойств и связывает их в цепочку.
+    //
+    // Форма повторяет игровую: у класса указатель на первое поле, у каждого
+    // поля — на следующее, у поля-свойства записано, по какому смещению его
+    // значение лежит в объекте. Смещения возрастают, потому что UE3
+    // раскладывает свойства в порядке объявления.
+    static constexpr std::size_t kSuperOffset = 0x48;  // UStruct::SuperStruct
+    static constexpr std::size_t kMaskOffset = 0x5C;   // UBoolProperty::BitMask
+
+    struct FakeProperty {
+        const char* name;
+        const char* type;
+    };
+
+    // Раскладка повторяет игровую, включая упаковку флагов: подряд идущие
+    // BoolProperty делят одно слово и различаются масками, а следующее за ними
+    // обычное поле начинается со следующего слова.
+    std::int32_t addClassWithProperties(const char* className,
+                                        const std::vector<FakeProperty>& properties,
+                                        std::int32_t super = -1) {
+        const std::int32_t type = addClass(className);
+        if (super >= 0) {
+            writePointer(type, kSuperOffset, super);
+        }
+
+        std::int32_t previous = -1;
+        std::int32_t offset = 0x3C;
+        std::uint32_t mask = 0;
+        for (const FakeProperty& property : properties) {
+            const bool boolean = std::strcmp(property.type, "BoolProperty") == 0;
+            const std::int32_t field = addObject(property.name, classByName(property.type));
+
+            if (boolean) {
+                if (mask == 0) {
+                    mask = 1;  // начало нового слова флагов
+                }
+                writeUint(field, kMaskOffset, mask);
+                mask <<= 1;
+            } else {
+                if (mask != 0) {
+                    offset += 4;  // слово флагов закончилось
+                    mask = 0;
+                }
+            }
+            writeInt(field, kPropOffset, offset);
+            if (!boolean) {
+                offset += 4;
+            }
+
+            if (previous < 0) {
+                writePointer(type, kChildrenOffset, field);
+            } else {
+                writePointer(previous, kNextOffset, field);
+            }
+            previous = field;
+        }
+        return type;
+    }
+
+    // Класс по имени: заводится при первом обращении, дальше берётся готовый.
+    std::int32_t classByName(const char* name) {
+        for (std::size_t index = 0; index < names_.size(); ++index) {
+            if (names_[index].compare(kEntryStringOffset, std::strlen(name), name) == 0 &&
+                names_[index].size() == kEntryStringOffset + std::strlen(name) + 1) {
+                return static_cast<std::int32_t>(index);
+            }
+        }
+        return addClass(name);
+    }
+
+    void writePointer(std::int32_t object, std::size_t offset, std::int32_t target) {
+        const void* pointer = pointerTo(target);
+        std::memcpy(objects_[static_cast<std::size_t>(object)].data() + offset,
+                    &pointer, sizeof(pointer));
+    }
+
+    void writeInt(std::int32_t object, std::size_t offset, std::int32_t value) {
+        std::memcpy(objects_[static_cast<std::size_t>(object)].data() + offset,
+                    &value, sizeof(value));
+    }
+
+    void writeUint(std::int32_t object, std::size_t offset, std::uint32_t value) {
+        std::memcpy(objects_[static_cast<std::size_t>(object)].data() + offset,
+                    &value, sizeof(value));
+    }
+
     // Собирает массив указателей на объекты и заголовок TArray перед ним —
     // так глобальный список выглядит в памяти игры.
     //
@@ -288,7 +396,7 @@ void testUniformSamples() {
     // Это и есть случай из игры: шестнадцать UFunction, класс у всех общий.
     check("смещение найдено на однородных образцах", found.found);
     check("смещение верное", found.offset == FakeGame::kClassOffset,
-          "получено 0x" + std::to_string(found.offset));
+          "получено " + hex(found.offset));
     check("имена классов прочитаны",
           found.sampleClassNames.size() == samples.size() &&
               found.sampleClassNames.front() == "Function");
@@ -315,7 +423,7 @@ void testMixedSamples() {
 
     check("смешанные образцы тоже подбираются", found.found);
     check("смещение верное", found.offset == FakeGame::kClassOffset,
-          "получено 0x" + std::to_string(found.offset));
+          "получено " + hex(found.offset));
 }
 
 void testRefusals() {
@@ -457,6 +565,187 @@ void testObjectArrayTooSmall() {
                                        &readableInFake).found);
 }
 
+// которой раскладку придётся подбирать на самом деле.
+struct PropertyFixture {
+    FakeGame game;
+    std::vector<const void*> classes;
+    std::int32_t base = 0;
+    std::int32_t pawn = 0;
+    std::int32_t attack = 0;
+
+    PropertyFixture() {
+        base = game.addClassWithProperties("DishonoredPawn",
+                                           {{"m_Health", "IntProperty"},
+                                            {"m_Speed", "FloatProperty"},
+                                            {"m_pFaction", "ObjectProperty"},
+                                            {"m_State", "IntProperty"}});
+        pawn = game.addClassWithProperties("DishonoredNPCPawn",
+                                           {{"m_pFactionTweak", "ObjectProperty"},
+                                            {"m_Awareness", "IntProperty"},
+                                            {"m_Loudness", "FloatProperty"}},
+                                           base);
+        // Класс с флагами вперемешку с обычными полями — так выглядят
+        // настоящие твики, и только так по нему можно подтвердить смещение.
+        attack = game.addClassWithProperties("DisTweaks_Attack",
+                                             {{"m_fDamage", "FloatProperty"},
+                                              {"m_bUnblockable", "BoolProperty"},
+                                              {"m_bOffBalance", "BoolProperty"},
+                                              {"m_bSilent", "BoolProperty"},
+                                              {"m_fRange", "FloatProperty"}});
+        game.buildNameTable();
+        classes = {game.pointerTo(base), game.pointerTo(pawn), game.pointerTo(attack)};
+    }
+
+    dmk::ue3::NameResolver names() const {
+        dmk::ue3::NameResolver resolver = resolverFor(game);
+        resolver.objectClassOffset = FakeGame::kClassOffset;
+        return resolver;
+    }
+};
+
+void testFieldLayout() {
+    std::printf("Список полей класса\n");
+
+    PropertyFixture fixture;
+    const ScopedRanges bounds(fixture.game);
+
+    const dmk::ue3::DetectedFieldLayout found =
+        dmk::ue3::detectFieldLayout(fixture.classes, fixture.names(), &readableInFake);
+
+    check("раскладка полей найдена", found.found);
+    check("смещение Children верное", found.childrenOffset == FakeGame::kChildrenOffset,
+          "получено " + hex(found.childrenOffset));
+    check("смещение Next верное", found.nextOffset == FakeGame::kNextOffset,
+          "получено " + hex(found.nextOffset));
+    check("смещение Offset верное", found.propertyOffsetOffset == FakeGame::kPropOffset,
+          "получено " + hex(found.propertyOffsetOffset));
+    check("смещение SuperStruct верное", found.superOffset == FakeGame::kSuperOffset,
+          "получено " + hex(found.superOffset));
+    check("смещение BitMask верное", found.boolBitMaskOffset == FakeGame::kMaskOffset,
+          "получено " + hex(found.boolBitMaskOffset));
+    check("свойства прочитаны с именами", !found.sampleProperties.empty(),
+          found.sampleProperties.empty() ? "пусто" : found.sampleProperties.front());
+}
+
+void testFieldLayoutRefusesWithoutProperties() {
+    std::printf("Список полей: классы без свойств\n");
+
+    // Классы есть, полей у них нет. Подбирать нечего, и выдумывать смещение
+    // нельзя: неверное означало бы запись мусора в чужой объект.
+    FakeGame game;
+    std::vector<const void*> classes;
+    for (int index = 0; index < 5; ++index) {
+        char name[64];
+        std::snprintf(name, sizeof(name), "EmptyClass%d", index);
+        classes.push_back(game.pointerTo(game.addClass(name)));
+    }
+    game.buildNameTable();
+    const ScopedRanges bounds(game);
+
+    dmk::ue3::NameResolver names = resolverFor(game);
+    names.objectClassOffset = FakeGame::kClassOffset;
+
+    check("без полей подбор отказывает",
+          !dmk::ue3::detectFieldLayout(classes, names, &readableInFake).found);
+}
+
+dmk::ue3::FieldLayout layoutFrom(const dmk::ue3::DetectedFieldLayout& detected) {
+    dmk::ue3::FieldLayout layout;
+    layout.nextOffset = detected.nextOffset;
+    layout.childrenOffset = detected.childrenOffset;
+    layout.propertyOffsetOffset = detected.propertyOffsetOffset;
+    layout.superOffset = detected.superOffset;
+    layout.boolBitMaskOffset = detected.boolBitMaskOffset;
+    return layout;
+}
+
+void testFindProperty() {
+    std::printf("Поиск свойства по имени\n");
+
+    PropertyFixture fixture;
+    const ScopedRanges bounds(fixture.game);
+    const dmk::ue3::NameResolver names = fixture.names();
+    const dmk::ue3::FieldLayout layout = layoutFrom(
+        dmk::ue3::detectFieldLayout(fixture.classes, names, &readableInFake));
+
+    const dmk::ue3::FoundProperty own = dmk::ue3::findProperty(
+        fixture.game.pointerTo(fixture.pawn), "m_Awareness", layout, names,
+        &readableInFake);
+    check("своё свойство найдено", own.found && own.typeName == "IntProperty");
+    check("объявлено в своём классе", own.declaredIn == "DishonoredNPCPawn",
+          own.declaredIn);
+
+    // Половина нужных полей достаётся от предка — без прохода вверх мод
+    // не смог бы тронуть ни здоровье, ни фракцию.
+    const dmk::ue3::FoundProperty inherited = dmk::ue3::findProperty(
+        fixture.game.pointerTo(fixture.pawn), "m_pFaction", layout, names,
+        &readableInFake);
+    check("предковское свойство найдено", inherited.found);
+    check("объявлено у предка", inherited.declaredIn == "DishonoredPawn",
+          inherited.declaredIn);
+
+    const dmk::ue3::FoundProperty missing = dmk::ue3::findProperty(
+        fixture.game.pointerTo(fixture.pawn), "m_NoSuchThing", layout, names,
+        &readableInFake);
+    check("несуществующее не находится", !missing.found);
+}
+
+void testBooleanBitMask() {
+    std::printf("Булево свойство: маска бита\n");
+
+    PropertyFixture fixture;
+    const ScopedRanges bounds(fixture.game);
+    const dmk::ue3::NameResolver names = fixture.names();
+    const dmk::ue3::FieldLayout layout = layoutFrom(
+        dmk::ue3::detectFieldLayout(fixture.classes, names, &readableInFake));
+
+    const dmk::ue3::FoundProperty first = dmk::ue3::findProperty(
+        fixture.game.pointerTo(fixture.attack), "m_bUnblockable", layout, names,
+        &readableInFake);
+    const dmk::ue3::FoundProperty second = dmk::ue3::findProperty(
+        fixture.game.pointerTo(fixture.attack), "m_bOffBalance", layout, names,
+        &readableInFake);
+    const dmk::ue3::FoundProperty damage = dmk::ue3::findProperty(
+        fixture.game.pointerTo(fixture.attack), "m_fDamage", layout, names,
+        &readableInFake);
+
+    check("булево найдено", first.found && first.typeName == "BoolProperty");
+    check("маска прочитана", first.bitMask == 1,
+          "получено " + std::to_string(first.bitMask));
+    check("у соседнего флага своя маска", second.bitMask == 2,
+          "получено " + std::to_string(second.bitMask));
+    // Оба флага лежат в одном слове — именно поэтому запись без маски
+    // погасила бы соседа.
+    check("флаги делят одно слово", first.offset == second.offset);
+    check("обычное поле лежит отдельно",
+          damage.found && damage.offset != first.offset);
+}
+
+void testPropertiesOf() {
+    std::printf("Полный список свойств класса\n");
+
+    PropertyFixture fixture;
+    const ScopedRanges bounds(fixture.game);
+    const dmk::ue3::NameResolver names = fixture.names();
+    const dmk::ue3::FieldLayout layout = layoutFrom(
+        dmk::ue3::detectFieldLayout(fixture.classes, names, &readableInFake));
+
+    const std::vector<dmk::ue3::PropertyEntry> all = dmk::ue3::propertiesOf(
+        fixture.game.pointerTo(fixture.pawn), layout, names, &readableInFake);
+
+    check("собраны и свои, и предковские", all.size() == 7,
+          "получено " + std::to_string(all.size()));
+
+    bool haveOwn = false;
+    bool haveInherited = false;
+    for (const dmk::ue3::PropertyEntry& entry : all) {
+        haveOwn = haveOwn || entry.name == "m_pFactionTweak";
+        haveInherited = haveInherited || entry.name == "m_Health";
+    }
+    check("своё на месте", haveOwn);
+    check("предковское на месте", haveInherited);
+}
+
 }  // namespace
 
 int main() {
@@ -469,6 +758,11 @@ int main() {
     testObjectArrayEngineFirst();
     testObjectArrayWithHoles();
     testObjectArrayTooSmall();
+    testFieldLayout();
+    testFieldLayoutRefusesWithoutProperties();
+    testFindProperty();
+    testBooleanBitMask();
+    testPropertiesOf();
     std::printf("\nПройдено %d, провалено %d\n", g_passed, g_failed);
     return g_failed == 0 ? 0 : 1;
 }
