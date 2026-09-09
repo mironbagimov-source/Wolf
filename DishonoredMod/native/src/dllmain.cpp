@@ -147,7 +147,7 @@ constexpr int kDefaultPrologueBytes = 5;
 // от предыдущей версии стояло Enabled=0 (тогда это значило «сигнатура ещё не
 // снята»), и обновлённая DLL послушно легла спать. Версия отличает «человек
 // выключил хук» от «файл остался с тех времён, когда включать было нечего».
-constexpr int kConfigVersion = 12;
+constexpr int kConfigVersion = 13;
 
 enum class ConfigState { Missing, Stale, Current };
 

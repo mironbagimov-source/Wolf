@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <thread>
 
 #include "../log.h"
@@ -53,7 +54,8 @@ void PatchMode::onEnable() {
     done_.store(false, std::memory_order_relaxed);
     loadConfig();
 
-    if (entries_.empty() && inspect_.empty() && inspectClasses_.empty()) {
+    if (entries_.empty() && inspect_.empty() && inspectClasses_.empty() &&
+        !dumpEverything_) {
         DMK_WARN("правки: список пуст — в native.ini нет ни Patch<N>, ни Inspect<N>");
         notify("Режим правок включён, но список пуст.\n\n"
                "В native.ini, секция [Patcher]:\n"
@@ -105,6 +107,8 @@ void PatchMode::loadConfig() {
         return;
     }
     dryRun_ = GetPrivateProfileIntA("Patcher", "DryRun", 1, path.c_str()) != 0;
+    dumpEverything_ =
+        GetPrivateProfileIntA("Patcher", "DumpEverything", 1, path.c_str()) != 0;
 
     // Строки нумерованы, а не сложены в один ключ: так каждую видно отдельно и
     // в конфиге, и в логе, а лишняя запятая внутри значения ничего не ломает.
@@ -205,7 +209,8 @@ bool PatchMode::ensureLayout() {
 bool PatchMode::onProcessEvent(ue3::UObject* /*self*/,
                                ue3::UFunction* /*function*/,
                                void* /*parms*/) {
-    if ((entries_.empty() && inspect_.empty() && inspectClasses_.empty()) ||
+    if ((entries_.empty() && inspect_.empty() && inspectClasses_.empty() &&
+         !dumpEverything_) ||
         !ModeRegistry::instance().namesReady()) {
         return true;
     }
@@ -321,6 +326,10 @@ void PatchMode::applyAll() {
                 }
             }
         }
+    }
+
+    if (dumpEverything_) {
+        dumpEverything(entries, count);
     }
 
     for (const std::string& wantedClass : inspectClasses_) {
@@ -537,6 +546,250 @@ void PatchMode::applyAll() {
         Beep(900, 120);
         Beep(500, 200);
     }
+}
+
+
+namespace {
+
+// Настоящие поля, а не служебная начинка класса.
+//
+// В таблице свойств класса рядом с данными лежат функции, структуры, перечисления
+// и константы — их там сотни, и к состоянию объекта они отношения не имеют.
+// Выгружать их значит утопить нужное в ненужном.
+bool isDataProperty(const std::string& type) {
+    static const char* const kKinds[] = {
+        "IntProperty",   "FloatProperty", "BoolProperty",  "ByteProperty",
+        "ObjectProperty", "ClassProperty", "NameProperty",  "StrProperty",
+        "ArrayProperty", "StructProperty", "InterfaceProperty",
+    };
+    for (const char* kind : kKinds) {
+        if (type == kind) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string dumpFile(const char* what) {
+    const std::string log = logPath();
+    const std::size_t slash = log.find_last_of('\\');
+    if (slash == std::string::npos) {
+        return {};
+    }
+    return log.substr(0, slash + 1) + "DishonoredModKit-" + what + ".txt";
+}
+
+std::FILE* createFile(const char* what, std::string& pathOut) {
+    pathOut = dumpFile(what);
+    if (pathOut.empty()) {
+        return nullptr;
+    }
+    std::FILE* file = std::fopen(pathOut.c_str(), "w");
+    if (file != nullptr) {
+        std::fputs("\xEF\xBB\xBF", file);
+    }
+    return file;
+}
+
+}  // namespace
+
+void PatchMode::dumpEverything(const void* const* entries, std::int32_t count) {
+    auto& names = ModeRegistry::instance().names();
+
+    std::string objectsPath;
+    std::string classesPath;
+    std::string valuesPath;
+    std::FILE* objects = createFile("all-objects", objectsPath);
+    std::FILE* classes = createFile("all-classes", classesPath);
+    std::FILE* values = createFile("all-values", valuesPath);
+    if (objects == nullptr || classes == nullptr || values == nullptr) {
+        DMK_ERROR("выгрузка: не удалось создать файлы рядом с логом");
+        if (objects != nullptr) std::fclose(objects);
+        if (classes != nullptr) std::fclose(classes);
+        if (values != nullptr) std::fclose(values);
+        return;
+    }
+
+    std::fprintf(objects, "; Все объекты карты: имя, класс, адрес. Всего %d\n\n", count);
+    std::fprintf(classes, "; Таблицы свойств классов: смещение, имя, вид, где объявлено.\n\n");
+    std::fprintf(values, "; Значения полей объектов. Массивы развёрнуты по элементам.\n\n");
+
+    // Классы выписываются по одному разу: таблица свойств у всех объектов
+    // класса одна и та же, и повторять её сто раз незачем.
+    std::set<const void*> seenClasses;
+    std::map<std::string, int> classCounts;
+    int described = 0;
+    int valued = 0;
+
+    for (std::int32_t index = 0; index < count; ++index) {
+        if (!ue3::isReadable(entries + index, sizeof(void*))) {
+            continue;
+        }
+        const void* object = entries[index];
+        if (object == nullptr) {
+            continue;
+        }
+        char objectName[kNameBuffer];
+        char className[kNameBuffer];
+        if (!names.nameOf(object, objectName, sizeof(objectName)) ||
+            !names.classNameOf(object, className, sizeof(className))) {
+            continue;
+        }
+        std::fprintf(objects, "%s\t%s\t0x%08X\n", objectName, className,
+                     static_cast<unsigned>(reinterpret_cast<std::uintptr_t>(object)));
+        ++classCounts[className];
+
+        const void* type = names.classOf(object);
+        if (type == nullptr) {
+            continue;
+        }
+
+        const std::vector<ue3::PropertyEntry> properties =
+            ue3::propertiesOf(type, layout_, names, &ue3::isReadable);
+
+        if (seenClasses.insert(type).second) {
+            std::fprintf(classes, "\n=== %s ===\n", className);
+            for (const ue3::PropertyEntry& entry : properties) {
+                if (!isDataProperty(entry.typeName)) {
+                    continue;
+                }
+                std::fprintf(classes, "  +0x%03X  %-44s %-20s %s\n",
+                             static_cast<unsigned>(entry.offset), entry.name.c_str(),
+                             entry.typeName.c_str(), entry.declaredIn.c_str());
+            }
+            ++described;
+        }
+
+        // Значения пишутся не у всех: объектов сто тысяч, а интересны те, из
+        // которых собран мод. Отбор по классу, а не по имени — имена на разных
+        // картах разные, классы одни и те же.
+        static const char* const kWanted[] = {
+            "DisTweaks_", "DisConv", "DisDialog", "Twk_", "Faction", "Soiree",
+            "DishonoredGameInfo", "DishonoredPlayerPawn", "DishonoredNPCPawn",
+            "DisPossession",
+        };
+        bool wantValues = false;
+        for (const char* mask : kWanted) {
+            if (std::strstr(className, mask) != nullptr ||
+                std::strstr(objectName, mask) != nullptr) {
+                wantValues = true;
+                break;
+            }
+        }
+        if (!wantValues) {
+            continue;
+        }
+        ++valued;
+
+        std::fprintf(values, "\n=== %s : %s @ 0x%08X ===\n", objectName, className,
+                     static_cast<unsigned>(reinterpret_cast<std::uintptr_t>(object)));
+        for (const ue3::PropertyEntry& entry : properties) {
+            if (!isDataProperty(entry.typeName)) {
+                continue;
+            }
+            const auto* slot = reinterpret_cast<const std::uint8_t*>(object) + entry.offset;
+            if (!ue3::isReadable(slot, 4)) {
+                continue;
+            }
+            std::uint32_t word = 0;
+            std::memcpy(&word, slot, sizeof(word));
+
+            if (entry.typeName == "ArrayProperty") {
+                const ue3::ArrayView view = ue3::readArray(
+                    object, entry.asFound(), layout_, names, &ue3::isReadable);
+                if (!view.found) {
+                    std::fprintf(values, "  %-40s массив: %s\n", entry.name.c_str(),
+                                 view.reason.c_str());
+                    continue;
+                }
+                std::fprintf(values, "  %-40s %s x%d (вместимость %d)\n",
+                             entry.name.c_str(), view.innerType.c_str(), view.count,
+                             view.max);
+                const bool references = view.innerType == "ObjectProperty" ||
+                                        view.innerType == "ClassProperty";
+                for (std::int32_t at = 0; at < view.count && at < 64; ++at) {
+                    const auto* cell = reinterpret_cast<const std::uint8_t*>(view.data) +
+                                       static_cast<std::size_t>(at) * view.innerSize;
+                    if (!ue3::isReadable(cell, view.innerSize)) {
+                        break;
+                    }
+                    std::uint32_t cellWord = 0;
+                    std::memcpy(&cellWord, cell,
+                                sizeof(cellWord) < view.innerSize ? sizeof(cellWord)
+                                                                  : view.innerSize);
+                    if (references) {
+                        const auto* target =
+                            reinterpret_cast<const void*>(static_cast<std::uintptr_t>(cellWord));
+                        char targetName[kNameBuffer] = "(пусто)";
+                        if (target != nullptr && ue3::isReadable(target, 64)) {
+                            names.nameOf(target, targetName, sizeof(targetName));
+                        }
+                        std::fprintf(values, "      [%d] %s\n", at, targetName);
+                    } else {
+                        std::fprintf(values, "      [%d] 0x%08X\n", at, cellWord);
+                    }
+                }
+                continue;
+            }
+
+            if (entry.typeName == "FloatProperty") {
+                float real = 0.0f;
+                std::memcpy(&real, &word, sizeof(real));
+                std::fprintf(values, "  %-40s %g\n", entry.name.c_str(),
+                             static_cast<double>(real));
+            } else if (entry.typeName == "BoolProperty") {
+                const ue3::FoundProperty found = ue3::findProperty(
+                    type, entry.name.c_str(), layout_, names, &ue3::isReadable);
+                if (found.bitMask != 0) {
+                    std::fprintf(values, "  %-40s %s (бит 0x%X)\n", entry.name.c_str(),
+                                 (word & found.bitMask) != 0 ? "да" : "нет",
+                                 found.bitMask);
+                } else {
+                    std::fprintf(values, "  %-40s ? (маска не подобрана)\n",
+                                 entry.name.c_str());
+                }
+            } else if (entry.typeName == "ObjectProperty" ||
+                       entry.typeName == "ClassProperty" ||
+                       entry.typeName == "InterfaceProperty") {
+                const auto* target =
+                    reinterpret_cast<const void*>(static_cast<std::uintptr_t>(word));
+                char targetName[kNameBuffer] = "(пусто)";
+                if (target != nullptr && ue3::isReadable(target, 64)) {
+                    names.nameOf(target, targetName, sizeof(targetName));
+                }
+                std::fprintf(values, "  %-40s -> %s\n", entry.name.c_str(), targetName);
+            } else if (entry.typeName == "NameProperty") {
+                char nameValue[kNameBuffer] = "?";
+                names.nameByIndex(static_cast<std::int32_t>(word), nameValue,
+                                  sizeof(nameValue));
+                std::fprintf(values, "  %-40s '%s'\n", entry.name.c_str(), nameValue);
+            } else if (entry.typeName == "ByteProperty") {
+                std::fprintf(values, "  %-40s %u\n", entry.name.c_str(), word & 0xFF);
+            } else if (entry.typeName == "IntProperty") {
+                std::fprintf(values, "  %-40s %d\n", entry.name.c_str(),
+                             static_cast<int>(word));
+            } else {
+                std::fprintf(values, "  %-40s (%s, 0x%08X)\n", entry.name.c_str(),
+                             entry.typeName.c_str(), word);
+            }
+        }
+    }
+
+    std::fprintf(objects, "\n\n; === Классы и число объектов: %u ===\n\n",
+                 static_cast<unsigned>(classCounts.size()));
+    for (const auto& entry : classCounts) {
+        std::fprintf(objects, "%6d  %s\n", entry.second, entry.first.c_str());
+    }
+
+    std::fclose(objects);
+    std::fclose(classes);
+    std::fclose(values);
+
+    DMK_INFO("выгрузка: объектов %d, классов описано %d, значений снято у %d",
+             count, described, valued);
+    DMK_INFO("    %s", objectsPath.c_str());
+    DMK_INFO("    %s", classesPath.c_str());
+    DMK_INFO("    %s", valuesPath.c_str());
 }
 
 }  // namespace dmk
