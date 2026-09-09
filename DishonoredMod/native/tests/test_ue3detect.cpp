@@ -149,6 +149,8 @@ public:
     static constexpr std::size_t kSuperOffset = 0x48;  // UStruct::SuperStruct
     static constexpr std::size_t kMaskOffset = 0x5C;   // UBoolProperty::BitMask
     static constexpr std::size_t kElemOffset = 0x60;   // UProperty::ElementSize
+    static constexpr std::size_t kOuterOffset = 0x24;  // UObject::Outer
+    static constexpr std::size_t kInnerOffset = 0x68;  // UArrayProperty::Inner
 
     // Размер значения по виду свойства — как в игре: FName занимает восемь
     // байт, указатель четыре, TArray двенадцать.
@@ -177,7 +179,7 @@ public:
 
         const std::int32_t outerField =
             addObject("Outer", classByName("ObjectProperty"));
-        writeInt(outerField, kPropOffset, 0x24);
+        writeInt(outerField, kPropOffset, static_cast<std::int32_t>(kOuterOffset));
         writeInt(outerField, kElemOffset, 4);
 
         writePointer(type, kChildrenOffset, nameField);
@@ -223,6 +225,18 @@ public:
             }
             writeInt(field, kPropOffset, offset);
             writeInt(field, kElemOffset, sizeOfType(property.type));
+
+            // У массива есть описание элемента, и его Outer — сам массив.
+            // Именно этим Inner отличается от прочих указателей на свойства.
+            if (std::strcmp(property.type, "ArrayProperty") == 0) {
+                char innerName[96];
+                std::snprintf(innerName, sizeof(innerName), "%s_Inner", property.name);
+                const std::int32_t inner =
+                    addObject(innerName, classByName("ObjectProperty"));
+                writeInt(inner, kElemOffset, 4);
+                writePointer(inner, kOuterOffset, field);
+                writePointer(field, kInnerOffset, inner);
+            }
             if (!boolean) {
                 offset += 4;
             }
@@ -618,6 +632,8 @@ struct PropertyFixture {
                                            {{"m_Health", "IntProperty"},
                                             {"m_Speed", "FloatProperty"},
                                             {"m_pFaction", "ObjectProperty"},
+                                            {"m_AlliedFactions", "ArrayProperty"},
+                                            {"m_EnemyFactions", "ArrayProperty"},
                                             {"m_State", "IntProperty"}},
                                            root);
         pawn = game.addClassWithProperties("DishonoredNPCPawn",
@@ -665,6 +681,14 @@ void testFieldLayout() {
           "получено " + hex(found.superOffset));
     check("смещение BitMask верное", found.boolBitMaskOffset == FakeGame::kMaskOffset,
           "получено " + hex(found.boolBitMaskOffset));
+    check("смещение ElementSize верное",
+          found.elementSizeOffset == FakeGame::kElemOffset,
+          "получено " + hex(found.elementSizeOffset));
+    check("смещение Outer верное", found.outerOffset == FakeGame::kOuterOffset,
+          "получено " + hex(found.outerOffset));
+    check("смещение Inner массива верное",
+          found.arrayInnerOffset == FakeGame::kInnerOffset,
+          "получено " + hex(found.arrayInnerOffset));
     check("свойства прочитаны с именами", !found.sampleProperties.empty(),
           found.sampleProperties.empty() ? "пусто" : found.sampleProperties.front());
 }
@@ -775,8 +799,8 @@ void testPropertiesOf() {
     const std::vector<dmk::ue3::PropertyEntry> all = dmk::ue3::propertiesOf(
         fixture.game.pointerTo(fixture.pawn), layout, names, &readableInFake);
 
-    // Три своих, четыре от DishonoredPawn и три от корневого Object.
-    check("собраны и свои, и предковские", all.size() == 10,
+    // Три своих, шесть от DishonoredPawn и три от корневого Object.
+    check("собраны и свои, и предковские", all.size() == 12,
           "получено " + std::to_string(all.size()));
 
     // Заодно проверка эталона: у Name и Class смещения обязаны совпасть с

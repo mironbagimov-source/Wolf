@@ -33,6 +33,9 @@ struct FieldLayout {
     std::size_t propertyOffsetOffset = 0;  // UProperty::Offset
     std::size_t superOffset = 0;           // UStruct::SuperStruct
     std::size_t boolBitMaskOffset = 0;     // UBoolProperty::BitMask
+    std::size_t elementSizeOffset = 0;     // UProperty::ElementSize
+    std::size_t outerOffset = 0;           // UObject::Outer
+    std::size_t arrayInnerOffset = 0;      // UArrayProperty::Inner
 
     // superOffset и boolBitMaskOffset не проверяются: класс без предка —
     // законный случай, а без маски просто нельзя писать булевы поля. И то и
@@ -60,6 +63,10 @@ struct FoundProperty {
     // Для булевых — какой бит слова по offset принадлежит этому свойству.
     // Ноль означает, что маска не подобрана и писать сюда нельзя.
     std::uint32_t bitMask = 0;
+
+    // Сам объект-свойство. Нужен там, где мало смещения: у массива по нему
+    // читается описание элемента.
+    const void* node = nullptr;
 };
 
 // Ищет свойство по имени в классе и его предках.
@@ -116,6 +123,7 @@ inline FoundProperty findProperty(const void* type,
                     result.offset = static_cast<std::size_t>(*slot);
                     result.typeName = className;
                     result.declaredIn = haveOwner ? ownerName : "?";
+                    result.node = node;
 
                     if (layout.boolBitMaskOffset != 0 &&
                         std::strcmp(className, "BoolProperty") == 0) {
@@ -147,6 +155,19 @@ struct PropertyEntry {
     std::string typeName;
     std::string declaredIn;
     std::size_t offset = 0;
+
+    // Само свойство — чтобы по нему можно было прочитать массив.
+    const void* node = nullptr;
+
+    FoundProperty asFound() const {
+        FoundProperty found;
+        found.found = true;
+        found.offset = offset;
+        found.typeName = typeName;
+        found.declaredIn = declaredIn;
+        found.node = node;
+        return found;
+    }
 };
 
 inline std::vector<PropertyEntry> propertiesOf(const void* type,
@@ -196,6 +217,7 @@ inline std::vector<PropertyEntry> propertiesOf(const void* type,
                     entry.typeName = className;
                     entry.declaredIn = ownerName;
                     entry.offset = static_cast<std::size_t>(*slot);
+                    entry.node = node;
                     result.push_back(std::move(entry));
                 }
             }
@@ -209,6 +231,87 @@ inline std::vector<PropertyEntry> propertiesOf(const void* type,
     }
 
     return result;
+}
+
+// Массив внутри объекта: TArray из трёх полей, как в UE3.
+//
+// Указатель на данные, число элементов и вместимость. Двенадцать байт — ровно
+// тот размер, который игра сообщает как ElementSize у ArrayProperty, и это
+// первая проверка того, что читается действительно массив.
+struct ArrayView {
+    bool found = false;
+
+    const void* data = nullptr;
+    std::int32_t count = 0;
+    std::int32_t max = 0;
+
+    // Чем описан элемент: класс свойства и его размер.
+    std::string innerType;
+    std::size_t innerSize = 0;
+
+    std::string reason;  // если не found
+};
+
+inline ArrayView readArray(const void* object,
+                           const FoundProperty& property,
+                           const FieldLayout& layout,
+                           const NameResolver& names,
+                           ReadableFn readable) {
+    ArrayView view;
+    if (!property.found || property.typeName != "ArrayProperty") {
+        view.reason = "свойство не массив";
+        return view;
+    }
+    if (layout.arrayInnerOffset == 0 || layout.elementSizeOffset == 0) {
+        view.reason = "раскладка массива не подобрана";
+        return view;
+    }
+
+    struct RawArray {
+        void* data;
+        std::int32_t count;
+        std::int32_t max;
+    };
+    const auto* raw = reinterpret_cast<const RawArray*>(
+        reinterpret_cast<const std::uint8_t*>(object) + property.offset);
+    if (!readable(raw, sizeof(RawArray))) {
+        view.reason = "тело массива нечитаемо";
+        return view;
+    }
+    // Отрицательная длина или длина больше вместимости означают, что читается
+    // не массив, а что-то другое: продолжать нельзя.
+    if (raw->count < 0 || raw->max < raw->count || raw->count > (1 << 20)) {
+        view.reason = "длина массива бессмысленна";
+        return view;
+    }
+
+    const auto* innerSlot = reinterpret_cast<const void* const*>(
+        reinterpret_cast<const std::uint8_t*>(property.node) + layout.arrayInnerOffset);
+    if (property.node == nullptr || !readable(innerSlot, sizeof(void*))) {
+        view.reason = "описание элемента недоступно";
+        return view;
+    }
+    const void* inner = *innerSlot;
+    char innerClass[128] = "?";
+    if (inner == nullptr || !readable(inner, 64) ||
+        !names.classNameOf(inner, innerClass, sizeof(innerClass), readable)) {
+        view.reason = "элемент массива не опознан";
+        return view;
+    }
+    const auto* sizeSlot = reinterpret_cast<const std::int32_t*>(
+        reinterpret_cast<const std::uint8_t*>(inner) + layout.elementSizeOffset);
+    if (!readable(sizeSlot, sizeof(std::int32_t)) || *sizeSlot <= 0) {
+        view.reason = "размер элемента не прочитан";
+        return view;
+    }
+
+    view.found = true;
+    view.data = raw->data;
+    view.count = raw->count;
+    view.max = raw->max;
+    view.innerType = innerClass;
+    view.innerSize = static_cast<std::size_t>(*sizeSlot);
+    return view;
 }
 
 // Вид значения, которое просят записать. Разбирается из текста конфига.

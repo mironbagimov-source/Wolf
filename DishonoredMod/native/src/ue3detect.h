@@ -503,6 +503,15 @@ struct DetectedFieldLayout {
     // размер, и запись по ним ушла бы в заголовок объекта.
     std::size_t elementSizeOffset = 0;
 
+    // UObject::Outer — где объект объявлен: класс, пакет или другой объект.
+    // Берётся из таблицы свойств даром, а нужен, чтобы отличить Inner массива
+    // от прочих указателей на свойства.
+    std::size_t outerOffset = 0;
+
+    // UArrayProperty::Inner — свойство, описывающее элемент массива. Без него
+    // массив — просто двенадцать байт, о содержимом которых ничего не известно.
+    std::size_t arrayInnerOffset = 0;
+
     // UBoolProperty::BitMask — какой бит слова занимает булево свойство.
     //
     // В UE3 булевы поля не байты: несколько соседних флагов делят одно слово,
@@ -769,6 +778,59 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
                     nameSize == 8 && classSize == 4) {
                     result.elementSizeOffset = candidate;
                     break;
+                }
+            }
+
+            // Outer берётся уже даром: смещение свойства найдено, а само
+            // свойство Outer объявлено там же, у Object.
+            if (const void* outerProperty = findField("Outer", "ObjectProperty")) {
+                std::int32_t value = 0;
+                if (readInt(outerProperty, offsetField, value) && value > 0) {
+                    result.outerOffset = static_cast<std::size_t>(value);
+                }
+            }
+
+            // Inner массива — свойство, описывающее его элемент.
+            //
+            // Опознать его сложнее, чем кажется: у всякого UProperty есть и
+            // другие указатели на свойства — цепочки связывания, — и по форме
+            // они неотличимы. Различает происхождение: Inner создаётся внутри
+            // самого массива, поэтому его Outer — это и есть массив. Цепочки
+            // связывания указывают на чужие свойства, у которых Outer другой.
+            if (result.outerOffset != 0) {
+                std::vector<const void*> arrays;
+                for (const void* node : allFields) {
+                    char className[128];
+                    if (names.classNameOf(node, className, sizeof(className), readable) &&
+                        std::strcmp(className, "ArrayProperty") == 0) {
+                        arrays.push_back(node);
+                    }
+                }
+                for (std::size_t innerField = minOffset;
+                     innerField <= kMaxOffset && arrays.size() >= 2; innerField += 4) {
+                    std::size_t agreeing = 0;
+                    bool broken = false;
+                    for (const void* array : arrays) {
+                        const void* inner = follow(array, innerField);
+                        if (inner == nullptr) {
+                            broken = true;
+                            break;
+                        }
+                        char innerClass[128];
+                        const void* owner = follow(inner, result.outerOffset);
+                        if (owner != array ||
+                            !names.classNameOf(inner, innerClass, sizeof(innerClass),
+                                               readable) ||
+                            !endsWithProperty(innerClass)) {
+                            broken = true;
+                            break;
+                        }
+                        ++agreeing;
+                    }
+                    if (!broken && agreeing == arrays.size()) {
+                        result.arrayInnerOffset = innerField;
+                        break;
+                    }
                 }
             }
 

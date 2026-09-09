@@ -354,6 +354,44 @@ void PatchMode::applyAll() {
             DMK_INFO("  +0x%03X  %-40s %-20s из %s",
                      static_cast<unsigned>(entry.offset), entry.name.c_str(),
                      entry.typeName.c_str(), entry.declaredIn.c_str());
+
+            // У массива само смещение ничего не говорит: важно, что внутри.
+            // Отношения фракций хранятся именно так, и без содержимого не
+            // понять, какой элемент менять.
+            if (entry.typeName != "ArrayProperty") {
+                continue;
+            }
+            const ue3::ArrayView view = ue3::readArray(
+                object, entry.asFound(), layout_, names, &ue3::isReadable);
+            if (!view.found) {
+                DMK_INFO("           массив не прочитан: %s", view.reason.c_str());
+                continue;
+            }
+            DMK_INFO("           %s x%d (вместимость %d)", view.innerType.c_str(),
+                     view.count, view.max);
+            const bool references = view.innerType == "ObjectProperty" ||
+                                    view.innerType == "ClassProperty";
+            for (std::int32_t index = 0; index < view.count && index < 32; ++index) {
+                const auto* slot = reinterpret_cast<const std::uint8_t*>(view.data) +
+                                   static_cast<std::size_t>(index) * view.innerSize;
+                if (!ue3::isReadable(slot, view.innerSize)) {
+                    break;
+                }
+                std::uint32_t word = 0;
+                std::memcpy(&word, slot, sizeof(word) < view.innerSize
+                                             ? sizeof(word) : view.innerSize);
+                if (references) {
+                    const auto* element = reinterpret_cast<const void*>(
+                        static_cast<std::uintptr_t>(word));
+                    char elementName[kNameBuffer] = "?";
+                    if (element != nullptr && ue3::isReadable(element, 64)) {
+                        names.nameOf(element, elementName, sizeof(elementName));
+                    }
+                    DMK_INFO("             [%d] %s", index, elementName);
+                } else {
+                    DMK_INFO("             [%d] 0x%08X", index, word);
+                }
+            }
         }
     }
 
@@ -404,8 +442,30 @@ void PatchMode::applyAll() {
         std::uint32_t current = 0;
         std::memcpy(&current, slot, sizeof(current));
 
-        const ue3::PatchPlan plan =
-            ue3::planWrite(property, current, entry.request, referenceTarget);
+        // Массив идёт своим путём: у него правится элемент или длина, и
+        // адрес назначения лежит вне объекта.
+        ue3::PatchPlan plan;
+        if (property.typeName == "ArrayProperty" ||
+            entry.request.elementIndex >= 0 || entry.request.setsCount) {
+            const ue3::ArrayView view =
+                ue3::readArray(object, property, layout_, names, &ue3::isReadable);
+            std::uint32_t elementCurrent = current;
+            if (view.found && entry.request.elementIndex >= 0 &&
+                entry.request.elementIndex < view.count && view.data != nullptr) {
+                const auto* slot = reinterpret_cast<const std::uint8_t*>(view.data) +
+                                   static_cast<std::size_t>(entry.request.elementIndex) *
+                                       view.innerSize;
+                if (ue3::isReadable(slot, sizeof(std::uint32_t))) {
+                    std::memcpy(&elementCurrent, slot, sizeof(elementCurrent));
+                }
+            } else if (view.found && entry.request.setsCount) {
+                elementCurrent = static_cast<std::uint32_t>(view.count);
+            }
+            plan = ue3::planArrayWrite(property, view, elementCurrent, entry.request,
+                                       referenceTarget);
+        } else {
+            plan = ue3::planWrite(property, current, entry.request, referenceTarget);
+        }
         if (!plan.ok) {
             DMK_ERROR("  %s — %s", entry.source.c_str(), plan.reason.c_str());
             ++refused;
@@ -422,7 +482,13 @@ void PatchMode::applyAll() {
             ++applied;
             continue;
         }
-        if (writeGuarded(slot, &plan.after, plan.size)) {
+        void* destination = plan.address != nullptr
+                                ? plan.address
+                                : static_cast<void*>(
+                                      const_cast<std::uint8_t*>(
+                                          reinterpret_cast<const std::uint8_t*>(object)) +
+                                      plan.offset);
+        if (writeGuarded(destination, &plan.after, plan.size)) {
             ++applied;
         } else {
             DMK_ERROR("  %s — страница закрыта на запись", entry.source.c_str());

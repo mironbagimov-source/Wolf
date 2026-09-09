@@ -21,9 +21,14 @@
 //
 //     DLC06_Fctn_Weeper_Default|m_pFactionTweakOverride=@DLC06_Fctn_Guard_Default
 //
-// Массивы (ArrayProperty) пока не поддержаны, и это сказано прямо, а не
-// обойдено молчанием: половина отношений фракций хранится массивами, и делать
-// вид, что правка применилась, хуже, чем отказать.
+// Массивы правятся поэлементно и по длине:
+//
+//     DLC06_Fctn_Weeper_Default|m_EnemyFactions[0]=@DLC06_Fctn_Guard_Default
+//     DLC06_Fctn_Weeper_Default|m_EnemyFactions#=1
+//
+// Дописать элемент сверх вместимости нельзя, и это не недоделка: рост массива
+// требует нового буфера, а буфер, выделенный не игрой, она однажды попробует
+// освободить своим аллокатором. Замена и усечение обходятся без выделения.
 
 namespace dmk {
 namespace ue3 {
@@ -35,6 +40,18 @@ struct PatchRequest {
 
     // Значение — имя другого объекта, а не число.
     bool isReference = false;
+
+    // Обращение к массиву. Отрицательный индекс означает «не элемент».
+    //
+    //   m_EnemyFactions[0]=@Кто-то   заменить нулевой элемент
+    //   m_EnemyFactions#=2           оставить в массиве два элемента
+    //
+    // Замена и усечение выбраны нарочно: и то и другое не требует
+    // перевыделения памяти. Дописать элемент сверх вместимости значило бы
+    // подсунуть игре чужой буфер, который она однажды попробует освободить
+    // своим же аллокатором, — и это падение кучи, а не отказ.
+    int elementIndex = -1;
+    bool setsCount = false;
 };
 
 inline bool parsePatchLine(const char* line, PatchRequest& out, std::string& error) {
@@ -69,6 +86,38 @@ inline bool parsePatchLine(const char* line, PatchRequest& out, std::string& err
     out.propertyName = trim(bar + 1, equals);
     out.value = trim(equals + 1, equals + 1 + std::strlen(equals + 1));
 
+    // Хвост «[n]» или «#» относится к имени свойства, а не к значению.
+    if (!out.propertyName.empty() && out.propertyName.back() == '#') {
+        out.setsCount = true;
+        out.propertyName.pop_back();
+        while (!out.propertyName.empty() && out.propertyName.back() == ' ') {
+            out.propertyName.pop_back();
+        }
+    } else if (!out.propertyName.empty() && out.propertyName.back() == ']') {
+        const std::size_t open = out.propertyName.find_last_of('[');
+        if (open == std::string::npos) {
+            error = "скобка ']' без открывающей";
+            return false;
+        }
+        const std::string index = out.propertyName.substr(
+            open + 1, out.propertyName.size() - open - 2);
+        if (index.empty()) {
+            error = "в скобках не указан номер элемента";
+            return false;
+        }
+        char* end = nullptr;
+        const long parsed = std::strtol(index.c_str(), &end, 10);
+        if (*end != '\0' || parsed < 0 || parsed > 0xFFFF) {
+            error = "номер элемента не число: " + index;
+            return false;
+        }
+        out.elementIndex = static_cast<int>(parsed);
+        out.propertyName.erase(open);
+        while (!out.propertyName.empty() && out.propertyName.back() == ' ') {
+            out.propertyName.pop_back();
+        }
+    }
+
     if (out.objectName.empty()) {
         error = "не указан объект";
         return false;
@@ -101,6 +150,11 @@ struct PatchPlan {
     std::size_t size = 0;    // сколько байт писать: 1 или 4
     std::uint32_t before = 0;
     std::uint32_t after = 0;
+
+    // Точный адрес записи. Пусто для обычных свойств — там достаточно
+    // смещения от объекта. Для элемента массива объект ни при чём: данные
+    // лежат в отдельном буфере, на который объект только ссылается.
+    void* address = nullptr;
 
     // Почему не вышло. Пустое при ok.
     std::string reason;
@@ -143,6 +197,109 @@ inline bool parseFloat(const std::string& text, float& out) {
 }
 
 }  // namespace detail
+
+// Готовит правку массива: замену элемента или усечение длины.
+//
+// Ни то ни другое не выделяет памяти, и это главное ограничение здесь.
+// Дописать элемент сверх вместимости технически можно — подставить массиву
+// свой буфер, — но тогда игра получает указатель, который однажды попробует
+// освободить собственным аллокатором. Падение кучи случится не в момент
+// правки, а позже и в другом месте, и связать одно с другим будет нечем.
+// Поэтому рост запрещён, и об этом сказано вслух.
+//
+// current — слово, уже прочитанное по адресу назначения.
+inline PatchPlan planArrayWrite(const FoundProperty& property,
+                                const ArrayView& view,
+                                std::uint32_t current,
+                                const PatchRequest& request,
+                                const void* referenceTarget) {
+    PatchPlan plan;
+    plan.before = current;
+
+    if (!view.found) {
+        plan.reason = view.reason.empty() ? "массив не прочитан" : view.reason;
+        return plan;
+    }
+
+    if (request.setsCount) {
+        if (request.isReference) {
+            plan.reason = "длине массива нужно число, а не ссылка";
+            return plan;
+        }
+        long value = 0;
+        if (!detail::parseInteger(request.value, value)) {
+            plan.reason = "длина не похожа на целое: " + request.value;
+            return plan;
+        }
+        if (value < 0 || value > view.max) {
+            plan.reason = "длина вне допустимого: просят " + request.value +
+                          ", вместимость " + std::to_string(view.max);
+            return plan;
+        }
+        // Длина лежит сразу за указателем на данные.
+        plan.offset = property.offset + sizeof(void*);
+        plan.size = 4;
+        plan.after = static_cast<std::uint32_t>(value);
+        plan.ok = true;
+        return plan;
+    }
+
+    if (request.elementIndex < 0) {
+        plan.reason = "массив целиком присвоить нельзя — укажи элемент "
+                      "[n] или длину #";
+        return plan;
+    }
+    if (request.elementIndex >= view.count) {
+        plan.reason = "элемента " + std::to_string(request.elementIndex) +
+                      " нет: в массиве " + std::to_string(view.count);
+        return plan;
+    }
+    if (view.data == nullptr) {
+        plan.reason = "у массива нет данных";
+        return plan;
+    }
+
+    const bool referenceInner = view.innerType == "ObjectProperty" ||
+                                view.innerType == "ClassProperty" ||
+                                view.innerType == "InterfaceProperty";
+    if (referenceInner) {
+        if (!request.isReference) {
+            plan.reason = "элементу нужно значение вида @ИмяОбъекта";
+            return plan;
+        }
+        if (referenceTarget == nullptr) {
+            plan.reason = "объект '" + request.value + "' не найден";
+            return plan;
+        }
+        plan.after = static_cast<std::uint32_t>(
+            reinterpret_cast<std::uintptr_t>(referenceTarget));
+    } else if (view.innerType == "IntProperty" || view.innerType == "ByteProperty") {
+        long value = 0;
+        if (request.isReference || !detail::parseInteger(request.value, value)) {
+            plan.reason = "элемент " + view.innerType + " ждёт целое";
+            return plan;
+        }
+        plan.after = static_cast<std::uint32_t>(static_cast<std::int32_t>(value));
+    } else if (view.innerType == "FloatProperty") {
+        float value = 0.0f;
+        if (request.isReference || !detail::parseFloat(request.value, value)) {
+            plan.reason = "элемент FloatProperty ждёт число";
+            return plan;
+        }
+        std::memcpy(&plan.after, &value, sizeof(plan.after));
+    } else {
+        plan.reason = "элементы вида " + view.innerType + " пока не поддержаны";
+        return plan;
+    }
+
+    plan.size = view.innerSize > 4 ? 4 : view.innerSize;
+    plan.address = const_cast<std::uint8_t*>(
+                       reinterpret_cast<const std::uint8_t*>(view.data)) +
+                   static_cast<std::size_t>(request.elementIndex) * view.innerSize;
+    plan.offset = property.offset;
+    plan.ok = true;
+    return plan;
+}
 
 // Готовит запись, ничего не записывая.
 //
@@ -205,10 +362,10 @@ inline PatchPlan planWrite(const FoundProperty& property,
 
     // Массивы проверяются раньше ссылок нарочно. Отношения фракций пишутся
     // как `m_AlliedFactions=@Кто-то`, и без этой ветки человек получал бы
-    // «ссылку можно присвоить только объектному свойству» — правду, но не ту:
-    // менять надо не форму записи, а дожидаться поддержки массивов.
+    // «ссылку можно присвоить только объектному свойству» — правду, но не ту.
     if (type == "ArrayProperty") {
-        plan.reason = "массивы пока не поддержаны";
+        plan.reason = "массив целиком присвоить нельзя — укажи элемент "
+                      "m_Имя[0]=@Кто-то или длину m_Имя#=2";
         return plan;
     }
 

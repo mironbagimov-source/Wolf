@@ -186,6 +186,127 @@ void testRefusals() {
     check("незнакомый вид отвергается", !unknown.ok, unknown.reason);
 }
 
+dmk::ue3::ArrayView arrayOf(const char* innerType, const void* data,
+                            std::int32_t count, std::int32_t max,
+                            std::size_t innerSize = 4) {
+    dmk::ue3::ArrayView view;
+    view.found = true;
+    view.data = data;
+    view.count = count;
+    view.max = max;
+    view.innerType = innerType;
+    view.innerSize = innerSize;
+    return view;
+}
+
+void testArrayParsing() {
+    std::printf("Разбор обращения к массиву\n");
+
+    dmk::ue3::PatchRequest parsed;
+    std::string error;
+
+    check("элемент по номеру",
+          dmk::ue3::parsePatchLine("F|m_EnemyFactions[2]=@G", parsed, error) &&
+              parsed.propertyName == "m_EnemyFactions" && parsed.elementIndex == 2 &&
+              parsed.isReference && parsed.value == "G",
+          parsed.propertyName + " [" + std::to_string(parsed.elementIndex) + "]");
+
+    check("длина массива",
+          dmk::ue3::parsePatchLine("F|m_EnemyFactions#=1", parsed, error) &&
+              parsed.propertyName == "m_EnemyFactions" && parsed.setsCount &&
+              parsed.value == "1",
+          parsed.propertyName);
+
+    check("обычное свойство не путается с массивом",
+          dmk::ue3::parsePatchLine("F|m_Health=10", parsed, error) &&
+              parsed.elementIndex == -1 && !parsed.setsCount);
+
+    check("незакрытая скобка отвергается",
+          !dmk::ue3::parsePatchLine("F|m_Enemy2]=@G", parsed, error));
+    check("пустые скобки отвергаются",
+          !dmk::ue3::parsePatchLine("F|m_Enemy[]=@G", parsed, error));
+    check("нечисловой номер отвергается",
+          !dmk::ue3::parsePatchLine("F|m_Enemy[x]=@G", parsed, error));
+}
+
+void testArrayElement() {
+    std::printf("Замена элемента массива\n");
+
+    std::uint32_t storage[4] = {0x11111111u, 0x22222222u, 0x33333333u, 0x44444444u};
+    int target = 0;
+    const dmk::ue3::FoundProperty property =
+        ::property("ArrayProperty", 0x30);
+
+    const dmk::ue3::PatchPlan plan = dmk::ue3::planArrayWrite(
+        property, arrayOf("ObjectProperty", storage, 4, 4), storage[2],
+        request("F|m_EnemyFactions[2]=@G"), &target);
+
+    check("замена спланирована", plan.ok, plan.reason);
+    check("адрес считается от данных массива, а не от объекта",
+          plan.address == static_cast<void*>(&storage[2]));
+    check("значение — адрес объекта",
+          plan.after == static_cast<std::uint32_t>(
+                            reinterpret_cast<std::uintptr_t>(&target)));
+
+    // За концом массива элемента нет, и запись туда испортила бы чужую память.
+    check("за границей — отказ",
+          !dmk::ue3::planArrayWrite(property, arrayOf("ObjectProperty", storage, 2, 4),
+                                    0, request("F|m_EnemyFactions[3]=@G"), &target).ok);
+
+    check("массиву целиком присвоить нельзя",
+          !dmk::ue3::planArrayWrite(property, arrayOf("ObjectProperty", storage, 4, 4),
+                                    0, request("F|m_EnemyFactions=@G"), &target).ok);
+}
+
+void testArrayCount() {
+    std::printf("Длина массива\n");
+
+    std::uint32_t storage[4] = {0, 0, 0, 0};
+    const dmk::ue3::FoundProperty property = ::property("ArrayProperty", 0x30);
+
+    const dmk::ue3::PatchPlan shrink = dmk::ue3::planArrayWrite(
+        property, arrayOf("ObjectProperty", storage, 4, 4), 4,
+        request("F|m_EnemyFactions#=1"), nullptr);
+    check("усечение спланировано", shrink.ok, shrink.reason);
+    check("длина лежит за указателем", shrink.offset == 0x30 + sizeof(void*),
+          std::to_string(shrink.offset));
+    check("новое значение", shrink.after == 1);
+
+    // Рост сверх вместимости требует нового буфера — это и есть та самая
+    // граница, за которую патчер не идёт.
+    const dmk::ue3::PatchPlan grow = dmk::ue3::planArrayWrite(
+        property, arrayOf("ObjectProperty", storage, 2, 2), 2,
+        request("F|m_EnemyFactions#=5"), nullptr);
+    check("рост сверх вместимости отвергается", !grow.ok, grow.reason);
+    check("причина названа вместимостью",
+          grow.reason.find("вместимость") != std::string::npos, grow.reason);
+}
+
+void testArrayTypeChecks() {
+    std::printf("Массив: вид элемента\n");
+
+    std::uint32_t storage[2] = {0, 0};
+    const dmk::ue3::FoundProperty property = ::property("ArrayProperty", 0x30);
+    int target = 0;
+
+    check("в объектный элемент числом нельзя",
+          !dmk::ue3::planArrayWrite(property, arrayOf("ObjectProperty", storage, 2, 2),
+                                    0, request("F|m_A[0]=5"), nullptr).ok);
+    check("в числовой элемент ссылкой нельзя",
+          !dmk::ue3::planArrayWrite(property, arrayOf("IntProperty", storage, 2, 2),
+                                    0, request("F|m_A[0]=@G"), &target).ok);
+
+    const dmk::ue3::PatchPlan number = dmk::ue3::planArrayWrite(
+        property, arrayOf("IntProperty", storage, 2, 2), 0,
+        request("F|m_A[1]=42"), nullptr);
+    check("числовой элемент пишется", number.ok && number.after == 42, number.reason);
+
+    const dmk::ue3::PatchPlan structs = dmk::ue3::planArrayWrite(
+        property, arrayOf("StructProperty", storage, 2, 2, 16), 0,
+        request("F|m_A[0]=1"), nullptr);
+    check("структуры в массиве отвергаются", !structs.ok, structs.reason);
+}
+
 }  // namespace
 
 int main() {
@@ -195,6 +316,10 @@ int main() {
     testNumbers();
     testReferences();
     testRefusals();
+    testArrayParsing();
+    testArrayElement();
+    testArrayCount();
+    testArrayTypeChecks();
     std::printf("\nПройдено %d, провалено %d\n", g_passed, g_failed);
     return g_failed == 0 ? 0 : 1;
 }
