@@ -32,7 +32,7 @@ inline const char* kEmbeddedNativeIni = R"DMKINI(; Настройки натив
 ; сигнатурами целиком и берёт вшитые в себя значения. Иначе достаточно
 ; заменить одну DLL, забыв про этот файл, — и старые настройки тихо отключат
 ; перехват.
-ConfigVersion=11
+ConfigVersion=12
 
 ; Показывать окна с ходом работы. На этапе настройки — обязательно: окно видно
 ; сразу и целиком, а лог в папке игры ещё надо найти и открыть.
@@ -221,10 +221,15 @@ DryRun=1
 ; Имя пишется коротким, без пути пакета: у объекта
 ; Boyle_Factions.Neutral_Civilian собственное имя — Neutral_Civilian.
 Inspect1=Neutral_Civilian
-Inspect2=DLC06_Fctn_Daud_Default
-Inspect3=Faction_Corvo_Default
-Inspect4=DLC06_Fctn_Assassin_Default
-Inspect5=DLC06_Fctn_Weeper_Default
+Inspect2=Faction_Corvo_Default
+
+; Перечислить все объекты класса — имена и сколько их.
+;
+; Появилось после того, как осмотр по именам не нашёл три фракции из пяти:
+; DLC06_Fctn_* лежат в пакетах дополнения, а на карте кампании их нет.
+; Гадать, как называется нужный объект именно на этой карте, — плохой способ;
+; перечислить весь класс дешевле и отвечает сразу.
+InspectClass1=DisTweaks_Faction
 
 ; Правки. Формат:
 ;

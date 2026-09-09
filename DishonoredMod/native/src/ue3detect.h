@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ue3names.h"
+#include "ue3props.h"
 
 // Автоопределение раскладки таблицы имён.
 //
@@ -482,42 +483,15 @@ inline DetectedClassOffset detectClassOffset(const std::vector<const void*>& sam
 struct DetectedFieldLayout {
     bool found = false;
 
-    // UField::Next — следующее поле в списке класса.
-    std::size_t nextOffset = 0;
-    // UStruct::Children — первое поле класса.
-    std::size_t childrenOffset = 0;
-    // UProperty::Offset — где значение свойства лежит внутри объекта.
-    std::size_t propertyOffsetOffset = 0;
-    // UStruct::SuperStruct — родительский класс.
+    // Всё найденное лежит одной структурой, а не россыпью полей.
     //
-    // Без него поиск свойства по имени находил бы только объявленные в самом
-    // классе. Половина нужного объявлена у предков: у пешки на приёме своё имя,
-    // а здоровье и фракция достались от общего родителя.
-    std::size_t superOffset = 0;
-
-    // UProperty::ElementSize — сколько байт занимает одно значение.
-    //
-    // Само по себе нужно для массивов, но записано ещё и как памятка: первая
-    // версия подбора приняла это поле за смещение свойства. Значения там
-    // выглядят убедительно — маленькие, растут вдоль цепочки, — а означают
-    // размер, и запись по ним ушла бы в заголовок объекта.
-    std::size_t elementSizeOffset = 0;
-
-    // UObject::Outer — где объект объявлен: класс, пакет или другой объект.
-    // Берётся из таблицы свойств даром, а нужен, чтобы отличить Inner массива
-    // от прочих указателей на свойства.
-    std::size_t outerOffset = 0;
-
-    // UArrayProperty::Inner — свойство, описывающее элемент массива. Без него
-    // массив — просто двенадцать байт, о содержимом которых ничего не известно.
-    std::size_t arrayInnerOffset = 0;
-
-    // UBoolProperty::BitMask — какой бит слова занимает булево свойство.
-    //
-    // В UE3 булевы поля не байты: несколько соседних флагов делят одно слово,
-    // и у каждого своя маска. Записать `m_bUnblockable` как обычное целое —
-    // значит заодно погасить всё, что лежит в тех же битах. Маска обязательна.
-    std::size_t boolBitMaskOffset = 0;
+    // Раньше DetectedFieldLayout повторял поля FieldLayout по одному, и
+    // пользователь переносил их присваиваниями. Стоило добавить три новых —
+    // ElementSize, Outer и Inner массива, — как перенести их забыли. Подбор
+    // находил всё правильно, а до чтения массивов доходили нули, и в логе
+    // стояло «раскладка массива не подобрана» при подобранной раскладке.
+    // Одна структура вместо двух убирает саму возможность такой ошибки.
+    FieldLayout layout;
 
     // Что прочиталось: «Класс.Свойство +0x??» — чтобы человек мог глазами
     // сверить пару строк с известной раскладкой.
@@ -760,10 +734,10 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
             }
 
             result.found = true;
-            result.childrenOffset = childrenOffset;
-            result.nextOffset = nextOffset;
-            result.superOffset = superOffset;
-            result.propertyOffsetOffset = offsetField;
+            result.layout.childrenOffset = childrenOffset;
+            result.layout.nextOffset = nextOffset;
+            result.layout.superOffset = superOffset;
+            result.layout.propertyOffsetOffset = offsetField;
 
             // Тем же эталоном берётся и размер элемента: у FName он восемь
             // байт, у указателя четыре. Пригодится для массивов, а заодно
@@ -776,7 +750,7 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
                     readInt(nameProperty, candidate, nameSize) &&
                     readInt(classProperty, candidate, classSize) &&
                     nameSize == 8 && classSize == 4) {
-                    result.elementSizeOffset = candidate;
+                    result.layout.elementSizeOffset = candidate;
                     break;
                 }
             }
@@ -786,7 +760,7 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
             if (const void* outerProperty = findField("Outer", "ObjectProperty")) {
                 std::int32_t value = 0;
                 if (readInt(outerProperty, offsetField, value) && value > 0) {
-                    result.outerOffset = static_cast<std::size_t>(value);
+                    result.layout.outerOffset = static_cast<std::size_t>(value);
                 }
             }
 
@@ -797,7 +771,7 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
             // они неотличимы. Различает происхождение: Inner создаётся внутри
             // самого массива, поэтому его Outer — это и есть массив. Цепочки
             // связывания указывают на чужие свойства, у которых Outer другой.
-            if (result.outerOffset != 0) {
+            if (result.layout.outerOffset != 0) {
                 std::vector<const void*> arrays;
                 for (const void* node : allFields) {
                     char className[128];
@@ -817,7 +791,7 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
                             break;
                         }
                         char innerClass[128];
-                        const void* owner = follow(inner, result.outerOffset);
+                        const void* owner = follow(inner, result.layout.outerOffset);
                         if (owner != array ||
                             !names.classNameOf(inner, innerClass, sizeof(innerClass),
                                                readable) ||
@@ -828,7 +802,7 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
                         ++agreeing;
                     }
                     if (!broken && agreeing == arrays.size()) {
-                        result.arrayInnerOffset = innerField;
+                        result.layout.arrayInnerOffset = innerField;
                         break;
                     }
                 }
@@ -847,7 +821,7 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
             if (bools.size() >= 3) {
                 for (std::size_t maskField = minOffset; maskField <= kMaxOffset;
                      maskField += 4) {
-                    if (maskField == offsetField || maskField == result.elementSizeOffset) {
+                    if (maskField == offsetField || maskField == result.layout.elementSizeOffset) {
                         continue;
                     }
                     bool allPowersOfTwo = true;
@@ -867,7 +841,7 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
                         masks.insert(mask);
                     }
                     if (allPowersOfTwo && masks.size() >= 2) {
-                        result.boolBitMaskOffset = maskField;
+                        result.layout.boolBitMaskOffset = maskField;
                         break;
                     }
                 }

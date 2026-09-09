@@ -671,24 +671,24 @@ void testFieldLayout() {
         dmk::ue3::detectFieldLayout(fixture.classes, fixture.names(), &readableInFake);
 
     check("раскладка полей найдена", found.found);
-    check("смещение Children верное", found.childrenOffset == FakeGame::kChildrenOffset,
-          "получено " + hex(found.childrenOffset));
-    check("смещение Next верное", found.nextOffset == FakeGame::kNextOffset,
-          "получено " + hex(found.nextOffset));
-    check("смещение Offset верное", found.propertyOffsetOffset == FakeGame::kPropOffset,
-          "получено " + hex(found.propertyOffsetOffset));
-    check("смещение SuperStruct верное", found.superOffset == FakeGame::kSuperOffset,
-          "получено " + hex(found.superOffset));
-    check("смещение BitMask верное", found.boolBitMaskOffset == FakeGame::kMaskOffset,
-          "получено " + hex(found.boolBitMaskOffset));
+    check("смещение Children верное", found.layout.childrenOffset == FakeGame::kChildrenOffset,
+          "получено " + hex(found.layout.childrenOffset));
+    check("смещение Next верное", found.layout.nextOffset == FakeGame::kNextOffset,
+          "получено " + hex(found.layout.nextOffset));
+    check("смещение Offset верное", found.layout.propertyOffsetOffset == FakeGame::kPropOffset,
+          "получено " + hex(found.layout.propertyOffsetOffset));
+    check("смещение SuperStruct верное", found.layout.superOffset == FakeGame::kSuperOffset,
+          "получено " + hex(found.layout.superOffset));
+    check("смещение BitMask верное", found.layout.boolBitMaskOffset == FakeGame::kMaskOffset,
+          "получено " + hex(found.layout.boolBitMaskOffset));
     check("смещение ElementSize верное",
-          found.elementSizeOffset == FakeGame::kElemOffset,
-          "получено " + hex(found.elementSizeOffset));
-    check("смещение Outer верное", found.outerOffset == FakeGame::kOuterOffset,
-          "получено " + hex(found.outerOffset));
+          found.layout.elementSizeOffset == FakeGame::kElemOffset,
+          "получено " + hex(found.layout.elementSizeOffset));
+    check("смещение Outer верное", found.layout.outerOffset == FakeGame::kOuterOffset,
+          "получено " + hex(found.layout.outerOffset));
     check("смещение Inner массива верное",
-          found.arrayInnerOffset == FakeGame::kInnerOffset,
-          "получено " + hex(found.arrayInnerOffset));
+          found.layout.arrayInnerOffset == FakeGame::kInnerOffset,
+          "получено " + hex(found.layout.arrayInnerOffset));
     check("свойства прочитаны с именами", !found.sampleProperties.empty(),
           found.sampleProperties.empty() ? "пусто" : found.sampleProperties.front());
 }
@@ -716,13 +716,7 @@ void testFieldLayoutRefusesWithoutProperties() {
 }
 
 dmk::ue3::FieldLayout layoutFrom(const dmk::ue3::DetectedFieldLayout& detected) {
-    dmk::ue3::FieldLayout layout;
-    layout.nextOffset = detected.nextOffset;
-    layout.childrenOffset = detected.childrenOffset;
-    layout.propertyOffsetOffset = detected.propertyOffsetOffset;
-    layout.superOffset = detected.superOffset;
-    layout.boolBitMaskOffset = detected.boolBitMaskOffset;
-    return layout;
+    return detected.layout;
 }
 
 void testFindProperty() {

@@ -53,11 +53,12 @@ void PatchMode::onEnable() {
     done_.store(false, std::memory_order_relaxed);
     loadConfig();
 
-    if (entries_.empty() && inspect_.empty()) {
+    if (entries_.empty() && inspect_.empty() && inspectClasses_.empty()) {
         DMK_WARN("правки: список пуст — в native.ini нет ни Patch<N>, ни Inspect<N>");
         notify("Режим правок включён, но список пуст.\n\n"
                "В native.ini, секция [Patcher]:\n"
                "  Inspect1=ИмяОбъекта            — показать его свойства\n"
+               "  InspectClass1=ИмяКласса        — перечислить объекты класса\n"
                "  Patch1=Объект|Свойство=Значение — изменить одно");
         return;
     }
@@ -96,6 +97,7 @@ void PatchMode::onDisable() {
 void PatchMode::loadConfig() {
     entries_.clear();
     inspect_.clear();
+    inspectClasses_.clear();
     dryRun_ = true;
 
     const std::string& path = ModeRegistry::instance().configPath();
@@ -134,6 +136,13 @@ void PatchMode::loadConfig() {
         GetPrivateProfileStringA("Patcher", key, "", line, sizeof(line), path.c_str());
         if (line[0] != '\0') {
             inspect_.emplace_back(line);
+        }
+
+        std::snprintf(key, sizeof(key), "InspectClass%d", index);
+        line[0] = '\0';
+        GetPrivateProfileStringA("Patcher", key, "", line, sizeof(line), path.c_str());
+        if (line[0] != '\0') {
+            inspectClasses_.emplace_back(line);
         }
     }
 }
@@ -174,19 +183,19 @@ bool PatchMode::ensureLayout() {
         return false;
     }
 
-    layout_.nextOffset = detected.nextOffset;
-    layout_.childrenOffset = detected.childrenOffset;
-    layout_.propertyOffsetOffset = detected.propertyOffsetOffset;
-    layout_.superOffset = detected.superOffset;
-    layout_.boolBitMaskOffset = detected.boolBitMaskOffset;
+    layout_ = detected.layout;
 
     DMK_INFO("правки: раскладка полей — Children +0x%X, Next +0x%X, Offset +0x%X, "
-             "Super +0x%X, BitMask +0x%X",
+             "Super +0x%X, BitMask +0x%X, ElementSize +0x%X, Outer +0x%X, "
+             "Inner +0x%X",
              static_cast<unsigned>(layout_.childrenOffset),
              static_cast<unsigned>(layout_.nextOffset),
              static_cast<unsigned>(layout_.propertyOffsetOffset),
              static_cast<unsigned>(layout_.superOffset),
-             static_cast<unsigned>(layout_.boolBitMaskOffset));
+             static_cast<unsigned>(layout_.boolBitMaskOffset),
+             static_cast<unsigned>(layout_.elementSizeOffset),
+             static_cast<unsigned>(layout_.outerOffset),
+             static_cast<unsigned>(layout_.arrayInnerOffset));
     for (const std::string& line : detected.sampleProperties) {
         DMK_INFO("    %s", line.c_str());
     }
@@ -196,7 +205,7 @@ bool PatchMode::ensureLayout() {
 bool PatchMode::onProcessEvent(ue3::UObject* /*self*/,
                                ue3::UFunction* /*function*/,
                                void* /*parms*/) {
-    if ((entries_.empty() && inspect_.empty()) ||
+    if ((entries_.empty() && inspect_.empty() && inspectClasses_.empty()) ||
         !ModeRegistry::instance().namesReady()) {
         return true;
     }
@@ -273,6 +282,7 @@ void PatchMode::applyAll() {
     // Package вместо пешки. Поэтому кандидаты копятся все, а выбор делается
     // после, с объяснением в логе.
     std::map<std::string, std::vector<const void*>> wanted;
+    std::map<std::string, std::vector<std::string>> byClass;
     for (const Entry& entry : entries_) {
         wanted.emplace(entry.request.objectName, std::vector<const void*>{});
         if (entry.request.isReference) {
@@ -298,6 +308,27 @@ void PatchMode::applyAll() {
         const auto found = wanted.find(objectName);
         if (found != wanted.end() && found->second.size() < 16) {
             found->second.push_back(object);
+        }
+
+        if (!inspectClasses_.empty()) {
+            char className[kNameBuffer];
+            if (names.classNameOf(object, className, sizeof(className))) {
+                for (const std::string& wantedClass : inspectClasses_) {
+                    if (wantedClass == className) {
+                        byClass[wantedClass].push_back(objectName);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    for (const std::string& wantedClass : inspectClasses_) {
+        const std::vector<std::string>& found = byClass[wantedClass];
+        DMK_INFO("=== объекты класса %s: %u ===", wantedClass.c_str(),
+                 static_cast<unsigned>(found.size()));
+        for (const std::string& objectName : found) {
+            DMK_INFO("    %s", objectName.c_str());
         }
     }
 
