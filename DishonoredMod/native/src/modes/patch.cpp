@@ -266,15 +266,21 @@ void PatchMode::applyAll() {
 
     // Собираются только имена, которые действительно упомянуты в правках:
     // объектов в игре сотни тысяч, и складывать их все в карту незачем.
-    std::map<std::string, const void*> wanted;
+    //
+    // Кандидатов на имя может быть несколько, и это не редкость: у пакета и у
+    // твика внутри него имя одно и то же. Первый заход так и промахнулся —
+    // Twk_Pawn_LadyWaverlyBoyle нашёлся пакетом, и осмотр показал свойства
+    // Package вместо пешки. Поэтому кандидаты копятся все, а выбор делается
+    // после, с объяснением в логе.
+    std::map<std::string, std::vector<const void*>> wanted;
     for (const Entry& entry : entries_) {
-        wanted.emplace(entry.request.objectName, nullptr);
+        wanted.emplace(entry.request.objectName, std::vector<const void*>{});
         if (entry.request.isReference) {
-            wanted.emplace(entry.request.value, nullptr);
+            wanted.emplace(entry.request.value, std::vector<const void*>{});
         }
     }
     for (const std::string& name : inspect_) {
-        wanted.emplace(name, nullptr);
+        wanted.emplace(name, std::vector<const void*>{});
     }
 
     for (std::int32_t index = 0; index < count; ++index) {
@@ -290,16 +296,49 @@ void PatchMode::applyAll() {
             continue;
         }
         const auto found = wanted.find(objectName);
-        // Первое вхождение и остаётся: одноимённых объектов в игре хватает, и
-        // молча брать последний было бы хуже, чем брать первый и сказать об
-        // этом в логе.
-        if (found != wanted.end() && found->second == nullptr) {
-            found->second = object;
+        if (found != wanted.end() && found->second.size() < 16) {
+            found->second.push_back(object);
         }
     }
 
+    // Из одноимённых берётся тот, что не пакет: пакет — это папка, свойств
+    // предметной области у него нет, и спрашивали заведомо не о нём.
+    const auto choose = [&](const std::string& name) -> const void* {
+        const std::vector<const void*>& candidates = wanted[name];
+        if (candidates.empty()) {
+            return nullptr;
+        }
+        const void* chosen = nullptr;
+        for (const void* object : candidates) {
+            char className[kNameBuffer] = "?";
+            if (!names.classNameOf(object, className, sizeof(className))) {
+                continue;
+            }
+            if (std::strcmp(className, "Package") != 0) {
+                chosen = object;
+                break;
+            }
+        }
+        if (chosen == nullptr) {
+            chosen = candidates.front();
+        }
+        if (candidates.size() > 1) {
+            DMK_INFO("  имя '%s' носят %u объектов, беру:", name.c_str(),
+                     static_cast<unsigned>(candidates.size()));
+            for (const void* object : candidates) {
+                char className[kNameBuffer] = "?";
+                names.classNameOf(object, className, sizeof(className));
+                DMK_INFO("      %s %s 0x%08X", object == chosen ? "->" : "  ",
+                         className,
+                         static_cast<unsigned>(
+                             reinterpret_cast<std::uintptr_t>(object)));
+            }
+        }
+        return chosen;
+    };
+
     for (const std::string& name : inspect_) {
-        const void* object = wanted[name];
+        const void* object = choose(name);
         if (object == nullptr) {
             DMK_ERROR("осмотр: объект '%s' не найден среди %d", name.c_str(), count);
             continue;
@@ -332,7 +371,7 @@ void PatchMode::applyAll() {
     int applied = 0;
     int refused = 0;
     for (const Entry& entry : entries_) {
-        const void* object = wanted[entry.request.objectName];
+        const void* object = choose(entry.request.objectName);
         if (object == nullptr) {
             DMK_ERROR("  %s — объект '%s' не найден среди %d",
                       entry.source.c_str(), entry.request.objectName.c_str(), count);
@@ -353,7 +392,7 @@ void PatchMode::applyAll() {
         }
 
         const void* referenceTarget =
-            entry.request.isReference ? wanted[entry.request.value] : nullptr;
+            entry.request.isReference ? choose(entry.request.value) : nullptr;
 
         auto* slot = const_cast<std::uint8_t*>(
             reinterpret_cast<const std::uint8_t*>(object)) + property.offset;

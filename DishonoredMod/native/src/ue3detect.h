@@ -495,6 +495,14 @@ struct DetectedFieldLayout {
     // а здоровье и фракция достались от общего родителя.
     std::size_t superOffset = 0;
 
+    // UProperty::ElementSize — сколько байт занимает одно значение.
+    //
+    // Само по себе нужно для массивов, но записано ещё и как памятка: первая
+    // версия подбора приняла это поле за смещение свойства. Значения там
+    // выглядят убедительно — маленькие, растут вдоль цепочки, — а означают
+    // размер, и запись по ним ушла бы в заголовок объекта.
+    std::size_t elementSizeOffset = 0;
+
     // UBoolProperty::BitMask — какой бит слова занимает булево свойство.
     //
     // В UE3 булевы поля не байты: несколько соседних флагов делят одно слово,
@@ -546,6 +554,7 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
     constexpr std::size_t kMaxChain = 4096;   // защита от кольца в мусоре
     constexpr std::size_t kMinFields = 3;     // короткая цепочка ничего не значит
     constexpr std::size_t kNeedClasses = 3;   // на скольких классах должно сойтись
+    constexpr std::size_t kMaxDepth = 32;     // глубина наследования
 
     const auto follow = [&](const void* base, std::size_t offset) -> const void* {
         if (base == nullptr) {
@@ -563,8 +572,22 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
         return readable(value, 64) ? value : nullptr;
     };
 
-    // Собирает цепочку полей класса. Пустой результат означает, что пара
-    // смещений неверна.
+    const auto endsWithProperty = [](const char* text) {
+        const std::size_t length = std::strlen(text);
+        constexpr char kSuffix[] = "Property";
+        constexpr std::size_t kSuffixLength = sizeof(kSuffix) - 1;
+        return length > kSuffixLength &&
+               std::strcmp(text + length - kSuffixLength, kSuffix) == 0;
+    };
+
+    // Объект, чей класс зовётся «Class», сам является классом.
+    const auto isClassObject = [&](const void* object) {
+        char className[128];
+        return object != nullptr &&
+               names.classNameOf(object, className, sizeof(className), readable) &&
+               std::strcmp(className, "Class") == 0;
+    };
+
     const auto chainOf = [&](const void* type, std::size_t childrenOffset,
                              std::size_t nextOffset) -> std::vector<const void*> {
         std::vector<const void*> chain;
@@ -579,14 +602,6 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
             node = follow(node, nextOffset);
         }
         return chain.size() >= kMaxChain ? std::vector<const void*>{} : chain;
-    };
-
-    const auto endsWithProperty = [](const char* text) {
-        const std::size_t length = std::strlen(text);
-        constexpr char kSuffix[] = "Property";
-        constexpr std::size_t kSuffixLength = sizeof(kSuffix) - 1;
-        return length > kSuffixLength &&
-               std::strcmp(text + length - kSuffixLength, kSuffix) == 0;
     };
 
     for (std::size_t childrenOffset = minOffset; childrenOffset <= kMaxOffset;
@@ -619,168 +634,202 @@ inline DetectedFieldLayout detectFieldLayout(const std::vector<const void*>& cla
                 continue;
             }
 
-            // Пара смещений подошла. Осталось найти, где у свойства записано
-            // его собственное смещение.
-            for (std::size_t offsetField = minOffset; offsetField <= kMaxOffset;
-                 offsetField += 4) {
-                std::size_t agreeing = 0;
-                std::vector<std::string> samples;
+            // SuperStruct подбирается первым, и это не мелочь порядка: без него
+            // не подняться до общего предка, а именно там объявлены поля, по
+            // которым проверяется всё остальное.
+            //
+            // Признак: по этому смещению либо ноль, либо снова класс. Поле
+            // Class в перебор не попадает — оно ниже начала диапазона.
+            std::size_t superOffset = 0;
+            for (std::size_t superField = minOffset; superField <= childrenOffset;
+                 superField += 4) {
+                std::size_t withSuper = 0;
+                bool consistent = true;
 
-                for (const std::vector<const void*>& chain : chains) {
-                    std::int32_t previous = -1;
-                    std::size_t seen = 0;
-                    std::set<std::int32_t> distinctOffsets;
-                    bool increasing = true;
-
-                    for (const void* node : chain) {
-                        char className[128];
-                        if (!names.classNameOf(node, className, sizeof(className),
-                                               readable) ||
-                            !endsWithProperty(className)) {
-                            continue;
-                        }
-                        const auto* slot = reinterpret_cast<const std::int32_t*>(
-                            reinterpret_cast<const std::uint8_t*>(node) + offsetField);
-                        if (!readable(slot, sizeof(std::int32_t))) {
-                            increasing = false;
-                            break;
-                        }
-                        const std::int32_t value = *slot;
-                        // Объект больше шестидесяти четырёх килобайт — это уже
-                        // не объект, а неверное поле.
-                        if (value < previous || value < 0 || value > 0x10000) {
-                            increasing = false;
-                            break;
-                        }
-                        previous = value;
-                        distinctOffsets.insert(value);
-                        ++seen;
-
-                        if (samples.size() < 8) {
-                            char propertyName[128];
-                            if (names.nameOf(node, propertyName, sizeof(propertyName),
-                                             readable)) {
-                                // Два имени по 128 плюс разделители: с запасом,
-                                // чтобы строка не обрезалась молча.
-                                char line[288];
-                                std::snprintf(line, sizeof(line), "%s : %s +0x%X",
-                                              propertyName, className,
-                                              static_cast<unsigned>(value));
-                                samples.emplace_back(line);
-                            }
-                        }
-                    }
-                    // Разные смещения обязательны: класс, у которого все поля
-                    // легли по одному адресу, подтверждает любое смещение и
-                    // потому не подтверждает ничего. Так выглядит класс из
-                    // одних флагов — он законен, но в свидетели не годится.
-                    if (increasing && seen >= kMinFields && distinctOffsets.size() >= 2) {
-                        ++agreeing;
-                    }
-                }
-
-                if (agreeing < kNeedClasses) {
-                    continue;
-                }
-
-                result.found = true;
-                result.childrenOffset = childrenOffset;
-                result.nextOffset = nextOffset;
-                result.propertyOffsetOffset = offsetField;
-                result.sampleProperties = std::move(samples);
-
-                // SuperStruct лежит в UStruct рядом с Children. Признак: по
-                // этому смещению либо ноль, либо снова класс — объект, чей
-                // класс зовётся «Class». Поле Class в перебор не попадает,
-                // оно осталось ниже начала диапазона.
-                for (std::size_t superField = minOffset; superField <= childrenOffset;
-                     superField += 4) {
-                    std::size_t withSuper = 0;
-                    bool consistent = true;
-
-                    for (const void* type : classSamples) {
-                        const void* super = follow(type, superField);
-                        std::size_t steps = 0;
-                        while (super != nullptr && steps < 32) {
-                            char className[128];
-                            if (!names.classNameOf(super, className, sizeof(className),
-                                                   readable) ||
-                                std::strcmp(className, "Class") != 0) {
-                                consistent = false;
-                                break;
-                            }
-                            super = follow(super, superField);
-                            ++steps;
-                        }
-                        if (!consistent || steps >= 32) {
+                for (const void* type : classSamples) {
+                    const void* super = follow(type, superField);
+                    std::size_t steps = 0;
+                    while (super != nullptr && steps < kMaxDepth) {
+                        if (!isClassObject(super)) {
                             consistent = false;
                             break;
                         }
-                        if (steps > 0) {
-                            ++withSuper;
-                        }
+                        super = follow(super, superField);
+                        ++steps;
                     }
+                    if (!consistent || steps >= kMaxDepth) {
+                        consistent = false;
+                        break;
+                    }
+                    if (steps > 0) {
+                        ++withSuper;
+                    }
+                }
 
-                    // Смещение, по которому всюду ноль, «согласуется» с чем
-                    // угодно и не значит ничего. Нужен хотя бы один настоящий
-                    // предок.
-                    if (consistent && withSuper > 0) {
-                        result.superOffset = superField;
+                // Смещение, по которому всюду ноль, «согласуется» с чем угодно
+                // и не значит ничего. Нужен хотя бы один настоящий предок.
+                if (consistent && withSuper > 0) {
+                    superOffset = superField;
+                    break;
+                }
+            }
+            if (superOffset == 0) {
+                continue;
+            }
+
+            // Все поля образцов вместе с предковскими.
+            std::vector<const void*> allFields;
+            for (const void* type : classSamples) {
+                const void* current = type;
+                for (std::size_t depth = 0; current != nullptr && depth < kMaxDepth;
+                     ++depth) {
+                    const std::vector<const void*> chain =
+                        chainOf(current, childrenOffset, nextOffset);
+                    allFields.insert(allFields.end(), chain.begin(), chain.end());
+                    current = follow(current, superOffset);
+                }
+            }
+
+            const auto findField = [&](const char* wantName,
+                                       const char* wantClass) -> const void* {
+                for (const void* node : allFields) {
+                    char fieldName[128];
+                    char className[128];
+                    if (names.nameOf(node, fieldName, sizeof(fieldName), readable) &&
+                        std::strcmp(fieldName, wantName) == 0 &&
+                        names.classNameOf(node, className, sizeof(className), readable) &&
+                        std::strcmp(className, wantClass) == 0) {
+                        return node;
+                    }
+                }
+                return nullptr;
+            };
+
+            // Эталон. Первая версия искала смещение свойства по форме —
+            // «значения не убывают вдоль цепочки» — и в живой игре уверенно
+            // выдала поле, где у Name лежит 8, а у Class 4. Это не смещения, а
+            // размеры: FName занимает восемь байт, указатель четыре. Подбор
+            // наткнулся на UProperty::ElementSize, и запись по нему пошла бы
+            // прямо в заголовок объекта.
+            //
+            // Гадать незачем: два смещения известны точно и уже проверены на
+            // живых объектах. У класса Object есть свойства Name и Class, и
+            // верное поле обязано вернуть для них ровно objectNameOffset и
+            // objectClassOffset. Совпасть случайно с обоими нельзя.
+            const void* nameProperty = findField("Name", "NameProperty");
+            const void* classProperty = findField("Class", "ClassProperty");
+            if (nameProperty == nullptr || classProperty == nullptr) {
+                continue;
+            }
+
+            const auto readInt = [&](const void* node, std::size_t offset,
+                                     std::int32_t& out) {
+                const auto* slot = reinterpret_cast<const std::int32_t*>(
+                    reinterpret_cast<const std::uint8_t*>(node) + offset);
+                if (!readable(slot, sizeof(std::int32_t))) {
+                    return false;
+                }
+                out = *slot;
+                return true;
+            };
+
+            std::size_t offsetField = 0;
+            for (std::size_t candidate = minOffset; candidate <= kMaxOffset;
+                 candidate += 4) {
+                std::int32_t nameValue = 0;
+                std::int32_t classValue = 0;
+                if (readInt(nameProperty, candidate, nameValue) &&
+                    readInt(classProperty, candidate, classValue) &&
+                    static_cast<std::size_t>(nameValue) == names.objectNameOffset &&
+                    static_cast<std::size_t>(classValue) == names.objectClassOffset) {
+                    offsetField = candidate;
+                    break;
+                }
+            }
+            if (offsetField == 0) {
+                continue;
+            }
+
+            result.found = true;
+            result.childrenOffset = childrenOffset;
+            result.nextOffset = nextOffset;
+            result.superOffset = superOffset;
+            result.propertyOffsetOffset = offsetField;
+
+            // Тем же эталоном берётся и размер элемента: у FName он восемь
+            // байт, у указателя четыре. Пригодится для массивов, а заодно
+            // объясняет, на что подбор налетел в первый раз.
+            for (std::size_t candidate = minOffset; candidate <= kMaxOffset;
+                 candidate += 4) {
+                std::int32_t nameSize = 0;
+                std::int32_t classSize = 0;
+                if (candidate != offsetField &&
+                    readInt(nameProperty, candidate, nameSize) &&
+                    readInt(classProperty, candidate, classSize) &&
+                    nameSize == 8 && classSize == 4) {
+                    result.elementSizeOffset = candidate;
+                    break;
+                }
+            }
+
+            // BitMask булева свойства: у всякого флага здесь ненулевая степень
+            // двойки — один бит, и только один, — а у соседей биты разные.
+            std::vector<const void*> bools;
+            for (const void* node : allFields) {
+                char className[128];
+                if (names.classNameOf(node, className, sizeof(className), readable) &&
+                    std::strcmp(className, "BoolProperty") == 0) {
+                    bools.push_back(node);
+                }
+            }
+            if (bools.size() >= 3) {
+                for (std::size_t maskField = minOffset; maskField <= kMaxOffset;
+                     maskField += 4) {
+                    if (maskField == offsetField || maskField == result.elementSizeOffset) {
+                        continue;
+                    }
+                    bool allPowersOfTwo = true;
+                    std::set<std::uint32_t> masks;
+                    for (const void* node : bools) {
+                        const auto* slot = reinterpret_cast<const std::uint32_t*>(
+                            reinterpret_cast<const std::uint8_t*>(node) + maskField);
+                        if (!readable(slot, sizeof(std::uint32_t))) {
+                            allPowersOfTwo = false;
+                            break;
+                        }
+                        const std::uint32_t mask = *slot;
+                        if (mask == 0 || (mask & (mask - 1)) != 0) {
+                            allPowersOfTwo = false;
+                            break;
+                        }
+                        masks.insert(mask);
+                    }
+                    if (allPowersOfTwo && masks.size() >= 2) {
+                        result.boolBitMaskOffset = maskField;
                         break;
                     }
                 }
-
-                // BitMask булева свойства. Признак простой и почти
-                // неподделываемый: у всякого булева поля здесь лежит ненулевая
-                // степень двойки — один бит, и только один.
-                std::vector<const void*> bools;
-                for (const std::vector<const void*>& chain : chains) {
-                    for (const void* node : chain) {
-                        char className[128];
-                        if (names.classNameOf(node, className, sizeof(className),
-                                              readable) &&
-                            std::strcmp(className, "BoolProperty") == 0) {
-                            bools.push_back(node);
-                        }
-                    }
-                }
-                if (bools.size() >= 3) {
-                    for (std::size_t maskField = minOffset; maskField <= kMaxOffset;
-                         maskField += 4) {
-                        // Поле Offset само проходит проверку на степень двойки,
-                        // когда флаги легли по адресу вроде 0x40, — и первым
-                        // попадается в переборе. Его надо пропустить явно.
-                        if (maskField == offsetField) {
-                            continue;
-                        }
-                        bool allPowersOfTwo = true;
-                        std::set<std::uint32_t> masks;
-                        for (const void* node : bools) {
-                            const auto* slot = reinterpret_cast<const std::uint32_t*>(
-                                reinterpret_cast<const std::uint8_t*>(node) + maskField);
-                            if (!readable(slot, sizeof(std::uint32_t))) {
-                                allPowersOfTwo = false;
-                                break;
-                            }
-                            const std::uint32_t mask = *slot;
-                            if (mask == 0 || (mask & (mask - 1)) != 0) {
-                                allPowersOfTwo = false;
-                                break;
-                            }
-                            masks.insert(mask);
-                        }
-                        // Маски обязаны различаться: соседние флаги делят слово
-                        // и потому занимают разные биты. Поле, одинаковое у
-                        // всех, — это что угодно, только не маска.
-                        if (allPowersOfTwo && masks.size() >= 2) {
-                            result.boolBitMaskOffset = maskField;
-                            break;
-                        }
-                    }
-                }
-
-                return result;
             }
+
+            for (const void* node : allFields) {
+                if (result.sampleProperties.size() >= 8) {
+                    break;
+                }
+                char className[128];
+                char propertyName[128];
+                std::int32_t value = 0;
+                if (names.classNameOf(node, className, sizeof(className), readable) &&
+                    endsWithProperty(className) &&
+                    names.nameOf(node, propertyName, sizeof(propertyName), readable) &&
+                    readInt(node, offsetField, value)) {
+                    char line[288];
+                    std::snprintf(line, sizeof(line), "%s : %s +0x%X", propertyName,
+                                  className, static_cast<unsigned>(value));
+                    result.sampleProperties.emplace_back(line);
+                }
+            }
+
+            return result;
         }
     }
 

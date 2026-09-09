@@ -148,6 +148,43 @@ public:
     // раскладывает свойства в порядке объявления.
     static constexpr std::size_t kSuperOffset = 0x48;  // UStruct::SuperStruct
     static constexpr std::size_t kMaskOffset = 0x5C;   // UBoolProperty::BitMask
+    static constexpr std::size_t kElemOffset = 0x60;   // UProperty::ElementSize
+
+    // Размер значения по виду свойства — как в игре: FName занимает восемь
+    // байт, указатель четыре, TArray двенадцать.
+    static std::int32_t sizeOfType(const char* type) {
+        if (std::strcmp(type, "NameProperty") == 0) return 8;
+        if (std::strcmp(type, "ArrayProperty") == 0) return 12;
+        return 4;
+    }
+
+    // Корневой класс Object с полями Name и Class по их настоящим смещениям.
+    //
+    // Без него подбор смещения свойства не на что опереть: он сверяется именно
+    // с этими двумя, потому что они уже подтверждены на живых объектах. Стенд
+    // обязан их иметь, иначе он проверяет не то, что работает в игре.
+    std::int32_t addRootObjectClass() {
+        const std::int32_t type = addClass("Object");
+        const std::int32_t nameField =
+            addObject("Name", classByName("NameProperty"));
+        writeInt(nameField, kPropOffset, static_cast<std::int32_t>(kNameOffset));
+        writeInt(nameField, kElemOffset, 8);
+
+        const std::int32_t classField =
+            addObject("Class", classByName("ClassProperty"));
+        writeInt(classField, kPropOffset, static_cast<std::int32_t>(kClassOffset));
+        writeInt(classField, kElemOffset, 4);
+
+        const std::int32_t outerField =
+            addObject("Outer", classByName("ObjectProperty"));
+        writeInt(outerField, kPropOffset, 0x24);
+        writeInt(outerField, kElemOffset, 4);
+
+        writePointer(type, kChildrenOffset, nameField);
+        writePointer(nameField, kNextOffset, classField);
+        writePointer(classField, kNextOffset, outerField);
+        return type;
+    }
 
     struct FakeProperty {
         const char* name;
@@ -185,6 +222,7 @@ public:
                 }
             }
             writeInt(field, kPropOffset, offset);
+            writeInt(field, kElemOffset, sizeOfType(property.type));
             if (!boolean) {
                 offset += 4;
             }
@@ -569,16 +607,19 @@ void testObjectArrayTooSmall() {
 struct PropertyFixture {
     FakeGame game;
     std::vector<const void*> classes;
+    std::int32_t root = 0;
     std::int32_t base = 0;
     std::int32_t pawn = 0;
     std::int32_t attack = 0;
 
     PropertyFixture() {
+        root = game.addRootObjectClass();
         base = game.addClassWithProperties("DishonoredPawn",
                                            {{"m_Health", "IntProperty"},
                                             {"m_Speed", "FloatProperty"},
                                             {"m_pFaction", "ObjectProperty"},
-                                            {"m_State", "IntProperty"}});
+                                            {"m_State", "IntProperty"}},
+                                           root);
         pawn = game.addClassWithProperties("DishonoredNPCPawn",
                                            {{"m_pFactionTweak", "ObjectProperty"},
                                             {"m_Awareness", "IntProperty"},
@@ -591,7 +632,8 @@ struct PropertyFixture {
                                               {"m_bUnblockable", "BoolProperty"},
                                               {"m_bOffBalance", "BoolProperty"},
                                               {"m_bSilent", "BoolProperty"},
-                                              {"m_fRange", "FloatProperty"}});
+                                              {"m_fRange", "FloatProperty"}},
+                                             root);
         game.buildNameTable();
         classes = {game.pointerTo(base), game.pointerTo(pawn), game.pointerTo(attack)};
     }
@@ -733,8 +775,23 @@ void testPropertiesOf() {
     const std::vector<dmk::ue3::PropertyEntry> all = dmk::ue3::propertiesOf(
         fixture.game.pointerTo(fixture.pawn), layout, names, &readableInFake);
 
-    check("собраны и свои, и предковские", all.size() == 7,
+    // Три своих, четыре от DishonoredPawn и три от корневого Object.
+    check("собраны и свои, и предковские", all.size() == 10,
           "получено " + std::to_string(all.size()));
+
+    // Заодно проверка эталона: у Name и Class смещения обязаны совпасть с
+    // теми, что подтверждены на живых объектах. Именно по ним подбор и
+    // отличает настоящее поле Offset от размера элемента.
+    std::size_t nameOffset = 0;
+    std::size_t classOffset = 0;
+    for (const dmk::ue3::PropertyEntry& entry : all) {
+        if (entry.name == "Name") nameOffset = entry.offset;
+        if (entry.name == "Class") classOffset = entry.offset;
+    }
+    check("смещение Name совпало с известным", nameOffset == FakeGame::kNameOffset,
+          "получено " + hex(nameOffset));
+    check("смещение Class совпало с известным", classOffset == FakeGame::kClassOffset,
+          "получено " + hex(classOffset));
 
     bool haveOwn = false;
     bool haveInherited = false;
