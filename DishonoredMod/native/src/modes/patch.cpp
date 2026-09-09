@@ -596,6 +596,29 @@ std::FILE* createFile(const char* what, std::string& pathOut) {
 void PatchMode::dumpEverything(const void* const* entries, std::int32_t count) {
     auto& names = ModeRegistry::instance().names();
 
+    // Снимок списка делается первым и быстро.
+    //
+    // Первая версия ходила прямо по чужому массиву всё время работы — почти
+    // четыре минуты, — и за это время игра успела дорастить свой список.
+    // TArray перевыделился, старый буфер освободился, и указатель, взятый в
+    // начале, стал указывать в никуда. В файл попало начало обхода, а актёры
+    // карты пропали: они лежат дальше, и читались уже из освобождённой памяти.
+    //
+    // Копия снимается за секунды и живёт у нас. Что бы игра ни делала со своим
+    // списком дальше, обход идёт по неподвижным данным.
+    std::vector<const void*> snapshot;
+    snapshot.reserve(static_cast<std::size_t>(count));
+    for (std::int32_t index = 0; index < count; ++index) {
+        if (!ue3::isReadable(entries + index, sizeof(void*))) {
+            break;
+        }
+        if (entries[index] != nullptr) {
+            snapshot.push_back(entries[index]);
+        }
+    }
+    DMK_INFO("выгрузка: снимок списка — %u живых объектов из %d",
+             static_cast<unsigned>(snapshot.size()), count);
+
     std::string objectsPath;
     std::string classesPath;
     std::string valuesPath;
@@ -616,19 +639,15 @@ void PatchMode::dumpEverything(const void* const* entries, std::int32_t count) {
 
     // Классы выписываются по одному разу: таблица свойств у всех объектов
     // класса одна и та же, и повторять её сто раз незачем.
-    std::set<const void*> seenClasses;
+    // Таблица свойств у всех объектов класса одна и та же, и стоит она дорого:
+    // обход цепочки предков с сотнями полей. Считать её на каждый объект —
+    // ровно та ошибка, из-за которой обход занимал минуты вместо секунд.
+    std::map<const void*, std::vector<ue3::PropertyEntry>> tables;
     std::map<std::string, int> classCounts;
     int described = 0;
     int valued = 0;
 
-    for (std::int32_t index = 0; index < count; ++index) {
-        if (!ue3::isReadable(entries + index, sizeof(void*))) {
-            continue;
-        }
-        const void* object = entries[index];
-        if (object == nullptr) {
-            continue;
-        }
+    for (const void* object : snapshot) {
         char objectName[kNameBuffer];
         char className[kNameBuffer];
         if (!names.nameOf(object, objectName, sizeof(objectName)) ||
@@ -644,10 +663,15 @@ void PatchMode::dumpEverything(const void* const* entries, std::int32_t count) {
             continue;
         }
 
-        const std::vector<ue3::PropertyEntry> properties =
-            ue3::propertiesOf(type, layout_, names, &ue3::isReadable);
+        auto known = tables.find(type);
+        const bool firstTime = known == tables.end();
+        if (firstTime) {
+            known = tables.emplace(type, ue3::propertiesOf(type, layout_, names,
+                                                           &ue3::isReadable)).first;
+        }
+        const std::vector<ue3::PropertyEntry>& properties = known->second;
 
-        if (seenClasses.insert(type).second) {
+        if (firstTime) {
             std::fprintf(classes, "\n=== %s ===\n", className);
             for (const ue3::PropertyEntry& entry : properties) {
                 if (!isDataProperty(entry.typeName)) {
