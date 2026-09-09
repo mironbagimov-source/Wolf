@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "../log.h"
+#include "../roles.h"
 #include "../ue3detect.h"
 
 namespace dmk {
@@ -48,6 +49,51 @@ bool writeGuarded(void* address, const void* source, std::size_t size) {
 }
 
 }  // namespace
+
+void PatchMode::applyRole() {
+    roleId_.clear();
+    roleHint_.clear();
+
+    const std::string& path = ModeRegistry::instance().configPath();
+    if (path.empty()) {
+        return;
+    }
+    char role[64] = {0};
+    GetPrivateProfileStringA("Roleplay", "Role", "", role, sizeof(role), path.c_str());
+    if (role[0] == '\0') {
+        return;
+    }
+
+    const RoleDefinition* definition = findRole(role);
+    if (definition == nullptr) {
+        DMK_ERROR("роль '%s' неизвестна. Доступны:", role);
+        for (const RoleDefinition& known : kRoles) {
+            DMK_ERROR("    %-12s %s", known.id, known.description);
+        }
+        return;
+    }
+
+    for (const char* tweak : kPlayerTweaks) {
+        Entry entry;
+        entry.source = std::string("роль ") + definition->id + ": " + tweak +
+                       "|m_pFactionTweak=@" + definition->faction;
+        entry.request.objectName = tweak;
+        entry.request.propertyName = "m_pFactionTweak";
+        entry.request.value = definition->faction;
+        entry.request.isReference = true;
+        entries_.push_back(std::move(entry));
+    }
+
+    roleId_ = definition->id;
+    roleHint_ = definition->hint;
+
+    DMK_INFO("роль: %s — %s", definition->id, definition->description);
+    DMK_INFO("      фракция игрока станет %s", definition->faction);
+    if (!roleHint_.empty()) {
+        DMK_INFO("      тело остаётся Корво; ищу на карте объекты с '%s'",
+                 roleHint_.c_str());
+    }
+}
 
 void PatchMode::onEnable() {
     events_.store(0, std::memory_order_relaxed);
@@ -131,6 +177,8 @@ void PatchMode::loadConfig() {
         }
         entries_.push_back(std::move(entry));
     }
+
+    applyRole();
 
     for (int index = 1; index <= 32; ++index) {
         char key[32];
@@ -288,6 +336,7 @@ void PatchMode::applyAll() {
     // после, с объяснением в логе.
     std::map<std::string, std::vector<const void*>> wanted;
     std::map<std::string, std::vector<std::string>> byClass;
+    std::vector<std::string> roleBodies;
     for (const Entry& entry : entries_) {
         wanted.emplace(entry.request.objectName, std::vector<const void*>{});
         if (entry.request.isReference) {
@@ -325,6 +374,29 @@ void PatchMode::applyAll() {
                     }
                 }
             }
+        }
+
+        // Тело выбранной роли: есть ли оно вообще на этой карте.
+        //
+        // Порог в сотню строк не от жадности к логу: если совпадений столько,
+        // подстрока выбрана слишком широко, и список перестаёт быть ответом.
+        if (!roleHint_.empty() && roleBodies.size() < 100 &&
+            std::strstr(objectName, roleHint_.c_str()) != nullptr) {
+            char className[kNameBuffer] = "?";
+            names.classNameOf(object, className, sizeof(className));
+            roleBodies.push_back(std::string(objectName) + "  [" + className + "]");
+        }
+    }
+
+    if (!roleHint_.empty()) {
+        DMK_INFO("=== роль %s: объекты с '%s' на карте — %u ===", roleId_.c_str(),
+                 roleHint_.c_str(), static_cast<unsigned>(roleBodies.size()));
+        if (roleBodies.empty()) {
+            DMK_INFO("    ничего. Тела этого персонажа на приёме нет — сторона "
+                     "сменится, внешность останется Корво.");
+        }
+        for (const std::string& line : roleBodies) {
+            DMK_INFO("    %s", line.c_str());
         }
     }
 
